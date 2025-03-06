@@ -12,6 +12,7 @@ export interface Zone {
 	rsrpSum: number;
 	rows: number[];
 	originalData: string[][];
+	frequencies: Map<string, number>;
 }
 
 export interface Coordinates {
@@ -83,10 +84,9 @@ export function getZoneCenter(zoneCoords: Coordinates): Coordinates {
 
 export function createZoneKey(
 	coords: Coordinates,
-	mnc: string,
-	frequency: string
+	mnc: string
 ): string {
-	return `${coords.latitude},${coords.longitude},${mnc},${frequency}`;
+	return `${coords.latitude},${coords.longitude},${mnc}`;
 }
 
 export function parseMeasurement(
@@ -180,23 +180,28 @@ export function processRows(
 		};
 		const zoneCoords = getZoneCoordinates(point);
 		const zoneCenter = getZoneCenter(zoneCoords);
-		const distance = calculateDistance(point, zoneCenter);
+		const _distance = calculateDistance(point, zoneCenter);
 
 		const zoneKey = createZoneKey(
 			zoneCoords,
-			measurement.mnc,
-			measurement.frequency
+			measurement.mnc
 		);
 		const zone = zones.get(zoneKey) || {
 			measurements: 0,
 			rsrpSum: 0,
 			rows: [],
 			originalData: [],
+			frequencies: new Map<string, number>()
 		};
 		zone.measurements += 1;
 		zone.rsrpSum += measurement.rsrp;
 		zone.rows.push(excelRow);
 		zone.originalData.push(measurement.originalRow);
+		
+		// Aktualizácia počtov frekvencií
+		const currentFreqCount = zone.frequencies.get(measurement.frequency) || 0;
+		zone.frequencies.set(measurement.frequency, currentFreqCount + 1);
+		
 		zones.set(zoneKey, zone);
 
 		processedRows++;
@@ -213,7 +218,8 @@ async function saveResultsToCSV(
 	originalFilePath: string,
 	zones: Map<string, Zone>,
 	headerIndex: number,
-	rsrpIndex: number
+	rsrpIndex: number,
+	freqIndex: number
 ) {
 	try {
 		// Načítame pôvodný súbor
@@ -226,24 +232,20 @@ async function saveResultsToCSV(
 		// Vytvoríme nový súbor s výsledkami - jeden riadok pre každú zónu
 		const outputPath = originalFilePath.replace('.csv', '_zones.csv');
 
-		// Zoradíme zóny podľa MNC a frekvencie
+		// Zoradíme zóny podľa MNC
 		const sortedZones = Array.from(zones.entries()).sort((a, b) => {
-			const [, , mncA, freqA] = a[0].split(',');
-			const [, , mncB, freqB] = b[0].split(',');
+			const [, , mncA] = a[0].split(',');
+			const [, , mncB] = b[0].split(',');
 
-			// Najprv zoradíme podľa MNC
-			const mncCompare = parseInt(mncA) - parseInt(mncB);
-			if (mncCompare !== 0) return mncCompare;
-
-			// Ak je MNC rovnaké, zoradíme podľa frekvencie
-			return parseInt(freqA) - parseInt(freqB);
+			// Zoradíme podľa MNC
+			return parseInt(mncA) - parseInt(mncB);
 		});
 
 		// Vytvoríme riadky pre každú zónu
 		const zoneRows: string[] = [];
 
 		// Pre každú zónu vytvoríme jeden riadok
-		for (const [_, zone] of sortedZones) {
+		for (const [, zone] of sortedZones) {
 			// Vezmeme prvý riadok z danej zóny ako základ
 			const baseRow = [...zone.originalData[0]];
 
@@ -253,25 +255,39 @@ async function saveResultsToCSV(
 			// Aktualizujeme RSRP hodnotu na priemer zóny
 			baseRow[rsrpIndex] = averageRSRP.toFixed(2);
 
+			// Nájdeme najčastejšiu frekvenciu v zóne
+			let mostFrequentFrequency = "";
+			let maxCount = 0;
+
+			for (const [freq, count] of zone.frequencies.entries()) {
+				if (count > maxCount) {
+					maxCount = count;
+					mostFrequentFrequency = freq;
+				}
+			}
+
+			// Aktualizujeme frekvenciu na najčastejšiu hodnotu v zóne
+			baseRow[freqIndex] = mostFrequentFrequency;
+
 			// Pridáme informáciu o počte meraní a riadkoch
-			const rowInfo = `# Measurements: ${
+			const rowInfo = `# Meraní: ${
 				zone.measurements
-			}, Excel rows: ${zone.rows.join(',')}`;
+			}, Excel riadky: ${zone.rows.join(',')}`;
 
 			// Vytvoríme riadok pre zónu
 			const zoneRow = baseRow.join(';') + ` ${rowInfo}`;
 			zoneRows.push(zoneRow);
 		}
 
-		// Spojíme hlavičku a riadky zón
-		const zoneContent = [header, ...zoneRows].join('\n');
+		// Spojíme hlavičku a riadky zón - pridáme prázdny riadok pred hlavičku
+		const zoneContent = ['', header, ...zoneRows].join('\n');
 
 		// Zapíšeme výsledky do súboru
 		await Deno.writeTextFile(outputPath, zoneContent);
 
-		console.log(`Zone results saved to ${outputPath}`);
+		console.log(`Výsledky zón uložené do súboru ${outputPath}`);
 	} catch (error) {
-		console.error('Error saving results:', error);
+		console.error('Chyba pri ukladaní výsledkov:', error);
 	}
 }
 
@@ -283,9 +299,9 @@ async function main() {
 		filePath = Deno.args[0];
 	} else {
 		// Ak nebol zadaný parameter, požiadame používateľa o zadanie cesty k súboru
-		filePath = prompt('Enter CSV file path:') || '';
+		filePath = prompt('Zadajte cestu k CSV súboru:') || '';
 		if (!filePath) {
-			console.error('No file path provided.');
+			console.error('Nebola zadaná cesta k súboru.');
 			Deno.exit(1);
 		}
 	}
@@ -294,26 +310,57 @@ async function main() {
 		const fileContent = await Deno.readTextFile(filePath);
 		const allLines = fileContent.split('\n');
 		const headerIndex = findHeaderIndex(allLines);
+		
+		// Predvolené hodnoty stĺpcov
+		const defaultColumnLetters = {
+			latitude: 'D',
+			longitude: 'E',
+			frequency: 'K',
+			mnc: 'N',
+			rsrp: 'W'
+		};
+		
+		// Zobrazíme predvolené hodnoty a opýtame sa používateľa, či ich chce použiť
+		console.log('Predvolené hodnoty stĺpcov:');
+		console.log(`  Zemepisná šírka (latitude): ${defaultColumnLetters.latitude}`);
+		console.log(`  Zemepisná dĺžka (longitude): ${defaultColumnLetters.longitude}`);
+		console.log(`  Frekvencia (frequency): ${defaultColumnLetters.frequency}`);
+		console.log(`  MNC: ${defaultColumnLetters.mnc}`);
+		console.log(`  RSRP: ${defaultColumnLetters.rsrp}`);
+		
+		const useDefaultColumns = prompt('Chcete použiť predvolené hodnoty stĺpcov? (a/n):')?.toLowerCase() === 'a';
+		
+		let columns: number[];
+		
+		if (useDefaultColumns) {
+			columns = [
+				columnLetterToIndex(defaultColumnLetters.latitude),
+				columnLetterToIndex(defaultColumnLetters.longitude),
+				columnLetterToIndex(defaultColumnLetters.mnc),
+				columnLetterToIndex(defaultColumnLetters.frequency),
+				columnLetterToIndex(defaultColumnLetters.rsrp),
+			];
+		} else {
+			columns = [
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre zemepisnú šírku (latitude):') || defaultColumnLetters.latitude
+				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre zemepisnú dĺžku (longitude):') || defaultColumnLetters.longitude
+				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre MNC:') || defaultColumnLetters.mnc
+				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre frekvenciu:') || defaultColumnLetters.frequency
+				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre RSRP:') || defaultColumnLetters.rsrp
+				),
+			];
+		}
 
-		// Get user input
-		const range = prompt('Enter row range (e.g., 1-100):') || '';
-		const [startRow, endRow] = range.split('-').map((n) => parseInt(n));
-
-		const columns = [
-			columnLetterToIndex(
-				prompt('Enter column letter for latitude:') || ''
-			),
-			columnLetterToIndex(
-				prompt('Enter column letter for longitude:') || ''
-			),
-			columnLetterToIndex(prompt('Enter column letter for MNC:') || ''),
-			columnLetterToIndex(
-				prompt('Enter column letter for frequency:') || ''
-			),
-			columnLetterToIndex(prompt('Enter column letter for RSRP:') || ''),
-		];
-
-		// Process data
+		// Process data - spracujeme všetky riadky od hlavičky až po koniec súboru
 		const dataContent = allLines.slice(headerIndex);
 		const rows = dataContent
 			.slice(1)
@@ -321,22 +368,26 @@ async function main() {
 			.filter((line) => line.length > 0)
 			.map((line) => line.split(';'));
 
-		console.log(`Total rows in file (excluding header): ${rows.length}`);
-		console.log(`Processing rows ${startRow} to ${endRow} (Excel)`);
+		// Nastavíme rozsah na všetky riadky (od 1 po počet riadkov)
+		const startRow = 1;
+		const endRow = rows.length;
+
+		console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
+		console.log(`Spracovanie riadkov od hlavičky až po koniec súboru`);
 		console.log(
-			`Column indices [lat,lon,mnc,freq,rsrp]: ${columns.join(',')}`
+			`Indexy stĺpcov [lat,lon,mnc,freq,rsrp]: ${columns.join(',')}`
 		);
 
 		const zones = processRows(rows, columns, startRow, endRow, headerIndex);
 
 		// Uložíme výsledky do CSV súboru
-		await saveResultsToCSV(filePath, zones, headerIndex, columns[4]);
+		await saveResultsToCSV(filePath, zones, headerIndex, columns[4], columns[3]);
 
 		console.log('Spracovanie úspešne dokončené!');
 	} catch (error: unknown) {
 		console.error(
-			'Error reading file:',
-			error instanceof Error ? error.message : 'Unknown error'
+			'Chyba pri čítaní súboru:',
+			error instanceof Error ? error.message : 'Neznáma chyba'
 		);
 		Deno.exit(1);
 	}
