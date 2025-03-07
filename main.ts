@@ -142,6 +142,39 @@ function updateProgressBar(progressBar: string): void {
 	Deno.stdout.writeSync(new TextEncoder().encode('\r' + progressBar));
 }
 
+// Funkcia na nájdenie najbližšej zóny s rovnakým MNC v okruhu minDistance metrov
+export function findNearestZone(
+	point: Coordinates,
+	mnc: string,
+	existingZones: Map<string, Zone>,
+	minDistance: number
+): string | null {
+	let nearestZoneKey: string | null = null;
+	let minDistanceFound = Number.MAX_VALUE;
+	
+	for (const [key, _] of existingZones.entries()) {
+		const [lat, lon, zoneMnc] = key.split(',');
+		
+		// Kontrolujeme len zóny s rovnakým MNC
+		if (zoneMnc === mnc) {
+			const existingZoneCenter = {
+				latitude: parseFloat(lat) + ZONE_SIZE_DEGREES / 2,
+				longitude: parseFloat(lon) + ZONE_SIZE_DEGREES / 2
+			};
+			
+			const distance = calculateDistance(point, existingZoneCenter);
+			
+			// Ak je vzdialenosť menšia ako minimálna požadovaná a menšia ako doteraz nájdená minimálna vzdialenosť
+			if (distance < minDistance && distance < minDistanceFound) {
+				minDistanceFound = distance;
+				nearestZoneKey = key;
+			}
+		}
+	}
+	
+	return nearestZoneKey;
+}
+
 export function processRows(
 	rows: string[][],
 	columns: number[],
@@ -154,9 +187,10 @@ export function processRows(
 	// Príklad: Ak je hlavička na riadku 1, prvý dátový riadok je 2, a headerIndex = 0,
 	// tak excelToArrayIndex(2) = 2 - (0 + 2) + 1 = 1, čo je index 1 v poli rows
 	const excelToArrayIndex = (excelRow: number) => {
-		const index = excelRow - (headerIndex + 2) + 1;
-		// Kontrola, či index nie je záporný
-		return index >= 0 ? index : -1;
+		// Upravená funkcia, ktorá správne mapuje Excel riadky na indexy v poli rows
+		// Ak je hlavička na riadku 1 (headerIndex = 0), tak prvý dátový riadok je 2
+		// a mal by sa mapovať na index 0 v poli rows
+		return excelRow - (headerIndex + 2);
 	};
 
 	const totalRows = endRow - startRow + 1;
@@ -165,7 +199,13 @@ export function processRows(
 	console.log('Spracovávam riadky...');
 	updateProgressBar(createProgressBar(processedRows, totalRows));
 
+	// Najprv zoradíme riadky podľa Excel riadku (aby sme spracovali riadky v správnom poradí)
+	const rowsToProcess: number[] = [];
 	for (let excelRow = startRow; excelRow <= endRow; excelRow++) {
+		rowsToProcess.push(excelRow);
+	}
+	
+	for (const excelRow of rowsToProcess) {
 		const arrayIndex = excelToArrayIndex(excelRow);
 		if (arrayIndex < 0 || arrayIndex >= rows.length) {
 			processedRows++;
@@ -192,23 +232,53 @@ export function processRows(
 			zoneCoords,
 			measurement.mnc
 		);
-		const zone = zones.get(zoneKey) || {
-			measurements: 0,
-			rsrpSum: 0,
-			rows: [],
-			originalData: [],
-			frequencies: new Map<string, number>()
-		};
-		zone.measurements += 1;
-		zone.rsrpSum += measurement.rsrp;
-		zone.rows.push(excelRow);
-		zone.originalData.push(measurement.originalRow);
 		
-		// Aktualizácia počtov frekvencií
-		const currentFreqCount = zone.frequencies.get(measurement.frequency) || 0;
-		zone.frequencies.set(measurement.frequency, currentFreqCount + 1);
-		
-		zones.set(zoneKey, zone);
+		// Ak zóna s týmto kľúčom už existuje, pridáme do nej meranie
+		if (zones.has(zoneKey)) {
+			const zone = zones.get(zoneKey)!;
+			zone.measurements += 1;
+			zone.rsrpSum += measurement.rsrp;
+			zone.rows.push(excelRow);
+			zone.originalData.push(measurement.originalRow);
+			
+			// Aktualizácia počtov frekvencií
+			const currentFreqCount = zone.frequencies.get(measurement.frequency) || 0;
+			zone.frequencies.set(measurement.frequency, currentFreqCount + 1);
+			
+			zones.set(zoneKey, zone);
+		} else {
+			// Ak zóna s týmto kľúčom neexistuje, skontrolujeme, či existuje blízka zóna s rovnakým MNC
+			const nearestZoneKey = findNearestZone(point, measurement.mnc, zones, ZONE_SIZE_METERS);
+			
+			if (nearestZoneKey) {
+				// Ak existuje blízka zóna s rovnakým MNC, pridáme meranie do nej
+				const zone = zones.get(nearestZoneKey)!;
+				zone.measurements += 1;
+				zone.rsrpSum += measurement.rsrp;
+				zone.rows.push(excelRow);
+				zone.originalData.push(measurement.originalRow);
+				
+				// Aktualizácia počtov frekvencií
+				const currentFreqCount = zone.frequencies.get(measurement.frequency) || 0;
+				zone.frequencies.set(measurement.frequency, currentFreqCount + 1);
+				
+				zones.set(nearestZoneKey, zone);
+			} else {
+				// Ak neexistuje blízka zóna s rovnakým MNC, vytvoríme novú zónu
+				const zone = {
+					measurements: 1,
+					rsrpSum: measurement.rsrp,
+					rows: [excelRow],
+					originalData: [measurement.originalRow],
+					frequencies: new Map<string, number>()
+				};
+				
+				// Inicializácia počtu frekvencií
+				zone.frequencies.set(measurement.frequency, 1);
+				
+				zones.set(zoneKey, zone);
+			}
+		}
 
 		processedRows++;
 		updateProgressBar(createProgressBar(processedRows, totalRows));
