@@ -331,8 +331,20 @@ async function main() {
 		const useDefaultColumns = prompt('Chcete použiť predvolené hodnoty stĺpcov? (a/n):')?.toLowerCase() === 'a';
 		
 		let columns: number[];
+		let startRow: number;
+		let endRow: number;
+		
+		// Process data
+		const dataContent = allLines.slice(headerIndex);
+		const rows = dataContent
+			.slice(1)
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0)
+			.map((line) => line.split(';'));
 		
 		if (useDefaultColumns) {
+			// Ak používateľ vybral predvolené hodnoty, použijeme predvolené stĺpce
+			// a spracujeme celý súbor automaticky
 			columns = [
 				columnLetterToIndex(defaultColumnLetters.latitude),
 				columnLetterToIndex(defaultColumnLetters.longitude),
@@ -340,7 +352,15 @@ async function main() {
 				columnLetterToIndex(defaultColumnLetters.frequency),
 				columnLetterToIndex(defaultColumnLetters.rsrp),
 			];
+			
+			// Nastavíme rozsah na všetky riadky (od 1 po počet riadkov)
+			startRow = 1;
+			endRow = rows.length;
+			
+			console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
+			console.log(`Spracovanie všetkých riadkov od hlavičky až po koniec súboru`);
 		} else {
+			// Ak používateľ chce zadať vlastné hodnoty stĺpcov
 			columns = [
 				columnLetterToIndex(
 					prompt('Zadajte písmeno stĺpca pre zemepisnú šírku (latitude):') || defaultColumnLetters.latitude
@@ -358,22 +378,26 @@ async function main() {
 					prompt('Zadajte písmeno stĺpca pre RSRP:') || defaultColumnLetters.rsrp
 				),
 			];
+			
+			// Umožníme používateľovi zvoliť rozsah riadkov
+			console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
+			const range = prompt('Zadajte rozsah riadkov pre spracovanie (napr. 1-100):') || '';
+			
+			if (range && range.includes('-')) {
+				// Ak používateľ zadal platný rozsah, použijeme ho
+				const [start, end] = range.split('-').map((n) => parseInt(n.trim()));
+				startRow = start || 1;
+				endRow = end || rows.length;
+			} else {
+				// Ak nie je zadaný platný rozsah, vezmeme všetky riadky
+				startRow = 1;
+				endRow = rows.length;
+				console.log('Nebol zadaný platný rozsah, spracúvajú sa všetky riadky.');
+			}
+			
+			console.log(`Spracovanie riadkov ${startRow} až ${endRow}`);
 		}
-
-		// Process data - spracujeme všetky riadky od hlavičky až po koniec súboru
-		const dataContent = allLines.slice(headerIndex);
-		const rows = dataContent
-			.slice(1)
-			.map((line) => line.trim())
-			.filter((line) => line.length > 0)
-			.map((line) => line.split(';'));
-
-		// Nastavíme rozsah na všetky riadky (od 1 po počet riadkov)
-		const startRow = 1;
-		const endRow = rows.length;
-
-		console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
-		console.log(`Spracovanie riadkov od hlavičky až po koniec súboru`);
+		
 		console.log(
 			`Indexy stĺpcov [lat,lon,mnc,freq,rsrp]: ${columns.join(',')}`
 		);
