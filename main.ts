@@ -98,15 +98,16 @@ export function parseMeasurement(
 		const latitude = parseFloat(row[latIndex].replace(',', '.'));
 		const longitude = parseFloat(row[lonIndex].replace(',', '.'));
 		const rsrp = parseFloat(row[rsrpIndex].replace(',', '.'));
+		const mnc = row[mncIndex]?.trim() || "";
 
-		if (isNaN(latitude) || isNaN(longitude) || isNaN(rsrp)) {
+		if (isNaN(latitude) || isNaN(longitude) || isNaN(rsrp) || !mnc) {
 			return null;
 		}
 
 		return {
 			latitude,
 			longitude,
-			mnc: row[mncIndex].trim(),
+			mnc,
 			frequency: row[freqIndex].trim(),
 			rsrp,
 			originalRow: [...row],
