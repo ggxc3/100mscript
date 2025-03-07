@@ -150,8 +150,14 @@ export function processRows(
 	headerIndex: number
 ): Map<string, Zone> {
 	const zones = new Map<string, Zone>();
-	const excelToArrayIndex = (excelRow: number) =>
-		excelRow - (headerIndex + 2) + 1;
+	// Funkcia na prevod Excel riadku (1-indexed) na index v poli rows (0-indexed)
+	// Príklad: Ak je hlavička na riadku 1, prvý dátový riadok je 2, a headerIndex = 0,
+	// tak excelToArrayIndex(2) = 2 - (0 + 2) + 1 = 1, čo je index 1 v poli rows
+	const excelToArrayIndex = (excelRow: number) => {
+		const index = excelRow - (headerIndex + 2) + 1;
+		// Kontrola, či index nie je záporný
+		return index >= 0 ? index : -1;
+	};
 
 	const totalRows = endRow - startRow + 1;
 	let processedRows = 0;
@@ -353,9 +359,9 @@ async function main() {
 				columnLetterToIndex(defaultColumnLetters.rsrp),
 			];
 			
-			// Nastavíme rozsah na všetky riadky (od 1 po počet riadkov)
-			startRow = 1;
-			endRow = rows.length;
+			// Nastavíme rozsah na všetky riadky (od hlavičky po koniec súboru)
+			startRow = headerIndex + 2; // Prvý riadok dát (hlavička + 1)
+			endRow = headerIndex + 1 + rows.length; // Posledný riadok dát
 			
 			console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
 			console.log(`Spracovanie všetkých riadkov od hlavičky až po koniec súboru`);
@@ -381,17 +387,17 @@ async function main() {
 			
 			// Umožníme používateľovi zvoliť rozsah riadkov
 			console.log(`Celkový počet riadkov v súbore (bez hlavičky): ${rows.length}`);
-			const range = prompt('Zadajte rozsah riadkov pre spracovanie (napr. 1-100):') || '';
+			const range = prompt('Zadajte rozsah riadkov pre spracovanie (napr. 1-1000):') || '';
 			
 			if (range && range.includes('-')) {
 				// Ak používateľ zadal platný rozsah, použijeme ho
 				const [start, end] = range.split('-').map((n) => parseInt(n.trim()));
-				startRow = start || 1;
-				endRow = end || rows.length;
+				startRow = start || (headerIndex + 2);
+				endRow = end || (headerIndex + 1 + rows.length);
 			} else {
 				// Ak nie je zadaný platný rozsah, vezmeme všetky riadky
-				startRow = 1;
-				endRow = rows.length;
+				startRow = headerIndex + 2; // Prvý riadok dát (hlavička + 1)
+				endRow = headerIndex + 1 + rows.length; // Posledný riadok dát
 				console.log('Nebol zadaný platný rozsah, spracúvajú sa všetky riadky.');
 			}
 			
