@@ -1,0 +1,4 @@
+
+Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz)
+1;10:00:00;UTC;48.1234;17.1234;100;0;0;8;3350;1800;1;231;1;2304;1234567;12345;67;20;7;-30;10.50;-91.75;-10.5;0;0;0;0;No;No;1;No;20 # Meraní: 4, Excel riadky: 2,3,4,5
+5;10:04:00;UTC;49.1234;18.1234;100;0;0;8;3350;1800;1;231;2;2304;1234567;12345;67;20;7;-30;15.50;-94.50;-10.5;0;0;0;0;No;No;1;No;20 # Meraní: 2, Excel riadky: 6,7

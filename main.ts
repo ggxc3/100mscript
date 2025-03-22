@@ -4,6 +4,7 @@ export interface Measurement {
 	mnc: string;
 	mcc: string;
 	rsrp: number;
+	sinr?: number;
 	frequency: string;
 	originalRow: string[];
 }
@@ -11,6 +12,8 @@ export interface Measurement {
 export interface Zone {
 	measurements: number;
 	rsrpSum: number;
+	sinrSum: number;
+	sinrCount: number;
 	rows: number[];
 	originalData: string[][];
 	frequencies: Map<string, number>;
@@ -96,7 +99,7 @@ export function parseMeasurement(
 	columns: number[]
 ): Measurement | null {
 	try {
-		const [latIndex, lonIndex, mncIndex, mccIndex, freqIndex, rsrpIndex] = columns;
+		const [latIndex, lonIndex, mncIndex, mccIndex, freqIndex, rsrpIndex, sinrIndex] = columns;
 		const latitude = parseFloat(row[latIndex].replace(',', '.'));
 		const longitude = parseFloat(row[lonIndex].replace(',', '.'));
 		const rsrp = parseFloat(row[rsrpIndex].replace(',', '.'));
@@ -107,6 +110,14 @@ export function parseMeasurement(
 			return null;
 		}
 
+		let sinr = undefined;
+		if (sinrIndex !== undefined && row[sinrIndex]) {
+			const parsedSinr = parseFloat(row[sinrIndex].replace(',', '.'));
+			if (!isNaN(parsedSinr)) {
+				sinr = parsedSinr;
+			}
+		}
+
 		return {
 			latitude,
 			longitude,
@@ -114,6 +125,7 @@ export function parseMeasurement(
 			mcc,
 			frequency: row[freqIndex].trim(),
 			rsrp,
+			sinr,
 			originalRow: [...row],
 		};
 	} catch {
@@ -245,6 +257,12 @@ export function processRows(
 			const zone = zones.get(zoneKey)!;
 			zone.measurements += 1;
 			zone.rsrpSum += measurement.rsrp;
+			
+			if (measurement.sinr !== undefined) {
+				zone.sinrSum += measurement.sinr;
+				zone.sinrCount += 1;
+			}
+			
 			zone.rows.push(excelRow);
 			zone.originalData.push(measurement.originalRow);
 			
@@ -262,6 +280,12 @@ export function processRows(
 				const zone = zones.get(nearestZoneKey)!;
 				zone.measurements += 1;
 				zone.rsrpSum += measurement.rsrp;
+				
+				if (measurement.sinr !== undefined) {
+					zone.sinrSum += measurement.sinr;
+					zone.sinrCount += 1;
+				}
+				
 				zone.rows.push(excelRow);
 				zone.originalData.push(measurement.originalRow);
 				
@@ -275,6 +299,8 @@ export function processRows(
 				const zone = {
 					measurements: 1,
 					rsrpSum: measurement.rsrp,
+					sinrSum: measurement.sinr !== undefined ? measurement.sinr : 0,
+					sinrCount: measurement.sinr !== undefined ? 1 : 0,
 					rows: [excelRow],
 					originalData: [measurement.originalRow],
 					frequencies: new Map<string, number>()
@@ -302,7 +328,8 @@ async function saveResultsToCSV(
 	zones: Map<string, Zone>,
 	headerIndex: number,
 	rsrpIndex: number,
-	freqIndex: number
+	freqIndex: number,
+	sinrIndex?: number
 ) {
 	try {
 		// Načítame pôvodný súbor
@@ -340,6 +367,11 @@ async function saveResultsToCSV(
 
 			// Aktualizujeme RSRP hodnotu na priemer zóny
 			baseRow[rsrpIndex] = averageRSRP.toFixed(2);
+			
+			if (sinrIndex !== undefined && zone.sinrCount > 0) {
+				const averageSINR = zone.sinrSum / zone.sinrCount;
+				baseRow[sinrIndex] = averageSINR.toFixed(2);
+			}
 
 			// Nájdeme najčastejšiu frekvenciu v zóne
 			let mostFrequentFrequency = "";
@@ -404,7 +436,8 @@ async function main() {
 			frequency: 'K',
 			mnc: 'N',
 			mcc: 'M',
-			rsrp: 'W'
+			rsrp: 'W',
+			sinr: 'V'
 		};
 		
 		// Zobrazíme predvolené hodnoty a opýtame sa používateľa, či ich chce použiť
@@ -415,6 +448,7 @@ async function main() {
 		console.log(`  MNC: ${defaultColumnLetters.mnc}`);
 		console.log(`  MCC: ${defaultColumnLetters.mcc}`);
 		console.log(`  RSRP: ${defaultColumnLetters.rsrp}`);
+		console.log(`  SINR: ${defaultColumnLetters.sinr}`);
 		
 		const useDefaultColumns = prompt('Chcete použiť predvolené hodnoty stĺpcov? (a/n):')?.toLowerCase() === 'a';
 		
@@ -440,6 +474,7 @@ async function main() {
 				columnLetterToIndex(defaultColumnLetters.mcc),
 				columnLetterToIndex(defaultColumnLetters.frequency),
 				columnLetterToIndex(defaultColumnLetters.rsrp),
+				columnLetterToIndex(defaultColumnLetters.sinr),
 			];
 			
 			// Nastavíme rozsah na všetky riadky (od hlavičky po koniec súboru)
@@ -469,6 +504,9 @@ async function main() {
 				columnLetterToIndex(
 					prompt('Zadajte písmeno stĺpca pre RSRP:') || defaultColumnLetters.rsrp
 				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre SINR:') || defaultColumnLetters.sinr
+				),
 			];
 			
 			// Umožníme používateľovi zvoliť rozsah riadkov
@@ -491,13 +529,13 @@ async function main() {
 		}
 		
 		console.log(
-			`Indexy stĺpcov [lat,lon,mnc,mcc,freq,rsrp]: ${columns.join(',')}`
+			`Indexy stĺpcov [lat,lon,mnc,mcc,freq,rsrp,sinr]: ${columns.join(',')}`
 		);
 
 		const zones = processRows(rows, columns, startRow, endRow, headerIndex);
 
 		// Uložíme výsledky do CSV súboru
-		await saveResultsToCSV(filePath, zones, headerIndex, columns[5], columns[4]);
+		await saveResultsToCSV(filePath, zones, headerIndex, columns[5], columns[4], columns[6]);
 
 		console.log('Spracovanie úspešne dokončené!');
 	} catch (error: unknown) {
