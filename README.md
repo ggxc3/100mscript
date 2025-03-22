@@ -21,4 +21,26 @@ Program vás požiada o zadanie:
 
 ## Výstup
 
-Program vytvorí analýzu priemerných hodnôt RSRP pre každú 100-metrovú zónu, rozdelenú podľa MNC. 
+Program vytvorí analýzu priemerných hodnôt RSRP pre každú 100-metrovú zónu, rozdelenú podľa MNC.
+
+## Testovanie
+
+Projekt obsahuje testovacie scenáre na overenie funkčnosti programu. Testovacie súbory a dokumentácia sa nachádzajú v priečinku `test_data/`.
+
+### Spustenie testov
+
+Všetky testy môžete spustiť naraz pomocou skriptu:
+
+```bash
+./test_data/test_script.sh
+```
+
+Alebo jednotlivé testy pomocou:
+
+```bash
+deno run --allow-read --allow-write main.ts test_data/scenarios/[nazov_suboru].csv
+```
+
+### Pridávanie testov
+
+Nové testovacie scenáre môžete pridať do priečinka `test_data/scenarios/`. Viac informácií nájdete v `test_data/README.md`. 

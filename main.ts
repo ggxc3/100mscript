@@ -2,6 +2,7 @@ export interface Measurement {
 	latitude: number;
 	longitude: number;
 	mnc: string;
+	mcc: string;
 	rsrp: number;
 	frequency: string;
 	originalRow: string[];
@@ -84,9 +85,10 @@ export function getZoneCenter(zoneCoords: Coordinates): Coordinates {
 
 export function createZoneKey(
 	coords: Coordinates,
-	mnc: string
+	mnc: string,
+	mcc: string
 ): string {
-	return `${coords.latitude},${coords.longitude},${mnc}`;
+	return `${coords.latitude},${coords.longitude},${mnc},${mcc}`;
 }
 
 export function parseMeasurement(
@@ -94,13 +96,14 @@ export function parseMeasurement(
 	columns: number[]
 ): Measurement | null {
 	try {
-		const [latIndex, lonIndex, mncIndex, freqIndex, rsrpIndex] = columns;
+		const [latIndex, lonIndex, mncIndex, mccIndex, freqIndex, rsrpIndex] = columns;
 		const latitude = parseFloat(row[latIndex].replace(',', '.'));
 		const longitude = parseFloat(row[lonIndex].replace(',', '.'));
 		const rsrp = parseFloat(row[rsrpIndex].replace(',', '.'));
 		const mnc = row[mncIndex]?.trim() || "";
+		const mcc = row[mccIndex]?.trim() || "";
 
-		if (isNaN(latitude) || isNaN(longitude) || isNaN(rsrp) || !mnc) {
+		if (isNaN(latitude) || isNaN(longitude) || isNaN(rsrp) || !mnc || !mcc) {
 			return null;
 		}
 
@@ -108,6 +111,7 @@ export function parseMeasurement(
 			latitude,
 			longitude,
 			mnc,
+			mcc,
 			frequency: row[freqIndex].trim(),
 			rsrp,
 			originalRow: [...row],
@@ -143,10 +147,11 @@ function updateProgressBar(progressBar: string): void {
 	Deno.stdout.writeSync(new TextEncoder().encode('\r' + progressBar));
 }
 
-// Funkcia na nájdenie najbližšej zóny s rovnakým MNC v okruhu minDistance metrov
+// Funkcia na nájdenie najbližšej zóny s rovnakým MNC a MCC v okruhu minDistance metrov
 export function findNearestZone(
 	point: Coordinates,
 	mnc: string,
+	mcc: string,
 	existingZones: Map<string, Zone>,
 	minDistance: number
 ): string | null {
@@ -154,10 +159,10 @@ export function findNearestZone(
 	let minDistanceFound = Number.MAX_VALUE;
 	
 	for (const [key, _] of existingZones.entries()) {
-		const [lat, lon, zoneMnc] = key.split(',');
+		const [lat, lon, zoneMnc, zoneMcc] = key.split(',');
 		
-		// Kontrolujeme len zóny s rovnakým MNC
-		if (zoneMnc === mnc) {
+		// Kontrolujeme len zóny s rovnakým MNC a MCC
+		if (zoneMnc === mnc && zoneMcc === mcc) {
 			const existingZoneCenter = {
 				latitude: parseFloat(lat) + ZONE_SIZE_DEGREES / 2,
 				longitude: parseFloat(lon) + ZONE_SIZE_DEGREES / 2
@@ -231,7 +236,8 @@ export function processRows(
 
 		const zoneKey = createZoneKey(
 			zoneCoords,
-			measurement.mnc
+			measurement.mnc,
+			measurement.mcc
 		);
 		
 		// Ak zóna s týmto kľúčom už existuje, pridáme do nej meranie
@@ -248,11 +254,11 @@ export function processRows(
 			
 			zones.set(zoneKey, zone);
 		} else {
-			// Ak zóna s týmto kľúčom neexistuje, skontrolujeme, či existuje blízka zóna s rovnakým MNC
-			const nearestZoneKey = findNearestZone(point, measurement.mnc, zones, ZONE_SIZE_METERS);
+			// Ak zóna s týmto kľúčom neexistuje, skontrolujeme, či existuje blízka zóna s rovnakým MNC a MCC
+			const nearestZoneKey = findNearestZone(point, measurement.mnc, measurement.mcc, zones, ZONE_SIZE_METERS);
 			
 			if (nearestZoneKey) {
-				// Ak existuje blízka zóna s rovnakým MNC, pridáme meranie do nej
+				// Ak existuje blízka zóna s rovnakým MNC a MCC, pridáme meranie do nej
 				const zone = zones.get(nearestZoneKey)!;
 				zone.measurements += 1;
 				zone.rsrpSum += measurement.rsrp;
@@ -265,7 +271,7 @@ export function processRows(
 				
 				zones.set(nearestZoneKey, zone);
 			} else {
-				// Ak neexistuje blízka zóna s rovnakým MNC, vytvoríme novú zónu
+				// Ak neexistuje blízka zóna s rovnakým MNC a MCC, vytvoríme novú zónu
 				const zone = {
 					measurements: 1,
 					rsrpSum: measurement.rsrp,
@@ -309,12 +315,15 @@ async function saveResultsToCSV(
 		// Vytvoríme nový súbor s výsledkami - jeden riadok pre každú zónu
 		const outputPath = originalFilePath.replace('.csv', '_zones.csv');
 
-		// Zoradíme zóny podľa MNC
+		// Zoradíme zóny podľa MNC a MCC
 		const sortedZones = Array.from(zones.entries()).sort((a, b) => {
-			const [, , mncA] = a[0].split(',');
-			const [, , mncB] = b[0].split(',');
+			const [, , mncA, mccA] = a[0].split(',');
+			const [, , mncB, mccB] = b[0].split(',');
 
-			// Zoradíme podľa MNC
+			// Zoradíme najprv podľa MCC, potom podľa MNC
+			if (mccA !== mccB) {
+				return parseInt(mccA) - parseInt(mccB);
+			}
 			return parseInt(mncA) - parseInt(mncB);
 		});
 
@@ -394,6 +403,7 @@ async function main() {
 			longitude: 'E',
 			frequency: 'K',
 			mnc: 'N',
+			mcc: 'M',
 			rsrp: 'W'
 		};
 		
@@ -403,6 +413,7 @@ async function main() {
 		console.log(`  Zemepisná dĺžka (longitude): ${defaultColumnLetters.longitude}`);
 		console.log(`  Frekvencia (frequency): ${defaultColumnLetters.frequency}`);
 		console.log(`  MNC: ${defaultColumnLetters.mnc}`);
+		console.log(`  MCC: ${defaultColumnLetters.mcc}`);
 		console.log(`  RSRP: ${defaultColumnLetters.rsrp}`);
 		
 		const useDefaultColumns = prompt('Chcete použiť predvolené hodnoty stĺpcov? (a/n):')?.toLowerCase() === 'a';
@@ -426,6 +437,7 @@ async function main() {
 				columnLetterToIndex(defaultColumnLetters.latitude),
 				columnLetterToIndex(defaultColumnLetters.longitude),
 				columnLetterToIndex(defaultColumnLetters.mnc),
+				columnLetterToIndex(defaultColumnLetters.mcc),
 				columnLetterToIndex(defaultColumnLetters.frequency),
 				columnLetterToIndex(defaultColumnLetters.rsrp),
 			];
@@ -447,6 +459,9 @@ async function main() {
 				),
 				columnLetterToIndex(
 					prompt('Zadajte písmeno stĺpca pre MNC:') || defaultColumnLetters.mnc
+				),
+				columnLetterToIndex(
+					prompt('Zadajte písmeno stĺpca pre MCC:') || defaultColumnLetters.mcc
 				),
 				columnLetterToIndex(
 					prompt('Zadajte písmeno stĺpca pre frekvenciu:') || defaultColumnLetters.frequency
@@ -476,13 +491,13 @@ async function main() {
 		}
 		
 		console.log(
-			`Indexy stĺpcov [lat,lon,mnc,freq,rsrp]: ${columns.join(',')}`
+			`Indexy stĺpcov [lat,lon,mnc,mcc,freq,rsrp]: ${columns.join(',')}`
 		);
 
 		const zones = processRows(rows, columns, startRow, endRow, headerIndex);
 
 		// Uložíme výsledky do CSV súboru
-		await saveResultsToCSV(filePath, zones, headerIndex, columns[4], columns[3]);
+		await saveResultsToCSV(filePath, zones, headerIndex, columns[5], columns[4]);
 
 		console.log('Spracovanie úspešne dokončené!');
 	} catch (error: unknown) {

@@ -1,0 +1,7 @@
+
+Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz)
+2024-01-01;12:00:00;UTC;48.150000;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1;-80.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 1, Excel riadky: 2
+2024-01-01;12:00:00;UTC;48.151000;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1;-75.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 1, Excel riadky: 5
+2024-01-01;12:00:00;UTC;48.150080;17.150000;100;0;0;8;1;800;1;232;1;1;1;1;1;1;1;1;1;-85.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 1, Excel riadky: 3
+2024-01-01;12:00:00;UTC;48.151000;17.150080;100;0;0;8;1;900;1;232;1;1;1;1;1;1;1;1;1;-78.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 1, Excel riadky: 6
+2024-01-01;12:00:00;UTC;48.150000;17.150080;100;0;0;8;1;900;1;233;1;1;1;1;1;1;1;1;1;-86.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 2, Excel riadky: 4,7
