@@ -329,7 +329,11 @@ async function saveResultsToCSV(
 	headerIndex: number,
 	rsrpIndex: number,
 	freqIndex: number,
-	sinrIndex?: number
+	sinrIndex?: number,
+	latIndex: number = 3,
+	lonIndex: number = 4,
+	mncIndex: number = 13,
+	mccIndex: number = 12
 ) {
 	try {
 		// Načítame pôvodný súbor
@@ -342,7 +346,41 @@ async function saveResultsToCSV(
 		// Vytvoríme nový súbor s výsledkami - jeden riadok pre každú zónu
 		const outputPath = originalFilePath.replace('.csv', '_zones.csv');
 
-		// Zoradíme zóny podľa MNC a MCC
+		// Vytvoríme riadky pre každú zónu
+		const zoneRows: string[] = [];
+
+		// Vytvoríme zoznam všetkých unikátnych kombinácií MNC+MCC
+		const uniqueMncMccSet = new Set<string>();
+		
+		// Vytvoríme zoznam všetkých unikátnych súradníc (lat,lon)
+		const uniqueCoordinatesSet = new Set<string>();
+		
+		// Mapy pre ľahší prístup k dátam
+		const mncMccToZones = new Map<string, Map<string, Zone>>();
+		
+		// 1. Prejdeme všetky zóny a zbierame unikátne MNC+MCC a súradnice
+		for (const [key, zone] of zones.entries()) {
+			const [lat, lon, mnc, mcc] = key.split(',');
+			const mncMccKey = `${mnc},${mcc}`;
+			const coordKey = `${lat},${lon}`;
+			
+			uniqueMncMccSet.add(mncMccKey);
+			uniqueCoordinatesSet.add(coordKey);
+			
+			// Vytvoríme mapu pre daný MNC+MCC, ak ešte neexistuje
+			if (!mncMccToZones.has(mncMccKey)) {
+				mncMccToZones.set(mncMccKey, new Map<string, Zone>());
+			}
+			
+			// Pridáme zónu do mapy pre daný MNC+MCC a súradnice
+			const zoneMap = mncMccToZones.get(mncMccKey)!;
+			zoneMap.set(coordKey, zone);
+		}
+		
+		console.log(`Nájdených ${uniqueMncMccSet.size} unikátnych kombinácií MNC+MCC`);
+		console.log(`Nájdených ${uniqueCoordinatesSet.size} unikátnych súradníc`);
+		
+		// 2. Teraz prejdeme všetky existujúce zóny a pridáme ich do výstupu
 		const sortedZones = Array.from(zones.entries()).sort((a, b) => {
 			const [, , mncA, mccA] = a[0].split(',');
 			const [, , mncB, mccB] = b[0].split(',');
@@ -353,11 +391,7 @@ async function saveResultsToCSV(
 			}
 			return parseInt(mncA) - parseInt(mncB);
 		});
-
-		// Vytvoríme riadky pre každú zónu
-		const zoneRows: string[] = [];
-
-		// Pre každú zónu vytvoríme jeden riadok
+		
 		for (const [, zone] of sortedZones) {
 			// Vezmeme prvý riadok z danej zóny ako základ
 			const baseRow = [...zone.originalData[0]];
@@ -396,7 +430,76 @@ async function saveResultsToCSV(
 			const zoneRow = baseRow.join(';') + ` ${rowInfo}`;
 			zoneRows.push(zoneRow);
 		}
-
+		
+		// 3. Teraz vytvoríme chýbajúce zóny pre všetky kombinácie MNC+MCC a súradnice
+		const uniqueMncMcc = Array.from(uniqueMncMccSet);
+		const uniqueCoordinates = Array.from(uniqueCoordinatesSet);
+		
+		let addedEmptyZones = 0;
+		
+		// Skontrolujeme, či sú všetky potrebné indexy definované
+		const allIndicesValid = latIndex !== undefined && 
+                              lonIndex !== undefined && 
+                              mncIndex !== undefined && 
+                              mccIndex !== undefined;
+        
+		if (!allIndicesValid) {
+			console.warn('Varovanie: Niektoré indexy stĺpcov nie sú definované. Nemôžeme vytvoriť prázdne zóny.');
+			console.warn(`latIndex: ${latIndex}, lonIndex: ${lonIndex}, mncIndex: ${mncIndex}, mccIndex: ${mccIndex}`);
+		} else {
+			for (const mncMccKey of uniqueMncMcc) {
+				const [mnc, mcc] = mncMccKey.split(',');
+				const zonesForMncMcc = mncMccToZones.get(mncMccKey)!;
+				
+				for (const coordKey of uniqueCoordinates) {
+					const [lat, lon] = coordKey.split(',');
+					const fullZoneKey = `${lat},${lon},${mnc},${mcc}`;
+					
+					// Ak táto zóna neexistuje pre túto kombináciu MNC+MCC, vytvoríme ju
+					if (!zones.has(fullZoneKey)) {
+						// Nájdeme vzorový riadok z ľubovoľnej existujúcej zóny
+						let templateRow: string[] = [];
+						
+						// Skúsime nájsť vzorový riadok pre danú MNC+MCC kombináciu
+						if (zonesForMncMcc.size > 0) {
+							// Ak má táto MNC+MCC aspoň jednu zónu, použijeme ju ako vzor
+							const sampleZone = Array.from(zonesForMncMcc.values())[0];
+							templateRow = [...sampleZone.originalData[0]];
+						} else if (zones.size > 0) {
+							// Ak nie, použijeme hocijakú existujúcu zónu ako vzor
+							const sampleZone = Array.from(zones.values())[0];
+							templateRow = [...sampleZone.originalData[0]];
+						}
+						
+						if (templateRow.length > 0) {
+							// Nastavíme hodnoty pre novú zónu - prázdny riadok so špecifickými hodnotami
+							const emptyRow = Array(templateRow.length).fill('');
+							
+							// Nastavíme len potrebné hodnoty
+							emptyRow[rsrpIndex] = '-150'; // RSRP nastavíme na -150
+							
+							// Nastavíme latitude a longitude
+							emptyRow[latIndex] = lat;
+							emptyRow[lonIndex] = lon;
+							
+							// Nastavíme MNC a MCC
+							emptyRow[mncIndex] = mnc;
+							emptyRow[mccIndex] = mcc;
+							
+							// Pridáme informáciu o tom, že ide o vygenerovanú prázdnu zónu
+							const emptyZoneInfo = '# Prázdna zóna - automaticky vygenerovaná';
+							const emptyZoneRow = emptyRow.join(';') + ` ${emptyZoneInfo}`;
+							zoneRows.push(emptyZoneRow);
+							
+							addedEmptyZones++;
+						}
+					}
+				}
+			}
+		}
+		
+		console.log(`Pridaných ${addedEmptyZones} prázdnych zón pre chýbajúce kombinácie súradníc a MNC+MCC`);
+		
 		// Spojíme hlavičku a riadky zón - pridáme prázdny riadok pred hlavičku
 		const zoneContent = ['', header, ...zoneRows].join('\n');
 
@@ -599,7 +702,18 @@ async function main() {
 		const zones = processRows(rows, columns, startRow, endRow, headerIndex);
 
 		// Uložíme výsledky do CSV súboru
-		await saveResultsToCSV(filePath, zones, headerIndex, columns[5], columns[4], columns[6]);
+		await saveResultsToCSV(
+			filePath, 
+			zones, 
+			headerIndex, 
+			columns[5], // rsrpIndex
+			columns[4], // freqIndex
+			columns[6], // sinrIndex
+			columns[0], // latIndex
+			columns[1], // lonIndex
+			columns[2], // mncIndex
+			columns[3]  // mccIndex
+		);
 		
 		// Uložíme štatistiky MNC a MCC do samostatného CSV súboru
 		await saveStatsToCSV(filePath, zones);
