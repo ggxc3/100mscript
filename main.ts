@@ -409,6 +409,70 @@ async function saveResultsToCSV(
 	}
 }
 
+// Funkcia na uloženie štatistík pre MNC a MCC do CSV súboru
+async function saveStatsToCSV(
+	originalFilePath: string,
+	zones: Map<string, Zone>,
+) {
+	try {
+		// Vytvoríme nový súbor so štatistikami
+		const outputPath = originalFilePath.replace('.csv', '_stats.csv');
+
+		// Vytvoríme mapu pre štatistiky MNC a MCC
+		const statsMap = new Map<string, { mnc: string; mcc: string; rsrpGood: number; rsrpBad: number }>();
+
+		// Prejdeme všetky zóny a zbierame štatistiky
+		for (const [key, zone] of zones.entries()) {
+			const [, , mnc, mcc] = key.split(',');
+			const averageRSRP = zone.rsrpSum / zone.measurements;
+			
+			// Vytvoríme kľúč pre štatistiky
+			const statsKey = `${mnc},${mcc}`;
+			
+			// Skontrolujeme, či už máme záznam pre túto kombináciu MNC a MCC
+			if (!statsMap.has(statsKey)) {
+				statsMap.set(statsKey, {
+					mnc,
+					mcc,
+					rsrpGood: 0,
+					rsrpBad: 0
+				});
+			}
+			
+			// Aktualizujeme štatistiky pre túto kombináciu MNC a MCC
+			const stats = statsMap.get(statsKey)!;
+			if (averageRSRP >= -110) {
+				stats.rsrpGood += 1;
+			} else {
+				stats.rsrpBad += 1;
+			}
+		}
+		
+		// Zoradíme štatistiky podľa MCC a MNC
+		const sortedStats = Array.from(statsMap.values()).sort((a, b) => {
+			// Zoradíme najprv podľa MCC, potom podľa MNC
+			if (a.mcc !== b.mcc) {
+				return parseInt(a.mcc) - parseInt(b.mcc);
+			}
+			return parseInt(a.mnc) - parseInt(b.mnc);
+		});
+		
+		// Vytvoríme obsah súboru
+		const statsRows = sortedStats.map(stats => {
+			return `${stats.mnc};${stats.mcc};${stats.rsrpGood};${stats.rsrpBad}`;
+		});
+		
+		const statsContent = ['MNC;MCC;RSRP >= -110;RSRP < -110', ...statsRows].join('\n');
+		
+		// Zapíšeme štatistiky do súboru
+		await Deno.writeTextFile(outputPath, statsContent);
+		
+		console.log(`Štatistiky MNC a MCC uložené do súboru ${outputPath}`);
+	} catch (error) {
+		console.error('Chyba pri ukladaní štatistík:', error);
+	}
+}
+
 async function main() {
 	let filePath = '';
 
@@ -536,6 +600,9 @@ async function main() {
 
 		// Uložíme výsledky do CSV súboru
 		await saveResultsToCSV(filePath, zones, headerIndex, columns[5], columns[4], columns[6]);
+		
+		// Uložíme štatistiky MNC a MCC do samostatného CSV súboru
+		await saveStatsToCSV(filePath, zones);
 
 		console.log('Spracovanie úspešne dokončené!');
 	} catch (error: unknown) {
