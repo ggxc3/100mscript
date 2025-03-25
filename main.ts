@@ -472,15 +472,19 @@ async function saveResultsToCSV(
 						}
 						
 						if (templateRow.length > 0) {
-							// Nastavíme hodnoty pre novú zónu - prázdny riadok so špecifickými hodnotami
+							// Nastavíme len potrebné hodnoty
 							const emptyRow = Array(templateRow.length).fill('');
 							
-							// Nastavíme len potrebné hodnoty
+							// Nastavíme RSRP
 							emptyRow[rsrpIndex] = '-150'; // RSRP nastavíme na -150
 							
 							// Nastavíme latitude a longitude
-							emptyRow[latIndex] = lat;
-							emptyRow[lonIndex] = lon;
+							// Tu je problém - súradnice sú v inom formáte než v pôvodných dátach
+							// Namiesto priameho použitia hodnôt z coordKey použijeme formátované hodnoty s presnosťou 6 desatinných miest
+							const formattedLat = parseFloat(lat).toFixed(6);
+							const formattedLon = parseFloat(lon).toFixed(6);
+							emptyRow[latIndex] = formattedLat;
+							emptyRow[lonIndex] = formattedLon;
 							
 							// Nastavíme MNC a MCC
 							emptyRow[mncIndex] = mnc;
@@ -522,8 +526,33 @@ async function saveStatsToCSV(
 		const outputPath = originalFilePath.replace('.csv', '_stats.csv');
 
 		// Vytvoríme mapu pre štatistiky MNC a MCC
-		const statsMap = new Map<string, { mnc: string; mcc: string; rsrpGood: number; rsrpBad: number }>();
+		const statsMap = new Map<string, { mnc: string; mcc: string; rsrpGood: number; rsrpBad: number; totalPositions: number }>();
 
+		// Vytvoríme zoznam všetkých unikátnych súradníc (lat,lon) a kombinácií MNC+MCC
+		const uniqueCoordinatesSet = new Set<string>();
+		const uniqueMncMccSet = new Set<string>();
+		
+		// Najprv zbierame všetky unikátne súradnice a kombinácie MNC+MCC
+		for (const [key, _] of zones.entries()) {
+			const [lat, lon, mnc, mcc] = key.split(',');
+			const mncMccKey = `${mnc},${mcc}`;
+			const coordKey = `${lat},${lon}`;
+			
+			uniqueCoordinatesSet.add(coordKey);
+			uniqueMncMccSet.add(mncMccKey);
+			
+			// Inicializujeme štatistiky pre túto kombináciu MNC a MCC, ak ešte neexistujú
+			if (!statsMap.has(mncMccKey)) {
+				statsMap.set(mncMccKey, {
+					mnc,
+					mcc,
+					rsrpGood: 0,
+					rsrpBad: 0,
+					totalPositions: 0
+				});
+			}
+		}
+		
 		// Prejdeme všetky zóny a zbierame štatistiky
 		for (const [key, zone] of zones.entries()) {
 			const [, , mnc, mcc] = key.split(',');
@@ -532,22 +561,30 @@ async function saveStatsToCSV(
 			// Vytvoríme kľúč pre štatistiky
 			const statsKey = `${mnc},${mcc}`;
 			
-			// Skontrolujeme, či už máme záznam pre túto kombináciu MNC a MCC
-			if (!statsMap.has(statsKey)) {
-				statsMap.set(statsKey, {
-					mnc,
-					mcc,
-					rsrpGood: 0,
-					rsrpBad: 0
-				});
-			}
-			
 			// Aktualizujeme štatistiky pre túto kombináciu MNC a MCC
 			const stats = statsMap.get(statsKey)!;
 			if (averageRSRP >= -110) {
 				stats.rsrpGood += 1;
 			} else {
 				stats.rsrpBad += 1;
+			}
+			stats.totalPositions += 1;
+		}
+		
+		// Pre každú kombináciu MNC+MCC overíme, či počet zón zodpovedá počtu unikátnych súradníc
+		// Ak nie, znamená to, že niektoré súradnice nemajú zónu pre túto kombináciu MNC+MCC
+		const totalCoordinates = uniqueCoordinatesSet.size;
+		
+		for (const mncMccKey of uniqueMncMccSet) {
+			const stats = statsMap.get(mncMccKey)!;
+			const missingPositions = totalCoordinates - stats.totalPositions;
+			
+			// Ak existujú chýbajúce pozície, pridáme ich do rsrpBad
+			// (všetky prázdne zóny majú RSRP = -150, čo je < -110)
+			if (missingPositions > 0) {
+				stats.rsrpBad += missingPositions;
+				stats.totalPositions += missingPositions;
+				console.log(`Pridaných ${missingPositions} chýbajúcich pozícií do štatistík pre MNC=${stats.mnc}, MCC=${stats.mcc}`);
 			}
 		}
 		
@@ -562,6 +599,12 @@ async function saveStatsToCSV(
 		
 		// Vytvoríme obsah súboru
 		const statsRows = sortedStats.map(stats => {
+			// Overíme, či súčet rsrpGood a rsrpBad sa rovná celkovému počtu unikátnych súradníc
+			const total = stats.rsrpGood + stats.rsrpBad;
+			if (total !== totalCoordinates) {
+				console.warn(`Varovanie: Pre MNC=${stats.mnc}, MCC=${stats.mcc}, súčet zón (${total}) sa nerovná počtu unikátnych súradníc (${totalCoordinates})`);
+			}
+			
 			return `${stats.mnc};${stats.mcc};${stats.rsrpGood};${stats.rsrpBad}`;
 		});
 		
