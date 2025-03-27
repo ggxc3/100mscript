@@ -433,16 +433,23 @@ async function saveResultsToCSV(
 		
 		// 3. Teraz vytvoríme chýbajúce zóny pre všetky kombinácie MNC+MCC a súradnice
 		const uniqueMncMcc = Array.from(uniqueMncMccSet);
-		const uniqueCoordinates = Array.from(uniqueCoordinatesSet);
+		
+		// Použijeme iba existujúce unikátne súradnice zón namiesto celého gridu
+		const existingZoneCoords = new Set<string>();
+		for (const coordKey of uniqueCoordinatesSet) {
+			existingZoneCoords.add(coordKey);
+		}
+
+		console.log(`Počet unikátnych súradníc zón: ${existingZoneCoords.size}`);
 		
 		let addedEmptyZones = 0;
 		
 		// Skontrolujeme, či sú všetky potrebné indexy definované
 		const allIndicesValid = latIndex !== undefined && 
-                              lonIndex !== undefined && 
-                              mncIndex !== undefined && 
-                              mccIndex !== undefined;
-        
+							  lonIndex !== undefined && 
+							  mncIndex !== undefined && 
+							  mccIndex !== undefined;
+		
 		if (!allIndicesValid) {
 			console.warn('Varovanie: Niektoré indexy stĺpcov nie sú definované. Nemôžeme vytvoriť prázdne zóny.');
 			console.warn(`latIndex: ${latIndex}, lonIndex: ${lonIndex}, mncIndex: ${mncIndex}, mccIndex: ${mccIndex}`);
@@ -451,12 +458,16 @@ async function saveResultsToCSV(
 				const [mnc, mcc] = mncMccKey.split(',');
 				const zonesForMncMcc = mncMccToZones.get(mncMccKey)!;
 				
-				for (const coordKey of uniqueCoordinates) {
-					const [lat, lon] = coordKey.split(',');
-					const fullZoneKey = `${lat},${lon},${mnc},${mcc}`;
+				for (const coordKey of existingZoneCoords) {
+					const [zoneLat, zoneLon] = coordKey.split(',').map(parseFloat);
+					const zoneCoord = { latitude: zoneLat, longitude: zoneLon };
+					const fullZoneKey = createZoneKey(zoneCoord, mnc, mcc);
 					
 					// Ak táto zóna neexistuje pre túto kombináciu MNC+MCC, vytvoríme ju
 					if (!zones.has(fullZoneKey)) {
+						// Získame stred zóny pre zobrazenie v súbore
+						const zoneCenter = getZoneCenter(zoneCoord);
+						
 						// Nájdeme vzorový riadok z ľubovoľnej existujúcej zóny
 						let templateRow: string[] = [];
 						
@@ -478,11 +489,9 @@ async function saveResultsToCSV(
 							// Nastavíme RSRP
 							emptyRow[rsrpIndex] = '-150'; // RSRP nastavíme na -150
 							
-							// Nastavíme latitude a longitude
-							// Tu je problém - súradnice sú v inom formáte než v pôvodných dátach
-							// Namiesto priameho použitia hodnôt z coordKey použijeme formátované hodnoty s presnosťou 6 desatinných miest
-							const formattedLat = parseFloat(lat).toFixed(6);
-							const formattedLon = parseFloat(lon).toFixed(6);
+							// Nastavíme latitude a longitude - použijeme stred zóny pre lepšiu vizualizáciu
+							const formattedLat = zoneCenter.latitude.toFixed(6);
+							const formattedLon = zoneCenter.longitude.toFixed(6);
 							emptyRow[latIndex] = formattedLat;
 							emptyRow[lonIndex] = formattedLon;
 							
@@ -553,6 +562,10 @@ async function saveStatsToCSV(
 			}
 		}
 		
+		// Vypočítame celkový počet zón - len pre existujúce unikátne súradnice
+		// Tento počet musí byť rovnaký pre každého operátora (kombináciu MNC+MCC)
+		const totalUniqueZones = uniqueCoordinatesSet.size;
+		
 		// Prejdeme všetky zóny a zbierame štatistiky
 		for (const [key, zone] of zones.entries()) {
 			const [, , mnc, mcc] = key.split(',');
@@ -572,12 +585,11 @@ async function saveStatsToCSV(
 		}
 		
 		// Pre každú kombináciu MNC+MCC overíme, či počet zón zodpovedá počtu unikátnych súradníc
-		// Ak nie, znamená to, že niektoré súradnice nemajú zónu pre túto kombináciu MNC+MCC
-		const totalCoordinates = uniqueCoordinatesSet.size;
+		console.log(`Celkový počet unikátnych pozícií: ${totalUniqueZones}`);
 		
 		for (const mncMccKey of uniqueMncMccSet) {
 			const stats = statsMap.get(mncMccKey)!;
-			const missingPositions = totalCoordinates - stats.totalPositions;
+			const missingPositions = totalUniqueZones - stats.totalPositions;
 			
 			// Ak existujú chýbajúce pozície, pridáme ich do rsrpBad
 			// (všetky prázdne zóny majú RSRP = -150, čo je < -110)
@@ -601,8 +613,8 @@ async function saveStatsToCSV(
 		const statsRows = sortedStats.map(stats => {
 			// Overíme, či súčet rsrpGood a rsrpBad sa rovná celkovému počtu unikátnych súradníc
 			const total = stats.rsrpGood + stats.rsrpBad;
-			if (total !== totalCoordinates) {
-				console.warn(`Varovanie: Pre MNC=${stats.mnc}, MCC=${stats.mcc}, súčet zón (${total}) sa nerovná počtu unikátnych súradníc (${totalCoordinates})`);
+			if (total !== totalUniqueZones) {
+				console.warn(`Varovanie: Pre MNC=${stats.mnc}, MCC=${stats.mcc}, súčet zón (${total}) sa nerovná počtu unikátnych súradníc (${totalUniqueZones})`);
 			}
 			
 			return `${stats.mnc};${stats.mcc};${stats.rsrpGood};${stats.rsrpBad}`;

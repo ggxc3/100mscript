@@ -3,9 +3,9 @@ Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PC
 2024-01-01;12:00:00;UTC;48.150000;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1.00;-85.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 3, Excel riadky: 2,3,4
 2024-01-01;12:00:00;UTC;48.151000;17.150000;100;0;0;8;1;800;1;231;2;1;1;1;1;1;1;1;1.00;-76.50;1;1;1;1;1;1;1;1;1;1 # Meraní: 2, Excel riadky: 5,6
 2024-01-01;12:00:00;UTC;48.150000;17.151000;100;0;0;8;1;800;1;231;3;1;1;1;1;1;1;1;1.00;-85.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 2, Excel riadky: 7,8
-;;;48.150450;17.149550;;;;;;;;231;1;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.149550;17.150450;;;;;;;;231;1;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.149550;17.149550;;;;;;;;231;2;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.149550;17.150450;;;;;;;;231;2;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.149550;17.149550;;;;;;;;231;3;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.150450;17.149550;;;;;;;;231;3;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150901;17.150000;;;;;;;;231;1;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150000;17.150901;;;;;;;;231;1;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150000;17.150000;;;;;;;;231;2;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150000;17.150901;;;;;;;;231;2;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150000;17.150000;;;;;;;;231;3;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+;;;48.150901;17.150000;;;;;;;;231;3;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
