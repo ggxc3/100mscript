@@ -238,10 +238,16 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Aktualizujeme hodnoty v riadku - RSRP a najčastejšia frekvencia
         rsrp_col = column_names[column_mapping['rsrp']]
         freq_col = column_names[column_mapping['frequency']]
+        lat_col = column_names[column_mapping['latitude']]
+        lon_col = column_names[column_mapping['longitude']]
         
         # Aktualizujeme hodnoty - používame bodku namiesto čiarky pre desatinné hodnoty
         base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"
         base_row[freq_col] = zone_row['najcastejsia_frekvencia']
+        
+        # Aktualizujeme súradnice na stred zóny
+        base_row[lat_col] = f"{zone_row['latitude']:.6f}"
+        base_row[lon_col] = f"{zone_row['longitude']:.6f}"
         
         # Vytvoríme riadok pre CSV
         row_values = []
