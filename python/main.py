@@ -79,8 +79,8 @@ def load_csv_file(file_path):
 
 def process_data(df, column_mapping):
     """Spracuje dataframe a rozdelí ho do zón."""
-    # Vytvoríme transformátor z WGS84 (latitute, longitude) na Web Mercator (metre)
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+    # Vytvoríme transformátor z WGS84 (latitute, longitude) na S-JTSK (metre) - optimálna projekcia pre Slovensko
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
     
     # Získame názvy stĺpcov z dataframe
     column_names = list(df.columns)
@@ -147,7 +147,7 @@ def calculate_zone_stats(df, column_mapping, column_names):
                          'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia']
     
     # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny)
-    transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+    transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
     
     # Pridáme stred zóny
     zone_stats['zona_stred_x'] = zone_stats['zona_x'] + ZONE_SIZE_METERS/2
@@ -239,12 +239,25 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         rsrp_col = column_names[column_mapping['rsrp']]
         freq_col = column_names[column_mapping['frequency']]
         
-        # Aktualizujeme hodnoty
-        base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}".replace('.', ',')
+        # Aktualizujeme hodnoty - používame bodku namiesto čiarky pre desatinné hodnoty
+        base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"
         base_row[freq_col] = zone_row['najcastejsia_frekvencia']
         
         # Vytvoríme riadok pre CSV
-        row_values = [str(val) for val in base_row[column_names]]
+        row_values = []
+        for i, val in enumerate(base_row[column_names]):
+            # Ak je hodnota NaN, nahraďme ju prázdnym reťazcom
+            if pd.isna(val):
+                row_values.append("")
+            # Ak je to MCC alebo MNC, zaokrúhlime na celé číslo
+            elif i == column_mapping['mcc'] or i == column_mapping['mnc']:
+                try:
+                    row_values.append(str(int(float(val))))
+                except:
+                    row_values.append(str(val))
+            else:
+                row_values.append(str(val))
+        
         csv_row = ';'.join(row_values)
         
         # Pridáme informáciu o zóne
@@ -306,18 +319,39 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         zona_center_y = zona_y + ZONE_SIZE_METERS/2
                         
                         # Transformujeme späť na WGS84
-                        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+                        transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
                         lon, lat = transformer.transform(zona_center_x, zona_center_y)
                         
-                        # Aktualizujeme hodnoty
-                        base_row[lat_col] = f"{lat:.6f}".replace('.', ',')
-                        base_row[lon_col] = f"{lon:.6f}".replace('.', ',')
+                        # Aktualizujeme hodnoty - používame bodku namiesto čiarky
+                        base_row[lat_col] = f"{lat:.6f}"
+                        base_row[lon_col] = f"{lon:.6f}"
                         base_row[rsrp_col] = "-150"  # Extrémne nízka hodnota pre prázdne zóny
-                        base_row[mcc_col] = mcc
-                        base_row[mnc_col] = mnc
                         
-                        # Vytvoríme riadok pre CSV
-                        row_values = [str(val) for val in base_row[column_names]]
+                        # Upravíme MCC a MNC na celé čísla
+                        try:
+                            base_row[mcc_col] = str(int(float(mcc)))
+                        except:
+                            base_row[mcc_col] = mcc
+                            
+                        try:
+                            base_row[mnc_col] = str(int(float(mnc)))
+                        except:
+                            base_row[mnc_col] = mnc
+                        
+                        # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
+                        row_values = []
+                        for i, val in enumerate(base_row[column_names]):
+                            if pd.isna(val):
+                                row_values.append("")
+                            # Kontrola, či index zodpovedá MCC alebo MNC
+                            elif i == column_mapping['mcc'] or i == column_mapping['mnc']:
+                                try:
+                                    row_values.append(str(int(float(val))))
+                                except:
+                                    row_values.append(str(val))
+                            else:
+                                row_values.append(str(val))
+                        
                         csv_row = ';'.join(row_values)
                         
                         # Pridáme informáciu o prázdnej zóne
@@ -366,9 +400,20 @@ def save_stats(zone_stats, original_file):
         # Všetky chýbajúce zóny pridáme ako zlý signál
         rsrp_bad += missing_zones
         
+        # Konvertujeme MCC a MNC na celé čísla
+        try:
+            mcc_int = int(float(mcc))
+        except:
+            mcc_int = mcc
+            
+        try:
+            mnc_int = int(float(mnc))
+        except:
+            mnc_int = mnc
+        
         stats_data.append({
-            'MNC': mnc,
-            'MCC': mcc,
+            'MNC': mnc_int,
+            'MCC': mcc_int,
             'RSRP >= -110': rsrp_good,
             'RSRP < -110': rsrp_bad
         })
@@ -450,7 +495,43 @@ def main():
     # Uložíme štatistiky
     save_stats(zone_stats, file_path)
     
-    print("Spracovanie úspešne dokončené!")
+    # Vypíšeme informácie o zónach a rozsahu merania
+    print("\nSúhrn spracovania:")
+    
+    # Počet unikátnych zón a operátorov
+    unique_zones = zone_stats['zona_key'].nunique()
+    unique_operators = zone_stats[['mcc', 'mnc']].drop_duplicates().shape[0]
+    total_zones = len(zone_stats)
+    
+    print(f"Počet unikátnych zón: {unique_zones}")
+    print(f"Počet unikátnych operátorov: {unique_operators}")
+    print(f"Celkový počet zón (zóna+operátor): {total_zones}")
+    
+    # Geografický rozsah merania
+    min_x = zone_stats['zona_x'].min()
+    max_x = zone_stats['zona_x'].max()
+    min_y = zone_stats['zona_y'].min()
+    max_y = zone_stats['zona_y'].max()
+    
+    # Výpočet geografického rozsahu v metroch a kilometroch
+    range_x_m = max_x - min_x + ZONE_SIZE_METERS
+    range_y_m = max_y - min_y + ZONE_SIZE_METERS
+    range_x_km = range_x_m / 1000
+    range_y_km = range_y_m / 1000
+    
+    print(f"\nGeografický rozsah merania:")
+    print(f"X: {min_x} až {max_x} metrov (rozsah: {range_x_m:.2f} m = {range_x_km:.2f} km)")
+    print(f"Y: {min_y} až {max_y} metrov (rozsah: {range_y_m:.2f} m = {range_y_km:.2f} km)")
+    
+    # Teoretický počet zón pre geografický rozsah
+    theoretical_zones_x = range_x_m / ZONE_SIZE_METERS
+    theoretical_zones_y = range_y_m / ZONE_SIZE_METERS
+    theoretical_total_zones = theoretical_zones_x * theoretical_zones_y
+    
+    print(f"\nTeoretrický počet zón pre celý geografický rozsah: {theoretical_total_zones:.0f}")
+    print(f"Teoretické pokrytie geografického rozsahu: {(unique_zones / theoretical_total_zones * 100):.2f}%")
+    
+    print("\nSpracovanie úspešne dokončené!")
 
 if __name__ == "__main__":
     main() 
