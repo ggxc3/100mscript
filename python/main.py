@@ -8,6 +8,8 @@ from pyproj import Transformer, Geod
 import argparse
 from collections import defaultdict
 from tqdm import tqdm
+import shapely.wkt
+from shapely.geometry import box
 
 # Konštanty
 ZONE_SIZE_METERS = 100  # Veľkosť zóny v metroch
@@ -168,6 +170,17 @@ def calculate_zone_stats(df, column_mapping, column_names):
     
     # Klasifikácia RSRP
     zone_stats['rsrp_kategoria'] = np.where(zone_stats['rsrp_avg'] >= -110, 'RSRP_GOOD', 'RSRP_BAD')
+    
+    # Pridáme stĺpec s WKT reprezentáciou zóny
+    zone_stats['zone_wkt'] = zone_stats.apply(
+        lambda row: box(
+            row['zona_x'], 
+            row['zona_y'], 
+            row['zona_x'] + ZONE_SIZE_METERS, 
+            row['zona_y'] + ZONE_SIZE_METERS
+        ).wkt, 
+        axis=1
+    )
     
     return zone_stats
 
@@ -367,6 +380,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     if generate_empty_zones:
         print(f"Pridaných {added_empty_zones} prázdnych zón")
     print(f"Výsledky zón uložené do súboru: {output_file}")
+
+    # Uložíme výsledky s WKT do CSV
+    wkt_file = original_file.replace('.csv', '_zones_wkt.csv')
+    zone_stats.to_csv(wkt_file, sep=';', index=False)
 
 def save_stats(zone_stats, original_file):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
