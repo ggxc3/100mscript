@@ -1,0 +1,68 @@
+DOKUMENTÁCIA - PRIDELOVANIE SÚRADNÍC DO ZÓN
+
+Ako funguje prideľovanie súradníc do zón?
+==========================================
+
+Program spracováva GPS súradnice (zemepisná šírka a dĺžka) a rozdeľuje ich do štvorcových zón s veľkosťou 100 x 100 metrov. Tento dokument vysvetľuje, ako celý proces funguje jednoducho a zrozumiteľne.
+
+1. ČO SÚ GPS SÚRADNICE?
+----------------------
+GPS súradnice sú čísla, ktoré presne určujú polohu na Zemi. Používame dva typy súradníc:
+- Zemepisná šírka (latitude) - určuje polohu severne alebo južne od rovníka (v stupňoch)
+- Zemepisná dĺžka (longitude) - určuje polohu východne alebo západne od nultého poludníka (v stupňoch)
+
+Príklad: GPS súradnice Bratislavy sú približne: 48.1486° severnej šírky, 17.1077° východnej dĺžky
+
+2. PREČO POTREBUJEME ZÓNY?
+-------------------------
+Pri meraní signálu mobilných operátorov sa získavajú tisíce meraní z rôznych miest. Aby sme lepšie porozumeli kvalite signálu v určitej oblasti, je užitočné tieto merania zoskupiť do menších oblastí - zón.
+
+3. AKO PROGRAM VYTVÁRA ZÓNY
+---------------------------
+Program vykonáva tieto kroky:
+
+a) PREVOD STUPŇOV NA METRE
+   - GPS súradnice v stupňoch nie sú vhodné na priame vytváranie štvorcových zón
+   - Program najprv prevádza GPS súradnice (v stupňoch) na súradnice v metroch pomocou špeciálnej projekcie S-JTSK (Systém Jednotnej trigonometrickej siete katastrálnej)
+   - Táto projekcia je optimálna pre územie Slovenska a poskytuje presné vzdialenosti v metroch
+
+b) PRIRADENIE DO ZÓN
+   - Po prevode súradníc na metre, sa každý bod priradí do štvorčekovej zóny s veľkosťou 100 x 100 metrov
+   - Program to robí matematicky takto:
+     1. Zoberie súradnicu X v metroch a vydelí ju 100
+     2. Odstráni desatinnú časť (zoberie len celé číslo)
+     3. Vynásobí výsledok 100 - tým získa ľavú hranicu zóny
+     4. Rovnako postupuje so súradnicou Y - tým získa dolnú hranicu zóny
+   
+   Príklad: 
+   - Ak má bod súradnice X = 1234,56 metrov a Y = 5678,90 metrov
+   - Pre X: 1234,56 ÷ 100 = 12,3456 → odstránime desatinnú časť → 12 → 12 × 100 = 1200
+   - Pre Y: 5678,90 ÷ 100 = 56,789 → odstránime desatinnú časť → 56 → 56 × 100 = 5600
+   - Tento bod patrí do zóny so súradnicami [1200, 5600] - to je ľavý dolný roh zóny
+
+4. VÝPOČET ŠTATISTÍK PRE ZÓNY
+----------------------------
+- Pre každú zónu program následne vypočíta:
+  * Priemerná hodnota RSRP (sila signálu) zo všetkých meraní v danej zóne
+  * Počet meraní v danej zóne
+  * Najčastejšie používaná frekvencia v zóne
+
+- Každá zóna je identifikovaná jej súradnicami a operátorom (kombináciou MCC a MNC - kódy mobilného operátora)
+
+5. VÝSTUP PROGRAMU
+----------------
+- Program vytvorí nový súbor, ktorý pre každú zónu obsahuje jeden riadok s priemernými hodnotami
+- Súradnice každej zóny môžu byť buď:
+  * Pôvodné súradnice prvého bodu v zóne (predvolené správanie)
+  * Alebo súradnice stredu zóny (ak je zapnuté nastavenie USE_ZONE_CENTER)
+
+6. VIZUALIZÁCIA ZÓN
+------------------
+Predstavte si mapu pokrytú štvorcovou sieťou, kde každý štvorec má rozmery 100 x 100 metrov. Každý štvorec predstavuje jednu zónu a obsahuje priemernú hodnotu všetkých meraní, ktoré boli v tomto štvorci zaznamenané.
+
+Tento spôsob nám umožňuje:
+- Identifikovať miesta s dobrým a zlým signálom
+- Porovnávať kvalitu signálu medzi rôznymi operátormi v rovnakých oblastiach
+- Zistiť, kde nie sú žiadne merania (prázdne zóny)
+
+Program vytvára dáta, ktoré uľahčujú analýzu a porovnávanie pokrytia signálom na rôznych miestach a medzi rôznymi operátormi. 
