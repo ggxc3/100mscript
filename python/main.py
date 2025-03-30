@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 # Konštanty
 ZONE_SIZE_METERS = 100  # Veľkosť zóny v metroch
+USE_ZONE_CENTER = False  # Určuje, či sa majú vo výsledku použiť súradnice stredu zóny (True) alebo prvá súradnica zo zóny (False)
 
 def parse_arguments():
     """Spracovanie argumentov príkazového riadka."""
@@ -245,9 +246,12 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"
         base_row[freq_col] = zone_row['najcastejsia_frekvencia']
         
-        # Aktualizujeme súradnice na stred zóny
-        base_row[lat_col] = f"{zone_row['latitude']:.6f}"
-        base_row[lon_col] = f"{zone_row['longitude']:.6f}"
+        # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
+        if USE_ZONE_CENTER:
+            # Použijeme súradnice stredu zóny
+            base_row[lat_col] = f"{zone_row['latitude']:.6f}"
+            base_row[lon_col] = f"{zone_row['longitude']:.6f}"
+        # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
         
         # Vytvoríme riadok pre CSV
         row_values = []
@@ -326,7 +330,14 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         
                         # Transformujeme späť na WGS84
                         transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
-                        lon, lat = transformer.transform(zona_center_x, zona_center_y)
+                        
+                        # Použijeme stred zóny alebo rohové súradnice podľa nastavenia
+                        if USE_ZONE_CENTER:
+                            # Použijeme súradnice stredu zóny
+                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
+                        else:
+                            # Použijeme rohové súradnice zóny (ľavý dolný roh)
+                            lon, lat = transformer.transform(zona_x, zona_y)
                         
                         # Aktualizujeme hodnoty - používame bodku namiesto čiarky
                         base_row[lat_col] = f"{lat:.6f}"
