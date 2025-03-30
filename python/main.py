@@ -331,7 +331,7 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         # Aktualizujeme hodnoty - používame bodku namiesto čiarky
                         base_row[lat_col] = f"{lat:.6f}"
                         base_row[lon_col] = f"{lon:.6f}"
-                        base_row[rsrp_col] = "-150"  # Extrémne nízka hodnota pre prázdne zóny
+                        base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
                         
                         # Upravíme MCC a MNC na celé čísla
                         try:
