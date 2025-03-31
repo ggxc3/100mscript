@@ -372,16 +372,19 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         zona_center_x = zona_x + ZONE_SIZE_METERS/2
                         zona_center_y = zona_y + ZONE_SIZE_METERS/2
                         
+                        # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
+                        if USE_ZONE_CENTER:
+                            # Použijeme súradnice stredu zóny
+                            base_row[lat_col] = f"{zone_row['latitude']:.6f}"
+                            base_row[lon_col] = f"{zone_row['longitude']:.6f}"
+                        # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
+                        
+                        # Pre prázdne zóny vždy používame stredové súradnice
                         # Transformujeme späť na WGS84
                         transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
                         
-                        # Použijeme stred zóny alebo rohové súradnice podľa nastavenia
-                        if USE_ZONE_CENTER:
-                            # Použijeme súradnice stredu zóny
-                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
-                        else:
-                            # Použijeme rohové súradnice zóny (ľavý dolný roh)
-                            lon, lat = transformer.transform(zona_x, zona_y)
+                        # Vždy používame súradnice stredu zóny pre prázdne zóny
+                        lon, lat = transformer.transform(zona_center_x, zona_center_y)
                         
                         # Aktualizujeme hodnoty - používame bodku namiesto čiarky
                         base_row[lat_col] = f"{lat:.6f}"
