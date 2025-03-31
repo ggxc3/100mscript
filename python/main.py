@@ -86,22 +86,37 @@ def process_data(df, column_mapping):
     # Získame názvy stĺpcov z dataframe
     column_names = list(df.columns)
     
+    # Filtrujeme riadky s chýbajúcimi RSRP hodnotami
+    rsrp_col = column_names[column_mapping['rsrp']]
+    df_filtered = df.copy()
+    
+    # Konvertujeme RSRP hodnoty na float a označujeme chýbajúce hodnoty ako NaN
+    df_filtered[rsrp_col] = df_filtered[rsrp_col].apply(
+        lambda x: float(str(x).replace(',', '.')) if pd.notna(x) and str(x).strip() else np.nan
+    )
+    
+    # Odstránime riadky s chýbajúcimi RSRP hodnotami
+    missing_rsrp_count = df_filtered[rsrp_col].isna().sum()
+    if missing_rsrp_count > 0:
+        print(f"Odstraňujem {missing_rsrp_count} riadkov s chýbajúcimi RSRP hodnotami.")
+        df_filtered = df_filtered.dropna(subset=[rsrp_col])
+    
     # Vytvoríme progress bar
     print("Spracovávam merania...")
-    total_rows = len(df)
+    total_rows = len(df_filtered)
     
     # Budeme spracovávať dáta po častiach pre rýchlejšie spracovanie
     chunk_size = 1000
     num_chunks = (total_rows + chunk_size - 1) // chunk_size
     
     # Inicializujeme nové stĺpce
-    df['x_meters'] = 0.0
-    df['y_meters'] = 0.0
+    df_filtered['x_meters'] = 0.0
+    df_filtered['y_meters'] = 0.0
     
     # Spracovávame dáta po častiach s progress barom
     for i in tqdm(range(0, total_rows, chunk_size), total=num_chunks, desc="Transformácia súradníc"):
         end_idx = min(i + chunk_size, total_rows)
-        chunk = df.iloc[i:end_idx]
+        chunk = df_filtered.iloc[i:end_idx]
         
         # Transformujeme súradnice pre túto časť
         x_meters, y_meters = zip(*[
@@ -112,40 +127,61 @@ def process_data(df, column_mapping):
         ])
         
         # Uložíme výsledky
-        df.loc[df.index[i:end_idx], 'x_meters'] = x_meters
-        df.loc[df.index[i:end_idx], 'y_meters'] = y_meters
+        df_filtered.loc[df_filtered.index[i:end_idx], 'x_meters'] = x_meters
+        df_filtered.loc[df_filtered.index[i:end_idx], 'y_meters'] = y_meters
     
     # Výpočet zóny pre každé meranie
     print("Počítam zóny...")
-    df['zona_x'] = (df['x_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
-    df['zona_y'] = (df['y_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
+    df_filtered['zona_x'] = (df_filtered['x_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
+    df_filtered['zona_y'] = (df_filtered['y_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
     
     # Vytvoríme kľúč zóny a operátora
-    df['zona_key'] = df['zona_x'].astype(str) + '_' + df['zona_y'].astype(str)
-    df['operator_key'] = df[column_names[column_mapping['mcc']]].astype(str) + '_' + df[column_names[column_mapping['mnc']]].astype(str)
+    df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
+    df_filtered['operator_key'] = df_filtered[column_names[column_mapping['mcc']]].astype(str) + '_' + df_filtered[column_names[column_mapping['mnc']]].astype(str)
     
     # Vytvoríme kombinovaný kľúč zóna+operátor
-    df['zona_operator_key'] = df['zona_key'] + '_' + df['operator_key']
+    df_filtered['zona_operator_key'] = df_filtered['zona_key'] + '_' + df_filtered['operator_key']
     
     # Zachováme originálny riadok pre neskoršie použitie
-    df['original_row_index'] = df.index
+    df_filtered['original_row_index'] = df_filtered.index
     
-    return df, column_names
+    return df_filtered, column_names
 
 def calculate_zone_stats(df, column_mapping, column_names):
     """Vypočíta štatistiky pre každú zónu."""
     print("Počítam štatistiky pre zóny...")
     
+    # Pripravíme SINR stĺpec pre výpočet priemeru, ak existuje
+    sinr_col = None
+    if 'sinr' in column_mapping:
+        sinr_col = column_names[column_mapping['sinr']]
+        # Konvertujeme SINR hodnoty na float a ignorujeme chýbajúce hodnoty
+        df[sinr_col] = df[sinr_col].apply(
+            lambda x: float(str(x).replace(',', '.')) if pd.notna(x) and str(x).strip() else np.nan
+        )
+    
+    # Agregačný slovník pre rôzne stĺpce
+    agg_dict = {
+        column_names[column_mapping['rsrp']]: ['mean', 'count'],
+        column_names[column_mapping['frequency']]: lambda x: x.value_counts().index[0] if len(x) > 0 else ''
+    }
+    
+    # Pridáme SINR do agregácie, ak existuje
+    if sinr_col:
+        agg_dict[sinr_col] = lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan
+    
     # Agregácia dát podľa zón a operátorov
     zone_stats = df.groupby(['zona_key', 'operator_key', 'zona_x', 'zona_y', 
-                            column_names[column_mapping['mcc']], column_names[column_mapping['mnc']]]).agg({
-        column_names[column_mapping['rsrp']]: ['mean', 'count'],
-        column_names[column_mapping['frequency']]: lambda x: x.value_counts().index[0] if len(x) > 0 else '',
-    }).reset_index()
+                            column_names[column_mapping['mcc']], column_names[column_mapping['mnc']]]).agg(agg_dict).reset_index()
     
     # Upravíme názvy stĺpcov
-    zone_stats.columns = ['zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc', 
-                         'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia']
+    new_columns = ['zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
+                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia']
+    
+    if sinr_col:
+        new_columns.append('sinr_avg')
+    
+    zone_stats.columns = new_columns
     
     # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny)
     transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
@@ -211,6 +247,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     
     print("Zapisujem výsledky zón...")
     
+    # Kontrolujeme, či máme SINR stĺpec
+    has_sinr = 'sinr' in column_mapping and 'sinr_avg' in sorted_zone_stats.columns
+    
     # Vytvorím progress bar pre zápis zón
     for i in tqdm(range(len(sorted_zone_stats)), desc="Zápis zón"):
         zone_row = sorted_zone_stats.iloc[i]
@@ -232,9 +271,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Vezmeme prvý riadok ako základ
         sample_row = sample_rows.iloc[0]
         
-        # Vytvoríme kópiu pôvodného riadku
-        original_index = sample_row['original_row_index']
-        base_row = df.iloc[original_index].copy()
+        # Vytvoríme kópiu vzorového riadku - už filtrovaného dataframu
+        # Nepoužívame original_row_index, ktorý by mohol byť mimo rozsahu
+        base_row = sample_row.copy()
         
         # Aktualizujeme hodnoty v riadku - RSRP a najčastejšia frekvencia
         rsrp_col = column_names[column_mapping['rsrp']]
@@ -246,6 +285,11 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"
         base_row[freq_col] = zone_row['najcastejsia_frekvencia']
         
+        # Aktualizujeme SINR, ak je k dispozícii
+        if has_sinr and not pd.isna(zone_row['sinr_avg']):
+            sinr_col = column_names[column_mapping['sinr']]
+            base_row[sinr_col] = f"{zone_row['sinr_avg']:.2f}"
+        
         # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
         if USE_ZONE_CENTER:
             # Použijeme súradnice stredu zóny
@@ -255,12 +299,12 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         
         # Vytvoríme riadok pre CSV
         row_values = []
-        for i, val in enumerate(base_row[column_names]):
+        for j, val in enumerate(base_row[column_names]):
             # Ak je hodnota NaN, nahraďme ju prázdnym reťazcom
             if pd.isna(val):
                 row_values.append("")
             # Ak je to MCC alebo MNC, zaokrúhlime na celé číslo
-            elif i == column_mapping['mcc'] or i == column_mapping['mnc']:
+            elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
                 try:
                     row_values.append(str(int(float(val))))
                 except:
@@ -357,11 +401,11 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         
                         # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
                         row_values = []
-                        for i, val in enumerate(base_row[column_names]):
+                        for j, val in enumerate(base_row[column_names]):
                             if pd.isna(val):
                                 row_values.append("")
                             # Kontrola, či index zodpovedá MCC alebo MNC
-                            elif i == column_mapping['mcc'] or i == column_mapping['mnc']:
+                            elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
                                 try:
                                     row_values.append(str(int(float(val))))
                                 except:
