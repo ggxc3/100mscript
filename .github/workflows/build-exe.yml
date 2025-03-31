@@ -77,6 +77,4 @@ jobs:
             dist/100mscript-corner-${{ env.VERSION }}.exe
             dist/100mscript-center-${{ env.VERSION }}.exe
           draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          prerelease: false 
