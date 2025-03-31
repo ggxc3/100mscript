@@ -7,6 +7,10 @@ on:
   workflow_dispatch:
     # Umožňuje manuálne spustenie workflow cez GitHub rozhranie
 
+# Definujeme oprávnenia pre workflow
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
