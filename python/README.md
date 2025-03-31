@@ -1,30 +1,44 @@
-# Nástroj na spracovanie zón
+# 100mscript - Python verzia
 
-Tento nástroj slúži na spracovanie CSV súborov s meraniami signálov (latitude, longitude, RSRP, SINR, atď.) do zón.
+Táto aplikácia slúži na spracovanie CSV súborov s meraniami mobilného signálu a ich rozdelenie do zón.
 
-## Inštalácia
+## Hlavná funkcionalita
 
-Pred použitím nainštalujte potrebné knižnice:
+1. Načítanie CSV súboru s meraniami mobilného signálu
+2. Transformácia geografických súradníc (WGS84) na S-JTSK súradnice (metre)
+3. Rozdelenie meraní do zón s definovanou veľkosťou
+4. Výpočet štatistík pre každú zónu a operátora
+5. Uloženie výsledkov do nových CSV súborov
 
-```bash
-pip install -r requirements.txt
-```
+## Parametre nastavenia
+
+### USE_ZONE_CENTER
+
+V kóde je definovaný parameter `USE_ZONE_CENTER`, ktorý ovplyvňuje, aké súradnice budú použité vo výsledných dátach:
+
+- `USE_ZONE_CENTER = False` - Vo výstupnom súbore sa použijú pôvodné súradnice prvého bodu v zóne
+- `USE_ZONE_CENTER = True` - Vo výstupnom súbore sa použijú súradnice stredu zóny
+
+### EXE súbory
+
+Pre vaše pohodlie sú k dispozícii dva EXE súbory:
+
+1. **100mscript-corner-vX.X.X.exe** - Verzia s nastavením `USE_ZONE_CENTER = False`
+2. **100mscript-center-vX.X.X.exe** - Verzia s nastavením `USE_ZONE_CENTER = True`
 
 ## Použitie
 
-Program môžete spustiť dvoma spôsobmi:
-
-1. Zadaním cesty k súboru ako parameter:
-
-```bash
-python main.py cesta/k/vasmu/suboru.csv
+```
+100mscript-corner-vX.X.X.exe [cesta_k_csv_suboru]
 ```
 
-2. Bez parametrov - program vás požiada o zadanie cesty:
+alebo 
 
-```bash
-python main.py
 ```
+100mscript-center-vX.X.X.exe [cesta_k_csv_suboru]
+```
+
+Ak nie je zadaná cesta k súboru, aplikácia vás vyzve na jej zadanie.
 
 ## Funkcie programu
 

@@ -1,0 +1,6 @@
+pandas
+numpy
+pyproj
+tqdm
+argparse
+pyinstaller 
