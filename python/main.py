@@ -295,7 +295,6 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             # Použijeme súradnice stredu zóny
             base_row[lat_col] = f"{zone_row['latitude']:.6f}"
             base_row[lon_col] = f"{zone_row['longitude']:.6f}"
-        # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
         
         # Vytvoríme riadok pre CSV
         row_values = []
@@ -374,9 +373,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         
                         # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
                         if USE_ZONE_CENTER:
-                            # Použijeme súradnice stredu zóny
-                            base_row[lat_col] = f"{zone_row['latitude']:.6f}"
-                            base_row[lon_col] = f"{zone_row['longitude']:.6f}"
+                            # Pre prázdne zóny pri USE_ZONE_CENTER=True nemusíme robiť nič extra,
+                            # keďže nižšie sa vždy nastavujú súradnice stredu zóny
+                            pass
                         # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
                         
                         # Pre prázdne zóny vždy používame stredové súradnice
