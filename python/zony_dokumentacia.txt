@@ -52,9 +52,9 @@ b) PRIRADENIE DO ZÓN
 5. VÝSTUP PROGRAMU
 ----------------
 - Program vytvorí nový súbor, ktorý pre každú zónu obsahuje jeden riadok s priemernými hodnotami
-- Súradnice každej zóny môžu byť buď:
-  * Pôvodné súradnice prvého bodu v zóne (predvolené správanie)
-  * Alebo súradnice stredu zóny (ak je zapnuté nastavenie USE_ZONE_CENTER)
+- Pri spustení programu sa používateľa opýta, aké súradnice chce vo výstupnom súbore použiť:
+  * Súradnice stredu zóny - presný stred každej 100m zóny
+  * Pôvodné súradnice prvého bodu v zóne - zachová pôvodný bod z originálneho merania
 
 6. VIZUALIZÁCIA ZÓN
 ------------------

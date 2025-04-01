@@ -10,32 +10,19 @@ Táto aplikácia slúži na spracovanie CSV súborov s meraniami mobilného sign
 4. Výpočet štatistík pre každú zónu a operátora
 5. Uloženie výsledkov do nových CSV súborov
 
-## Parametre nastavenia
+## Nastavenie formátu súradníc
 
-### USE_ZONE_CENTER
+Pri spustení programu sa vás aplikácia opýta, aký formát súradníc chcete použiť vo výslednom súbore:
 
-V kóde je definovaný parameter `USE_ZONE_CENTER`, ktorý ovplyvňuje, aké súradnice budú použité vo výsledných dátach:
+1. Použiť súradnice stredu zóny - výstupný súbor bude obsahovať súradnice stredu každej 100m zóny
+2. Použiť pôvodné súradnice - výstupný súbor bude obsahovať pôvodné súradnice prvého bodu v zóne
 
-- `USE_ZONE_CENTER = False` - Vo výstupnom súbore sa použijú pôvodné súradnice prvého bodu v zóne
-- `USE_ZONE_CENTER = True` - Vo výstupnom súbore sa použijú súradnice stredu zóny
+### EXE súbor
 
-### EXE súbory
-
-Pre vaše pohodlie sú k dispozícii dva EXE súbory:
-
-1. **100mscript-corner-vX.X.X.exe** - Verzia s nastavením `USE_ZONE_CENTER = False`
-2. **100mscript-center-vX.X.X.exe** - Verzia s nastavením `USE_ZONE_CENTER = True`
-
-## Použitie
+K dispozícii je jeden EXE súbor, ktorý vám umožní vybrať si formát súradníc počas behu programu:
 
 ```
-100mscript-corner-vX.X.X.exe [cesta_k_csv_suboru]
-```
-
-alebo 
-
-```
-100mscript-center-vX.X.X.exe [cesta_k_csv_suboru]
+100mscript-vX.X.X.exe [cesta_k_csv_suboru]
 ```
 
 Ak nie je zadaná cesta k súboru, aplikácia vás vyzve na jej zadanie.

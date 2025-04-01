@@ -37,27 +37,11 @@ jobs:
           $version = "v$timestamp-$shortSha"
           echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
         shell: pwsh
-
-      - name: Test Python script
+      
+      - name: Create EXE file
         run: |
-          # Otestujeme pôvodný skript pred modifikáciami
-          python python/test_exe.py
-          
-      - name: Create USE_ZONE_CENTER=False version
-        run: |
-          # Upravíme parameter USE_ZONE_CENTER na False a overíme modifikáciu
-          python -c "import re; file_content = open('python/main.py', 'r').read(); modified_content = re.sub('USE_ZONE_CENTER = True', 'USE_ZONE_CENTER = False', file_content); open('python/main.py', 'w').write(modified_content)"
-          python python/test_exe.py --expect-false
           # Vytvoríme EXE s PyInstaller
-          pyinstaller --onefile --name="100mscript-corner-${{ env.VERSION }}" python/main.py
-        
-      - name: Create USE_ZONE_CENTER=True version
-        run: |
-          # Upravíme parameter USE_ZONE_CENTER na True a overíme modifikáciu
-          python -c "import re; file_content = open('python/main.py', 'r').read(); modified_content = re.sub('USE_ZONE_CENTER = False', 'USE_ZONE_CENTER = True', file_content); open('python/main.py', 'w').write(modified_content)"
-          python python/test_exe.py --expect-true
-          # Vytvoríme EXE s PyInstaller
-          pyinstaller --onefile --name="100mscript-center-${{ env.VERSION }}" python/main.py
+          pyinstaller --onefile --name="100mscript-${{ env.VERSION }}" python/main.py
 
       - name: Create Release
         id: create_release
@@ -68,13 +52,11 @@ jobs:
           body: |
             Automaticky vygenerovaný release pre vetvu python-refactor
             
-            Tento release obsahuje dva EXE súbory:
-            - 100mscript-corner-${{ env.VERSION }}.exe - s nastavením USE_ZONE_CENTER = False (použitie súradníc prvého bodu v zóne)
-            - 100mscript-center-${{ env.VERSION }}.exe - s nastavením USE_ZONE_CENTER = True (použitie súradníc stredu zóny)
+            Tento release obsahuje EXE súbor:
+            - 100mscript-${{ env.VERSION }}.exe - interaktívna verzia, ktorá sa počas behu opýta na nastavenie formátu súradníc
             
             Dátum vytvorenia: ${{ env.VERSION }}
           files: |
-            dist/100mscript-corner-${{ env.VERSION }}.exe
-            dist/100mscript-center-${{ env.VERSION }}.exe
+            dist/100mscript-${{ env.VERSION }}.exe
           draft: false
           prerelease: false 

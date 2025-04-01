@@ -11,13 +11,27 @@ from tqdm import tqdm
 
 # Konštanty
 ZONE_SIZE_METERS = 100  # Veľkosť zóny v metroch
-USE_ZONE_CENTER = False  # Určuje, či sa majú vo výsledku použiť súradnice stredu zóny (True) alebo prvá súradnica zo zóny (False)
 
 def parse_arguments():
     """Spracovanie argumentov príkazového riadka."""
     parser = argparse.ArgumentParser(description='Spracovanie CSV súboru s meraniami do zón.')
     parser.add_argument('file', nargs='?', help='Cesta k CSV súboru')
     return parser.parse_args()
+
+def ask_for_zone_center():
+    """Opýta sa používateľa, či sa majú použiť súradnice stredu zóny alebo pôvodné súradnice."""
+    print("\nNastavenie súradníc v zónach:")
+    print("1 - Použiť súradnice stredu zóny")
+    print("2 - Použiť pôvodné súradnice (prvý bod v zóne)")
+    
+    while True:
+        choice = input("Vyberte možnosť [1/2]: ").strip()
+        if choice == "1":
+            return True
+        elif choice == "2":
+            return False
+        else:
+            print("Neplatná voľba. Prosím zadajte 1 alebo 2.")
 
 def load_csv_file(file_path):
     """Načíta CSV súbor a vráti DataFrame a informácie o súbore."""
@@ -208,7 +222,7 @@ def calculate_zone_stats(df, column_mapping, column_names):
     
     return zone_stats
 
-def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info):
+def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center):
     """Uloží výsledky zón do CSV súboru, zachovávajúc pôvodný formát riadkov."""
     output_file = original_file.replace('.csv', '_zones.csv')
     
@@ -291,7 +305,7 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             base_row[sinr_col] = f"{zone_row['sinr_avg']:.2f}"
         
         # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
-        if USE_ZONE_CENTER:
+        if use_zone_center:
             # Použijeme súradnice stredu zóny
             base_row[lat_col] = f"{zone_row['latitude']:.6f}"
             base_row[lon_col] = f"{zone_row['longitude']:.6f}"
@@ -372,8 +386,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         zona_center_y = zona_y + ZONE_SIZE_METERS/2
                         
                         # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
-                        if USE_ZONE_CENTER:
-                            # Pre prázdne zóny pri USE_ZONE_CENTER=True nemusíme robiť nič extra,
+                        if use_zone_center:
+                            # Pre prázdne zóny pri use_zone_center=True nemusíme robiť nič extra,
                             # keďže nižšie sa vždy nastavujú súradnice stredu zóny
                             pass
                         # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
@@ -543,6 +557,10 @@ def main():
     if df is None:
         return
     
+    # Opýtame sa používateľa, či chce použiť súradnice stredu zóny
+    use_zone_center = ask_for_zone_center()
+    print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
+    
     # Získame mapovanie stĺpcov
     column_mapping = get_column_mapping()
     
@@ -553,7 +571,7 @@ def main():
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
-    save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info)
+    save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
     
     # Uložíme štatistiky
     save_stats(zone_stats, file_path)
