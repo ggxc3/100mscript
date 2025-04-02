@@ -444,8 +444,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     if generate_empty_zones:
         print(f"Pridaných {added_empty_zones} prázdnych zón")
     print(f"Výsledky zón uložené do súboru: {output_file}")
+    
+    return generate_empty_zones  # Vrátime informáciu, či boli generované prázdne zóny
 
-def save_stats(zone_stats, original_file):
+def save_stats(zone_stats, original_file, include_empty_zones=False):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
     stats_file = original_file.replace('.csv', '_stats.csv')
     
@@ -470,12 +472,13 @@ def save_stats(zone_stats, original_file):
         rsrp_good = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_GOOD'])
         rsrp_bad = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_BAD'])
         
-        # Počet chýbajúcich zón
-        existing_zones = set(op_zones['zona_key'])
-        missing_zones = total_unique_zones - len(existing_zones)
-        
-        # Všetky chýbajúce zóny pridáme ako zlý signál
-        rsrp_bad += missing_zones
+        # Počet chýbajúcich zón a ich započítanie iba ak používateľ zvolil generovanie prázdnych zón
+        if include_empty_zones:
+            existing_zones = set(op_zones['zona_key'])
+            missing_zones = total_unique_zones - len(existing_zones)
+            
+            # Všetky chýbajúce zóny pridáme ako zlý signál
+            rsrp_bad += missing_zones
         
         # Konvertujeme MCC a MNC na celé čísla
         try:
@@ -571,10 +574,10 @@ def main():
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
-    save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
+    include_empty_zones = save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
     
-    # Uložíme štatistiky
-    save_stats(zone_stats, file_path)
+    # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach
+    save_stats(zone_stats, file_path, include_empty_zones)
     
     # Vypíšeme informácie o zónach a rozsahu merania
     print("\nSúhrn spracovania:")
