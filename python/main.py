@@ -8,6 +8,7 @@ from pyproj import Transformer, Geod
 import argparse
 from collections import defaultdict
 from tqdm import tqdm
+import re
 
 # Konštanty
 ZONE_SIZE_METERS = 100  # Veľkosť zóny v metroch
@@ -445,7 +446,193 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         print(f"Pridaných {added_empty_zones} prázdnych zón")
     print(f"Výsledky zón uložené do súboru: {output_file}")
     
-    return generate_empty_zones  # Vrátime informáciu, či boli generované prázdne zóny
+    return generate_empty_zones, processed_zones, unique_zones  # Vrátime informáciu, či boli generované prázdne zóny a zoznam spracovaných zón
+
+def add_custom_operators(zone_stats, df, column_mapping, column_names, output_file, use_zone_center, processed_zones, unique_zones):
+    """Pridá vlastných operátorov do zón a štatistík."""
+    add_operators = input("Chcete pridať vlastných operátorov, ktorí neboli nájdení v dátach? (a/n): ").lower() == 'a'
+    
+    if not add_operators:
+        return zone_stats, False
+    
+    # Získame existujúcich operátorov
+    existing_operators = set([f"{mcc}_{mnc}" for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])])
+    
+    custom_operators = []
+    continue_adding = True
+    
+    # Regex vzor: MCC a MNC musia obsahovať iba čísla a nesmú byť prázdne
+    mcc_pattern = re.compile(r'^\d+$')
+    mnc_pattern = re.compile(r'^\d+$')
+    
+    while continue_adding:
+        # Zadáme nových operátorov v jednom riadku oddelených dvojbodkou
+        try:
+            operators_input = input("Zadajte MCC:MNC operátorov oddelené medzerou (napr. '231:01 231:02'), alebo 'koniec' pre ukončenie: ").strip()
+            
+            # Kontrola ukončenia
+            if not operators_input or operators_input.lower() in ['koniec', 'quit', 'q', 'exit']:
+                continue_adding = False
+                continue
+            
+            operator_pairs = operators_input.split()
+            added_in_batch = False
+            
+            for operator_pair in operator_pairs:
+                parts = operator_pair.split(':')
+                if len(parts) != 2:
+                    print(f"Neplatný formát operátora '{operator_pair}'. Použite formát MCC:MNC.")
+                    continue
+                    
+                mcc, mnc = parts
+                
+                # Validácia MCC a MNC pomocou regex
+                if not mcc_pattern.match(mcc):
+                    print(f"Neplatné MCC '{mcc}'. MCC musí obsahovať iba čísla a nesmie byť prázdne.")
+                    continue
+                    
+                if not mnc_pattern.match(mnc):
+                    print(f"Neplatné MNC '{mnc}'. MNC musí obsahovať iba čísla a nesmie byť prázdne.")
+                    continue
+                
+                # Skontrolujeme, či tento operátor už existuje
+                operator_key = f"{mcc}_{mnc}"
+                if operator_key in existing_operators:
+                    print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach!")
+                    continue
+                    
+                # Pridáme operátora do zoznamu
+                custom_operators.append((mcc, mnc))
+                existing_operators.add(operator_key)
+                print(f"Operátor s MCC={mcc} a MNC={mnc} bol pridaný.")
+                added_in_batch = True
+                
+            # Opýtame sa, či chce pridať ďalšie, iba ak bol pridaný aspoň jeden operátor
+            if added_in_batch and input("Chcete pridať ďalších operátorov? (a/n): ").lower() != 'a':
+                continue_adding = False
+        
+        except Exception as e:
+            print(f"Chyba pri zadávaní operátorov: {e}")
+    
+    if not custom_operators:
+        return zone_stats, False
+    
+    print(f"Pridávam {len(custom_operators)} vlastných operátorov...")
+    
+    # Načítame existujúci súbor so zónami
+    try:
+        with open(output_file, 'r', encoding='utf-8') as f:
+            output_lines = f.readlines()
+    except:
+        # Ak súbor ešte neexistuje, vytvoríme prázdny zoznam
+        output_lines = []
+    
+    # Pridáme nové riadky do súboru - prázdne zóny pre nových operátorov
+    new_zones_added = 0
+    
+    # Ak máme nejaké zóny, môžeme pridať nových operátorov
+    if len(unique_zones) > 0:
+        # Vzorový riadok - vezmeme prvý riadok z dataframe
+        if len(df) > 0:
+            sample_row = df.iloc[0].copy()
+            
+            # Vytvoríme riadky pre nových operátorov
+            rsrp_col = column_names[column_mapping['rsrp']]
+            lat_col = column_names[column_mapping['latitude']]
+            lon_col = column_names[column_mapping['longitude']]
+            mcc_col = column_names[column_mapping['mcc']]
+            mnc_col = column_names[column_mapping['mnc']]
+            
+            # Pre každú kombináciu zóny a nového operátora vytvoríme záznam
+            print("Generujem zóny pre nových operátorov...")
+            for zona_key in tqdm(unique_zones, desc="Generovanie zón pre nových operátorov"):
+                for mcc, mnc in custom_operators:
+                    operator_key = f"{mcc}_{mnc}"
+                    zona_operator_key = f"{zona_key}_{operator_key}"
+                    
+                    # Ak táto kombinácia neexistuje, vytvoríme ju
+                    if zona_operator_key not in processed_zones:
+                        base_row = sample_row.copy()
+                        
+                        # Rozdelíme zona_key na súradnice
+                        zona_coords = zona_key.split('_')
+                        if len(zona_coords) == 2:
+                            zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                            
+                            # Získame stred zóny
+                            zona_center_x = zona_x + ZONE_SIZE_METERS/2
+                            zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                            
+                            # Pre prázdne zóny vždy používame stredové súradnice
+                            # Transformujeme späť na WGS84
+                            transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                            
+                            # Vždy používame súradnice stredu zóny pre prázdne zóny
+                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
+                            
+                            # Aktualizujeme hodnoty - používame bodku namiesto čiarky
+                            base_row[lat_col] = f"{lat:.6f}"
+                            base_row[lon_col] = f"{lon:.6f}"
+                            base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
+                            
+                            # Nastavíme MCC a MNC
+                            base_row[mcc_col] = mcc
+                            base_row[mnc_col] = mnc
+                            
+                            # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
+                            row_values = []
+                            for j, val in enumerate(base_row[column_names]):
+                                if pd.isna(val):
+                                    row_values.append("")
+                                else:
+                                    row_values.append(str(val))
+                            
+                            csv_row = ';'.join(row_values)
+                            
+                            # Pridáme informáciu o prázdnej zóne
+                            csv_row += " # Prázdna zóna - vlastný operátor"
+                            
+                            output_lines.append(csv_row + "\n")
+                            new_zones_added += 1
+                            
+                            # Označíme túto zónu ako spracovanú
+                            processed_zones[zona_operator_key] = True
+    
+    # Zapíšeme výsledky späť do súboru
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.writelines(output_lines)
+    
+    if new_zones_added > 0:
+        print(f"Pridaných {new_zones_added} prázdnych zón pre vlastných operátorov.")
+    
+    # Pridáme vlastných operátorov do dataframe so štatistikami
+    for mcc, mnc in custom_operators:
+        # Vytvoríme nový riadok pre tento operátor
+        new_row = pd.DataFrame({
+            'zona_key': [unique_zones[0] if len(unique_zones) > 0 else '0_0'],
+            'operator_key': [f"{mcc}_{mnc}"],
+            'zona_x': [0],
+            'zona_y': [0],
+            'mcc': [mcc],
+            'mnc': [mnc],
+            'rsrp_avg': [-174],
+            'pocet_merani': [0],
+            'najcastejsia_frekvencia': [''],
+            'zona_stred_x': [0],
+            'zona_stred_y': [0],
+            'longitude': [0],
+            'latitude': [0],
+            'rsrp_kategoria': ['RSRP_BAD']
+        })
+        
+        # Pridáme SINR stĺpec, ak existuje
+        if 'sinr_avg' in zone_stats.columns:
+            new_row['sinr_avg'] = np.nan
+        
+        # Spojíme s existujúcim dataframe
+        zone_stats = pd.concat([zone_stats, new_row], ignore_index=True)
+    
+    return zone_stats, True
 
 def save_stats(zone_stats, original_file, include_empty_zones=False):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
@@ -574,7 +761,14 @@ def main():
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
-    include_empty_zones = save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
+    output_file = file_path.replace('.csv', '_zones.csv')
+    include_empty_zones, processed_zones, unique_zones = save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
+    
+    # Pridáme vlastných operátorov, ak používateľ chce
+    zone_stats, custom_operators_added = add_custom_operators(
+        zone_stats, processed_df, column_mapping, column_names, 
+        output_file, use_zone_center, processed_zones, unique_zones
+    )
     
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach
     save_stats(zone_stats, file_path, include_empty_zones)
