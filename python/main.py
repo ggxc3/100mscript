@@ -260,6 +260,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     # Zoradíme zóny podľa operátora (MCC, MNC)
     sorted_zone_stats = zone_stats.sort_values(['mcc', 'mnc'])
     
+    # Získame všetky unikátne zóny bez ohľadu na to, či budeme generovať prázdne zóny
+    unique_zones = sorted_zone_stats['zona_key'].unique()
+    
     print("Zapisujem výsledky zón...")
     
     # Kontrolujeme, či máme SINR stĺpec
@@ -764,11 +767,13 @@ def main():
     output_file = file_path.replace('.csv', '_zones.csv')
     include_empty_zones, processed_zones, unique_zones = save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
     
-    # Pridáme vlastných operátorov, ak používateľ chce
-    zone_stats, custom_operators_added = add_custom_operators(
-        zone_stats, processed_df, column_mapping, column_names, 
-        output_file, use_zone_center, processed_zones, unique_zones
-    )
+    # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
+    custom_operators_added = False
+    if include_empty_zones:
+        zone_stats, custom_operators_added = add_custom_operators(
+            zone_stats, processed_df, column_mapping, column_names, 
+            output_file, use_zone_center, processed_zones, unique_zones
+        )
     
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach
     save_stats(zone_stats, file_path, include_empty_zones)
