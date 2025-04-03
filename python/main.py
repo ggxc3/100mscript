@@ -546,6 +546,9 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             mcc_col = column_names[column_mapping['mcc']]
             mnc_col = column_names[column_mapping['mnc']]
             
+            # Premenná pre sledovanie, či sme už pridali prvý riadok
+            first_custom_operator_line = True
+            
             # Pre každú kombináciu zóny a nového operátora vytvoríme záznam
             print("Generujem zóny pre nových operátorov...")
             for zona_key in tqdm(unique_zones, desc="Generovanie zón pre nových operátorov"):
@@ -595,7 +598,13 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                             # Pridáme informáciu o prázdnej zóne
                             csv_row += " # Prázdna zóna - vlastný operátor"
                             
-                            output_lines.append(csv_row + "\n")
+                            # Ak je to prvý riadok vlastného operátora, pridáme prázdny riadok pred ním
+                            if first_custom_operator_line:
+                                output_lines.append("\n" + csv_row + "\n")
+                                first_custom_operator_line = False
+                            else:
+                                output_lines.append(csv_row + "\n")
+                                
                             new_zones_added += 1
                             
                             # Označíme túto zónu ako spracovanú
