@@ -93,7 +93,7 @@ def load_csv_file(file_path):
         print(f"Chyba pri načítaní súboru: {e}")
         return None, None
 
-def process_data(df, column_mapping):
+def process_data(df, column_mapping, header_line=0):
     """Spracuje dataframe a rozdelí ho do zón."""
     # Vytvoríme transformátor z WGS84 (latitute, longitude) na S-JTSK (metre) - optimálna projekcia pre Slovensko
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
@@ -104,6 +104,10 @@ def process_data(df, column_mapping):
     # Filtrujeme riadky s chýbajúcimi RSRP hodnotami
     rsrp_col = column_names[column_mapping['rsrp']]
     df_filtered = df.copy()
+    
+    # Zachovávame originálne indexy riadkov z pôvodného súboru
+    # Pridáme header_line + 1 aby sme správne vypočítali Excel riadok
+    df_filtered['original_excel_row'] = df_filtered.index + header_line + 1
     
     # Konvertujeme RSRP hodnoty na float a označujeme chýbajúce hodnoty ako NaN
     df_filtered[rsrp_col] = df_filtered[rsrp_col].apply(
@@ -178,7 +182,8 @@ def calculate_zone_stats(df, column_mapping, column_names):
     # Agregačný slovník pre rôzne stĺpce
     agg_dict = {
         column_names[column_mapping['rsrp']]: ['mean', 'count'],
-        column_names[column_mapping['frequency']]: lambda x: x.value_counts().index[0] if len(x) > 0 else ''
+        column_names[column_mapping['frequency']]: lambda x: x.value_counts().index[0] if len(x) > 0 else '',
+        'original_excel_row': lambda x: list(x)  # Zachováme zoznam pôvodných excel riadkov
     }
     
     # Pridáme SINR do agregácie, ak existuje
@@ -191,7 +196,7 @@ def calculate_zone_stats(df, column_mapping, column_names):
     
     # Upravíme názvy stĺpcov
     new_columns = ['zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
-                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia']
+                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'original_excel_rows']
     
     if sinr_col:
         new_columns.append('sinr_avg')
@@ -248,6 +253,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     # Ak sa nepodarilo nájsť hlavičku, použijeme názvy stĺpcov
     if not header_line or ';' not in header_line:
         header_line = ';'.join(column_names)
+    
+    # Pridáme nový stĺpec pre zoznam riadkov do hlavičky
+    header_line += ";Riadky_v_zone"
     
     # Vytvoríme nový obsah pre výstupný súbor - začíname prázdnym riadkom
     output_lines = ['']  # Prázdny riadok na začiatku
@@ -314,6 +322,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             base_row[lat_col] = f"{zone_row['latitude']:.6f}"
             base_row[lon_col] = f"{zone_row['longitude']:.6f}"
         
+        # Získame zoznam riadkov z Excelu, ktoré patria do tejto zóny
+        excel_rows = zone_row['original_excel_rows']
+        excel_rows_str = ','.join(map(str, excel_rows)) if excel_rows else ""
+        
         # Vytvoríme riadok pre CSV
         row_values = []
         for j, val in enumerate(base_row[column_names]):
@@ -331,7 +343,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         
         csv_row = ';'.join(row_values)
         
-        # Pridáme informáciu o zóne
+        # Pridáme informáciu o zóne a zoznam riadkov
+        csv_row += f";{excel_rows_str}"
+        
+        # Pridáme poznámku o počte meraní
         csv_row += f" # Meraní: {zone_row['pocet_merani']}"
         
         output_lines.append(csv_row)
@@ -434,6 +449,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                                 row_values.append(str(val))
                         
                         csv_row = ';'.join(row_values)
+                        
+                        # Pre prázdne zóny pridáme prázdny stĺpec pre zoznam riadkov
+                        csv_row += ";"
                         
                         # Pridáme informáciu o prázdnej zóne
                         csv_row += " # Prázdna zóna - automaticky vygenerovaná"
@@ -595,6 +613,9 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                             
                             csv_row = ';'.join(row_values)
                             
+                            # Pridáme prázdny stĺpec pre zoznam riadkov
+                            csv_row += ";"
+                            
                             # Pridáme informáciu o prázdnej zóne
                             csv_row += " # Prázdna zóna - vlastný operátor"
                             
@@ -630,6 +651,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             'rsrp_avg': [-174],
             'pocet_merani': [0],
             'najcastejsia_frekvencia': [''],
+            'original_excel_rows': [[]],  # Prázdny zoznam pre originálne excell riadky
             'zona_stred_x': [0],
             'zona_stred_y': [0],
             'longitude': [0],
@@ -766,8 +788,12 @@ def main():
     # Získame mapovanie stĺpcov
     column_mapping = get_column_mapping()
     
-    # Spracujeme dáta
-    processed_df, column_names = process_data(df, column_mapping)
+    # Získame číslo riadku hlavičky z info o súbore
+    header_line = file_info.get('header_line', 0) if file_info else 0
+    print(f"Hlavička súboru sa nachádza na riadku {header_line + 1}")
+    
+    # Spracujeme dáta s odovzdaním informácie o riadku hlavičky
+    processed_df, column_names = process_data(df, column_mapping, header_line)
     
     # Vypočítame štatistiky zón
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names)
