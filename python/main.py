@@ -182,7 +182,7 @@ def calculate_zone_stats(df, column_mapping, column_names):
     # Agregačný slovník pre rôzne stĺpce
     agg_dict = {
         column_names[column_mapping['rsrp']]: ['mean', 'count'],
-        column_names[column_mapping['frequency']]: lambda x: x.value_counts().index[0] if len(x) > 0 else '',
+        column_names[column_mapping['frequency']]: [lambda x: x.value_counts().index[0] if len(x) > 0 else '', lambda x: list(x)],
         'original_excel_row': lambda x: list(x)  # Zachováme zoznam pôvodných excel riadkov
     }
     
@@ -195,12 +195,14 @@ def calculate_zone_stats(df, column_mapping, column_names):
                             column_names[column_mapping['mcc']], column_names[column_mapping['mnc']]]).agg(agg_dict).reset_index()
     
     # Upravíme názvy stĺpcov
+    freq_col = column_names[column_mapping['frequency']]
     new_columns = ['zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
-                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'original_excel_rows']
+                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'vsetky_frekvencie', 'original_excel_rows']
     
     if sinr_col:
         new_columns.append('sinr_avg')
     
+    # Premenujeme stĺpce podľa nových názvov
     zone_stats.columns = new_columns
     
     # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny)
@@ -254,8 +256,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     if not header_line or ';' not in header_line:
         header_line = ';'.join(column_names)
     
-    # Pridáme nový stĺpec pre zoznam riadkov do hlavičky
-    header_line += ";Riadky_v_zone"
+    # Pridáme nové stĺpce pre zoznam riadkov a frekvencií do hlavičky
+    header_line += ";Riadky_v_zone;Frekvencie_v_zone"
     
     # Vytvoríme nový obsah pre výstupný súbor - začíname prázdnym riadkom
     output_lines = ['']  # Prázdny riadok na začiatku
@@ -326,6 +328,12 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         excel_rows = zone_row['original_excel_rows']
         excel_rows_str = ','.join(map(str, excel_rows)) if excel_rows else ""
         
+        # Získame zoznam frekvencií, ktoré patria do tejto zóny
+        all_frequencies = zone_row['vsetky_frekvencie']
+        # Odstránime duplicity a zoradíme frekvencie
+        unique_frequencies = sorted(set(all_frequencies))
+        frequencies_str = ','.join(map(str, unique_frequencies)) if unique_frequencies else ""
+        
         # Vytvoríme riadok pre CSV
         row_values = []
         for j, val in enumerate(base_row[column_names]):
@@ -343,8 +351,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         
         csv_row = ';'.join(row_values)
         
-        # Pridáme informáciu o zóne a zoznam riadkov
-        csv_row += f";{excel_rows_str}"
+        # Pridáme informáciu o zóne a zoznam riadkov a frekvencií
+        csv_row += f";{excel_rows_str};{frequencies_str}"
         
         # Pridáme poznámku o počte meraní
         csv_row += f" # Meraní: {zone_row['pocet_merani']}"
@@ -450,8 +458,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         
                         csv_row = ';'.join(row_values)
                         
-                        # Pre prázdne zóny pridáme prázdny stĺpec pre zoznam riadkov
-                        csv_row += ";"
+                        # Pre prázdne zóny pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
+                        csv_row += ";;"
                         
                         # Pridáme informáciu o prázdnej zóne
                         csv_row += " # Prázdna zóna - automaticky vygenerovaná"
@@ -613,8 +621,8 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                             
                             csv_row = ';'.join(row_values)
                             
-                            # Pridáme prázdny stĺpec pre zoznam riadkov
-                            csv_row += ";"
+                            # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
+                            csv_row += ";;"
                             
                             # Pridáme informáciu o prázdnej zóne
                             csv_row += " # Prázdna zóna - vlastný operátor"
@@ -651,6 +659,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             'rsrp_avg': [-174],
             'pocet_merani': [0],
             'najcastejsia_frekvencia': [''],
+            'vsetky_frekvencie': [[]],  # Prázdny zoznam pre všetky frekvencie
             'original_excel_rows': [[]],  # Prázdny zoznam pre originálne excell riadky
             'zona_stred_x': [0],
             'zona_stred_y': [0],
