@@ -257,7 +257,12 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         header_line = ';'.join(column_names)
     
     # Pridáme nové stĺpce pre zoznam riadkov a frekvencií do hlavičky
-    header_line += ";Riadky_v_zone;Frekvencie_v_zone"
+    orig_header_cols = header_line.split(';')
+    header_line = ';'.join(orig_header_cols) + ";Riadky_v_zone;Frekvencie_v_zone"
+    
+    # Spočítame očakávaný počet stĺpcov
+    expected_columns = len(orig_header_cols)
+    print(f"Počet stĺpcov v pôvodnej hlavičke: {expected_columns}")
     
     # Vytvoríme nový obsah pre výstupný súbor - začíname prázdnym riadkom
     output_lines = ['']  # Prázdny riadok na začiatku
@@ -349,6 +354,15 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             else:
                 row_values.append(str(val))
         
+        # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
+        while len(row_values) < expected_columns:
+            row_values.append("")
+        
+        # Ak máme viac stĺpcov, odrežeme nadbytočné
+        if len(row_values) > expected_columns:
+            row_values = row_values[:expected_columns]
+        
+        # Vytvoríme základný CSV riadok
         csv_row = ';'.join(row_values)
         
         # Pridáme informáciu o zóne a zoznam riadkov a frekvencií
@@ -456,9 +470,18 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                             else:
                                 row_values.append(str(val))
                         
+                        # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
+                        while len(row_values) < expected_columns:
+                            row_values.append("")
+                        
+                        # Ak máme viac stĺpcov, odrežeme nadbytočné
+                        if len(row_values) > expected_columns:
+                            row_values = row_values[:expected_columns]
+                        
+                        # Vytvoríme základný CSV riadok
                         csv_row = ';'.join(row_values)
                         
-                        # Pre prázdne zóny pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
+                        # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
                         csv_row += ";;"
                         
                         # Pridáme informáciu o prázdnej zóne
@@ -619,6 +642,15 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                                 else:
                                     row_values.append(str(val))
                             
+                            # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
+                            while len(row_values) < expected_columns:
+                                row_values.append("")
+                            
+                            # Ak máme viac stĺpcov, odrežeme nadbytočné
+                            if len(row_values) > expected_columns:
+                                row_values = row_values[:expected_columns]
+                            
+                            # Vytvoríme základný CSV riadok
                             csv_row = ';'.join(row_values)
                             
                             # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
