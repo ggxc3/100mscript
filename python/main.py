@@ -579,6 +579,9 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
         # Ak súbor ešte neexistuje, vytvoríme prázdny zoznam
         output_lines = []
     
+    # Vypočítame expected_columns z počtu stĺpcov v column_names
+    expected_columns = len(column_names)
+    
     # Pridáme nové riadky do súboru - prázdne zóny pre nových operátorov
     new_zones_added = 0
     
