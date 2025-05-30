@@ -31,12 +31,12 @@ def ask_for_rsrp_threshold():
         elif choice == "n":
             while True:
                 try:
-                    threshold = input("Zadajte vlastnú hranicu RSRP ako celé číslo (napr. -105): ").strip()
-                    threshold_value = int(threshold)
+                    threshold = input("Zadajte vlastnú hranicu RSRP (napr. -105): ").strip()
+                    threshold_value = float(threshold)
                     print(f"Použije sa hranica RSRP: {threshold_value} dBm")
                     return threshold_value
                 except ValueError:
-                    print("Neplatná hodnota. Prosím zadajte celé číslo (napr. -105).")
+                    print("Neplatná hodnota. Prosím zadajte číslo (napr. -105).")
         else:
             print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
 
@@ -748,8 +748,8 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     operators = zone_stats[['mcc', 'mnc']].drop_duplicates()
     
     # Vytvoríme dynamické názvy stĺpcov na základe RSRP hranice
-    rsrp_good_column = f"RSRP >= {int(rsrp_threshold)}"
-    rsrp_bad_column = f"RSRP < {int(rsrp_threshold)}"
+    rsrp_good_column = f"RSRP >= {rsrp_threshold}"
+    rsrp_bad_column = f"RSRP < {rsrp_threshold}"
     
     print("Vytváram štatistiky...")
     for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov"):
@@ -792,7 +792,7 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     stats_df = pd.DataFrame(stats_data)
     stats_df.to_csv(stats_file, sep=';', index=False, encoding='utf-8')
     print(f"Štatistiky uložené do súboru: {stats_file}")
-    print(f"Použitá RSRP hranica: {int(rsrp_threshold)} dBm")
+    print(f"Použitá RSRP hranica: {rsrp_threshold} dBm")
 
 def get_column_mapping():
     """Získa mapovanie stĺpcov podľa predvolených hodnôt alebo od používateľa."""
