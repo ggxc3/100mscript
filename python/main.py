@@ -19,6 +19,27 @@ def parse_arguments():
     parser.add_argument('file', nargs='?', help='Cesta k CSV súboru')
     return parser.parse_args()
 
+def ask_for_rsrp_threshold():
+    """Opýta sa používateľa na hranicu RSRP pre štatistiky."""
+    print("\nNastavenie hranice RSRP pre štatistiky:")
+    print("Predvolená hodnota: -110 dBm")
+    
+    while True:
+        choice = input("Chcete použiť predvolenú hodnotu -110 dBm? (a/n): ").strip().lower()
+        if choice == "a":
+            return -110
+        elif choice == "n":
+            while True:
+                try:
+                    threshold = input("Zadajte vlastnú hranicu RSRP ako celé číslo (napr. -105): ").strip()
+                    threshold_value = int(threshold)
+                    print(f"Použije sa hranica RSRP: {threshold_value} dBm")
+                    return threshold_value
+                except ValueError:
+                    print("Neplatná hodnota. Prosím zadajte celé číslo (napr. -105).")
+        else:
+            print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
+
 def ask_for_zone_center():
     """Opýta sa používateľa, či sa majú použiť súradnice stredu zóny alebo pôvodné súradnice."""
     print("\nNastavenie súradníc v zónach:")
@@ -166,7 +187,7 @@ def process_data(df, column_mapping, header_line=0):
     
     return df_filtered, column_names
 
-def calculate_zone_stats(df, column_mapping, column_names):
+def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110):
     """Vypočíta štatistiky pre každú zónu."""
     print("Počítam štatistiky pre zóny...")
     
@@ -225,8 +246,8 @@ def calculate_zone_stats(df, column_mapping, column_names):
         zone_stats.loc[zone_stats.index[i], 'longitude'] = lon
         zone_stats.loc[zone_stats.index[i], 'latitude'] = lat
     
-    # Klasifikácia RSRP
-    zone_stats['rsrp_kategoria'] = np.where(zone_stats['rsrp_avg'] >= -110, 'RSRP_GOOD', 'RSRP_BAD')
+    # Klasifikácia RSRP s použitím zadanej hranice
+    zone_stats['rsrp_kategoria'] = np.where(zone_stats['rsrp_avg'] >= rsrp_threshold, 'RSRP_GOOD', 'RSRP_BAD')
     
     return zone_stats
 
@@ -712,7 +733,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
     
     return zone_stats, True
 
-def save_stats(zone_stats, original_file, include_empty_zones=False):
+def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
     stats_file = original_file.replace('.csv', '_stats.csv')
     
@@ -725,6 +746,10 @@ def save_stats(zone_stats, original_file, include_empty_zones=False):
     
     # Získame všetkých unikátnych operátorov
     operators = zone_stats[['mcc', 'mnc']].drop_duplicates()
+    
+    # Vytvoríme dynamické názvy stĺpcov na základe RSRP hranice
+    rsrp_good_column = f"RSRP >= {int(rsrp_threshold)}"
+    rsrp_bad_column = f"RSRP < {int(rsrp_threshold)}"
     
     print("Vytváram štatistiky...")
     for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov"):
@@ -759,14 +784,15 @@ def save_stats(zone_stats, original_file, include_empty_zones=False):
         stats_data.append({
             'MNC': mnc_int,
             'MCC': mcc_int,
-            'RSRP >= -110': rsrp_good,
-            'RSRP < -110': rsrp_bad
+            rsrp_good_column: rsrp_good,
+            rsrp_bad_column: rsrp_bad
         })
     
     # Vytvoríme dataframe a uložíme
     stats_df = pd.DataFrame(stats_data)
     stats_df.to_csv(stats_file, sep=';', index=False, encoding='utf-8')
     print(f"Štatistiky uložené do súboru: {stats_file}")
+    print(f"Použitá RSRP hranica: {int(rsrp_threshold)} dBm")
 
 def get_column_mapping():
     """Získa mapovanie stĺpcov podľa predvolených hodnôt alebo od používateľa."""
@@ -829,6 +855,9 @@ def main():
     use_zone_center = ask_for_zone_center()
     print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
     
+    # Opýtame sa používateľa na hranicu RSRP pre štatistiky
+    rsrp_threshold = ask_for_rsrp_threshold()
+    
     # Získame mapovanie stĺpcov
     column_mapping = get_column_mapping()
     
@@ -839,8 +868,8 @@ def main():
     # Spracujeme dáta s odovzdaním informácie o riadku hlavičky
     processed_df, column_names = process_data(df, column_mapping, header_line)
     
-    # Vypočítame štatistiky zón
-    zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names)
+    # Vypočítame štatistiky zón s použitím zadanej RSRP hranice
+    zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
     output_file = file_path.replace('.csv', '_zones.csv')
@@ -854,8 +883,8 @@ def main():
             output_file, use_zone_center, processed_zones, unique_zones
         )
     
-    # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach
-    save_stats(zone_stats, file_path, include_empty_zones)
+    # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach a RSRP hranicu
+    save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold)
     
     # Vypíšeme informácie o zónach a rozsahu merania
     print("\nSúhrn spracovania:")
