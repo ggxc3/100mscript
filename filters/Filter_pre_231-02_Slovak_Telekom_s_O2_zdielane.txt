@@ -1,0 +1,21 @@
+<Query>("MCC" = 231 AND "MNC" = 2);
+ OR ;
+ (;
+ ("Frequency" = 773000000  AND "MCC" = 231 AND "MNC" = 6) ;
+ OR ;
+ ("Frequency" = 796000000 AND "MCC" = 231 AND "MNC" = 6);
+  OR ;
+  ("Frequency" = 1852500000 AND "MCC" = 231 AND "MNC" = 6);
+   OR ;
+  ("Frequency" = 1825000000 AND "MCC" = 231 AND "MNC" = 6);
+   OR ;
+  ("Frequency" = 1853050000 AND "MCC" = 231 AND "MNC" = 6);
+   OR ;
+   ("Frequency" = 2140000000 AND "MCC" = 231 AND "MNC" = 6);
+    OR ;
+	("Frequency" = 2142500000 AND "MCC" = 231 AND "MNC" = 6);
+	 OR ;
+	("Frequency" = 2660000000 AND "MCC" = 231 AND "MNC" = 6);
+	OR ;
+	("Frequency" = 2679800000 AND "MCC" = 231 AND "MNC" = 6);
+	)</Query>

@@ -41,6 +41,20 @@ Program vykonáva tieto operácie:
    - `<original>_zones.csv` - detaily pre každú zónu
    - `<original>_stats.csv` - štatistiky pokrytia pre každého operátora
 
+## Predspracovanie filtrov
+
+Ak sa v adresári, z ktorého spúšťate skript, nachádza priečinok `filters/` alebo `filtre_5G/`,
+program načíta všetky `.txt` filtre a aplikuje ich na vstupný CSV súbor pred spracovaním zón.
+
+Formát filtra:
+- prvý výraz po `<Query>` určuje hodnoty, ktoré sa prepíšu (assignment)
+- ďalšie výrazy v zátvorkách sú podmienky, kedy sa prepis uplatní (OR medzi skupinami)
+- v podmienkach je podporený aj rozsah `start-end` (inkluzívne)
+
+Ak sa v assignmente opakuje kľúč (napr. `MNC` viac krát), riadok sa duplikuje pre každú
+kombináciu hodnôt. Ak jeden riadok vyhovuje viac ako jednému filtru, program vypíše chybu
+s číslom riadku a spracovanie ukončí.
+
 ## Mapovanie stĺpcov
 
 Pri spustení programu môžete použiť predvolené mapovanie stĺpcov alebo zadať vlastné:
