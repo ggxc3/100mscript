@@ -12,7 +12,7 @@ Priečinok `scenarios/` obsahuje nasledujúce testovacie súbory:
 
 ### 1. test_scenarios.csv
 Základný testovací súbor s rôznymi hodnotami MNC (stĺpec N) a rovnakými hodnotami MCC (stĺpec M).
-Tento test overuje správne zoskupovanie do zón podľa MNC.
+Tento test overuje správne zoskupovanie do zón podľa MNC a výber frekvencie s najvyšším priemerným RSRP.
 
 **Očakávaný výsledok:** Tri zóny, každá s unikátnou hodnotou MNC.
 
@@ -33,6 +33,10 @@ Testovací súbor s geograficky blízkymi bodmi, ktoré majú rovnaké MNC, ale 
 Tento test overuje, či program správne oddeľuje body s rôznymi MCC, aj keď sú geograficky blízko.
 
 **Očakávaný výsledok:** Dve zóny - jedna pre body s MCC=231 a druhá pre body s MCC=232.
+
+### 5. test_frequency_selection.csv
+Testovací súbor s viacerými frekvenciami v rovnakej zóne pre rovnakého operátora.
+Tento test overuje, že ostáva iba frekvencia s najvyšším priemerným RSRP.
 
 ## Ako spúšťať testy
 
@@ -66,7 +70,7 @@ Po spustení testu skontrolujte vygenerovaný súbor `[nazov_suboru]_zones.csv` 
 
 1. Body sú správne zoskupené do zón podľa geografickej blízkosti
 2. Body sú separované do rôznych zón podľa MNC a MCC
-3. Priemerné hodnoty RSRP a najčastejšie frekvencie sú správne vypočítané
+3. Priemerné hodnoty RSRP a vybrané frekvencie (s najvyšším priemerným RSRP) sú správne vypočítané
 
 ## Pridávanie ďalších testov
 

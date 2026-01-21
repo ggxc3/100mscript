@@ -403,31 +403,55 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110):
             lambda x: float(str(x).replace(',', '.')) if pd.notna(x) and str(x).strip() else np.nan
         )
     
-    # Agregačný slovník pre rôzne stĺpce
-    agg_dict = {
-        column_names[column_mapping['rsrp']]: ['mean', 'count'],
-        column_names[column_mapping['frequency']]: [lambda x: x.value_counts().index[0] if len(x) > 0 else '', lambda x: list(x)],
-        'original_excel_row': lambda x: list(x)  # Zachováme zoznam pôvodných excel riadkov
+    rsrp_col = column_names[column_mapping['rsrp']]
+    freq_col = column_names[column_mapping['frequency']]
+    mcc_col = column_names[column_mapping['mcc']]
+    mnc_col = column_names[column_mapping['mnc']]
+    
+    # Agregačný slovník pre rôzne stĺpce (po frekvencii v rámci zóny + operátora)
+    agg_kwargs = {
+        'rsrp_avg': (rsrp_col, 'mean'),
+        'pocet_merani': (rsrp_col, 'count'),
+        'original_excel_rows': ('original_excel_row', lambda x: list(x))
     }
     
     # Pridáme SINR do agregácie, ak existuje
     if sinr_col:
-        agg_dict[sinr_col] = lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan
+        agg_kwargs['sinr_avg'] = (sinr_col, lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan)
     
-    # Agregácia dát podľa zón a operátorov
-    zone_stats = df.groupby(['zona_key', 'operator_key', 'zona_x', 'zona_y', 
-                            column_names[column_mapping['mcc']], column_names[column_mapping['mnc']]]).agg(agg_dict).reset_index()
+    # Agregácia dát podľa zón, operátorov a frekvencií
+    zone_freq_stats = df.groupby(
+        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, freq_col]
+    ).agg(**agg_kwargs).reset_index()
     
-    # Upravíme názvy stĺpcov
-    freq_col = column_names[column_mapping['frequency']]
-    new_columns = ['zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
-                'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'vsetky_frekvencie', 'original_excel_rows']
+    # Výber najlepšej frekvencie podľa priemernej RSRP (s deterministickým tie-break)
+    zone_freq_stats['frequency_sort_numeric'] = pd.to_numeric(zone_freq_stats[freq_col], errors='coerce')
+    zone_freq_stats['frequency_sort_text'] = zone_freq_stats[freq_col].astype(str)
+    zone_freq_stats = zone_freq_stats.sort_values(
+        ['rsrp_avg', 'pocet_merani', 'frequency_sort_numeric', 'frequency_sort_text'],
+        ascending=[False, False, True, True]
+    )
+    
+    zone_stats = zone_freq_stats.groupby(
+        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col],
+        as_index=False
+    ).first()
+    
+    # Po výbere necháme len jednu frekvenciu
+    zone_stats['najcastejsia_frekvencia'] = zone_stats[freq_col]
+    zone_stats['vsetky_frekvencie'] = zone_stats[freq_col].apply(lambda value: [value])
+    zone_stats = zone_stats.rename(columns={mcc_col: 'mcc', mnc_col: 'mnc'})
+    zone_stats = zone_stats.drop(columns=[freq_col, 'frequency_sort_numeric', 'frequency_sort_text'])
+    
+    new_columns = [
+        'zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
+        'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'vsetky_frekvencie', 'original_excel_rows'
+    ]
     
     if sinr_col:
         new_columns.append('sinr_avg')
     
-    # Premenujeme stĺpce podľa nových názvov
-    zone_stats.columns = new_columns
+    zone_stats = zone_stats[new_columns]
     
     # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny)
     transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
@@ -519,8 +543,16 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Označíme túto zónu ako spracovanú
         processed_zones[zona_operator_key] = True
         
-        # Nájdeme vzorový riadok z tejto zóny
-        sample_rows = df[df['zona_operator_key'] == zona_operator_key]
+        # Nájdeme vzorový riadok z tejto zóny a vybranej frekvencie
+        rsrp_col = column_names[column_mapping['rsrp']]
+        freq_col = column_names[column_mapping['frequency']]
+        lat_col = column_names[column_mapping['latitude']]
+        lon_col = column_names[column_mapping['longitude']]
+        selected_frequency = zone_row['najcastejsia_frekvencia']
+        if pd.isna(selected_frequency):
+            sample_rows = df[(df['zona_operator_key'] == zona_operator_key) & (df[freq_col].isna())]
+        else:
+            sample_rows = df[(df['zona_operator_key'] == zona_operator_key) & (df[freq_col] == selected_frequency)]
         
         if len(sample_rows) == 0:
             continue  # Preskočíme, ak nemáme vzorový riadok
@@ -531,12 +563,6 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Vytvoríme kópiu vzorového riadku - už filtrovaného dataframu
         # Nepoužívame original_row_index, ktorý by mohol byť mimo rozsahu
         base_row = sample_row.copy()
-        
-        # Aktualizujeme hodnoty v riadku - RSRP a najčastejšia frekvencia
-        rsrp_col = column_names[column_mapping['rsrp']]
-        freq_col = column_names[column_mapping['frequency']]
-        lat_col = column_names[column_mapping['latitude']]
-        lon_col = column_names[column_mapping['longitude']]
         
         # Aktualizujeme hodnoty - používame bodku namiesto čiarky pre desatinné hodnoty
         base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"

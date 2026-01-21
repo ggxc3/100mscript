@@ -35,7 +35,7 @@ Program vykonáva tieto operácie:
 2. Rozdelí merania do zón podľa súradníc (100m x 100m)
 3. Pre každú zónu a kombináciu MNC+MCC vypočíta:
    - Priemerné RSRP
-   - Najčastejšie používanú frekvenciu
+   - Frekvenciu s najvyšším priemerným RSRP v zóne (pre daného operátora)
    - Počet meraní
 4. Uloží výsledky do dvoch súborov:
    - `<original>_zones.csv` - detaily pre každú zónu

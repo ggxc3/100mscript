@@ -1,6 +1,6 @@
 
-Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz)
-2024-01-01;12:00:00;UTC;48.150000;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1.00;-81.60;1;1;1;1;1;1;1;1;1;1 # Meraní: 5, Excel riadky: 2,3,4,5,6
-2024-01-01;12:00:00;UTC;48.151000;17.151000;100;0;0;8;1;800;1;231;2;1;1;1;1;1;1;1;1.00;-85.00;1;1;1;1;1;1;1;1;1;1 # Meraní: 2, Excel riadky: 7,8
-;;;48.150901;17.150901;;;;;;;;231;1;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
-;;;48.150000;17.150000;;;;;;;;231;2;;;;;;;;;-150;;;;;;;;;; # Prázdna zóna - automaticky vygenerovaná
+Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz);Riadky_v_zone;Frekvencie_v_zone
+2024-01-01;12:00:00;UTC;48.150294;17.149812;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1.00;-80.00;1;1;1;1;1;1;1;1;1;1;1,2,4;800 # Meraní: 3
+2024-01-01;12:00:00;UTC;48.151279;17.151014;100;0;0;8;1;800;1;231;2;1;1;1;1;1;1;1;1.00;-82.00;1;1;1;1;1;1;1;1;1;1;6;800 # Meraní: 1
+2024-01-01;12:00:00;UTC;48.150294;17.149812;100;0;0;8;1;800;1;231;2;1;1;1;1;1;1;1;1.0;-174;1;1;1;1;1;1;1;1;1;1;; # Prázdna zóna - automaticky vygenerovaná
+2024-01-01;12:00:00;UTC;48.151279;17.151014;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;1.0;-174;1;1;1;1;1;1;1;1;1;1;; # Prázdna zóna - automaticky vygenerovaná

@@ -38,7 +38,7 @@ Každá zóna obsahuje:
 - Súčet RSRP hodnôt všetkých meraní v zóne
 - Zoznam riadkov (indexov) z pôvodného CSV súboru
 - Pôvodné dáta všetkých meraní v zóne
-- Mapu frekvencií a ich počtov v zóne
+- Vybranú frekvenciu (s najvyšším priemerným RSRP) v zóne
 
 ### Kľúčové konštanty
 
@@ -199,7 +199,7 @@ Program vytvára nový CSV súbor s názvom `<pôvodný_súbor>_zones.csv`, ktor
 - Hlavičku z pôvodného súboru
 - Jeden riadok pre každú zónu s:
   - Priemernými hodnotami RSRP
-  - Najčastejšou frekvenciou v zóne
+  - Frekvenciou s najvyšším priemerným RSRP v zóne
   - Informáciou o počte meraní v zóne
   - Zoznamom riadkov z pôvodného súboru, ktoré patria do zóny
 
