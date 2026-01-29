@@ -55,8 +55,16 @@ b) PRIRADENIE DO ZÓN
 - Pri spustení programu sa používateľa opýta, aké súradnice chce vo výstupnom súbore použiť:
   * Súradnice stredu zóny - presný stred každej 100m zóny
   * Pôvodné súradnice prvého bodu v zóne - zachová pôvodný bod z originálneho merania
+  * 100m úseky podľa poradia meraní - ignoruje štvorcové zóny a použije prvý bod úseku
 
-6. VIZUALIZÁCIA ZÓN
+6. REŽIM 100m ÚSEKOV
+-------------------
+Pri tomto režime sa štvorcové zóny nepoužívajú. Program ide po meraniach v poradí a
+postupne kumuluje vzdialenosti medzi po sebe idúcimi bodmi. Ak by ďalší krok prekročil
+100 metrov, začne sa nový úsek. Vo výstupnom súbore sa potom použijú súradnice prvého
+bodu z každého úseku.
+
+7. VIZUALIZÁCIA ZÓN
 ------------------
 Predstavte si mapu pokrytú štvorcovou sieťou, kde každý štvorec má rozmery 100 x 100 metrov. Každý štvorec predstavuje jednu zónu a obsahuje priemernú hodnotu všetkých meraní, ktoré boli v tomto štvorci zaznamenané.
 

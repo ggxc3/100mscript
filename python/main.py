@@ -251,20 +251,23 @@ def ask_for_rsrp_threshold():
         else:
             print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
 
-def ask_for_zone_center():
-    """Opýta sa používateľa, či sa majú použiť súradnice stredu zóny alebo pôvodné súradnice."""
-    print("\nNastavenie súradníc v zónach:")
-    print("1 - Použiť súradnice stredu zóny")
-    print("2 - Použiť pôvodné súradnice (prvý bod v zóne)")
+def ask_for_zone_mode():
+    """Opýta sa používateľa na režim spracovania zón/úsekov."""
+    print("\nNastavenie súradníc a režimu:")
+    print("1 - Štvorcové zóny (súradnice stredu zóny)")
+    print("2 - Štvorcové zóny (prvý bod v zóne)")
+    print("3 - 100m úseky podľa poradia meraní (prvý bod úseku)")
     
     while True:
-        choice = input("Vyberte možnosť [1/2]: ").strip()
+        choice = input("Vyberte možnosť [1/2/3]: ").strip()
         if choice == "1":
-            return True
+            return "center"
         elif choice == "2":
-            return False
+            return "original"
+        elif choice == "3":
+            return "segments"
         else:
-            print("Neplatná voľba. Prosím zadajte 1 alebo 2.")
+            print("Neplatná voľba. Prosím zadajte 1, 2 alebo 3.")
 
 def ask_for_keep_original_rows():
     """Opýta sa používateľa, či sa majú ponechať pôvodné riadky po filtrovaní."""
@@ -337,8 +340,8 @@ def load_csv_file(file_path):
         print(f"Chyba pri načítaní súboru: {e}")
         return None, None
 
-def process_data(df, column_mapping, header_line=0):
-    """Spracuje dataframe a rozdelí ho do zón."""
+def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
+    """Spracuje dataframe a rozdelí ho do zón alebo úsekov."""
     # Vytvoríme transformátor z WGS84 (latitute, longitude) na S-JTSK (metre) - optimálna projekcia pre Slovensko
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
     
@@ -394,13 +397,56 @@ def process_data(df, column_mapping, header_line=0):
         df_filtered.loc[df_filtered.index[i:end_idx], 'x_meters'] = x_meters
         df_filtered.loc[df_filtered.index[i:end_idx], 'y_meters'] = y_meters
     
-    # Výpočet zóny pre každé meranie
-    print("Počítam zóny...")
-    df_filtered['zona_x'] = (df_filtered['x_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
-    df_filtered['zona_y'] = (df_filtered['y_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
-    
-    # Vytvoríme kľúč zóny a operátora
-    df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
+    # Výpočet zóny/úseku pre každé meranie
+    if zone_mode == "segments":
+        print("Počítam úseky...")
+        total_rows = len(df_filtered)
+        x_values = df_filtered['x_meters'].to_numpy()
+        y_values = df_filtered['y_meters'].to_numpy()
+        
+        segment_ids = np.zeros(total_rows, dtype=int)
+        segment_start_xs = np.zeros(total_rows)
+        segment_start_ys = np.zeros(total_rows)
+        
+        if total_rows > 0:
+            current_segment = 0
+            segment_start_x = x_values[0]
+            segment_start_y = y_values[0]
+            prev_x = x_values[0]
+            prev_y = y_values[0]
+            cumulative_distance = 0.0
+            
+            for i in range(total_rows):
+                x = x_values[i]
+                y = y_values[i]
+                
+                if i != 0:
+                    step_distance = ((x - prev_x) ** 2 + (y - prev_y) ** 2) ** 0.5
+                    if cumulative_distance + step_distance > ZONE_SIZE_METERS:
+                        current_segment += 1
+                        segment_start_x = x
+                        segment_start_y = y
+                        cumulative_distance = 0.0
+                    else:
+                        cumulative_distance += step_distance
+                    prev_x = x
+                    prev_y = y
+                
+                segment_ids[i] = current_segment
+                segment_start_xs[i] = segment_start_x
+                segment_start_ys[i] = segment_start_y
+        
+        df_filtered['segment_id'] = segment_ids
+        df_filtered['zona_x'] = segment_start_xs
+        df_filtered['zona_y'] = segment_start_ys
+        df_filtered['zona_key'] = [f"segment_{segment_id}" for segment_id in segment_ids]
+    else:
+        print("Počítam zóny...")
+        df_filtered['zona_x'] = (df_filtered['x_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
+        df_filtered['zona_y'] = (df_filtered['y_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
+        
+        # Vytvoríme kľúč zóny a operátora
+        df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
     df_filtered['operator_key'] = df_filtered[column_names[column_mapping['mcc']]].astype(str) + '_' + df_filtered[column_names[column_mapping['mnc']]].astype(str)
     
     # Vytvoríme kombinovaný kľúč zóna+operátor
@@ -411,9 +457,12 @@ def process_data(df, column_mapping, header_line=0):
     
     return df_filtered, column_names
 
-def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110):
-    """Vypočíta štatistiky pre každú zónu."""
-    print("Počítam štatistiky pre zóny...")
+def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, zone_mode="zones"):
+    """Vypočíta štatistiky pre každú zónu alebo úsek."""
+    if zone_mode == "segments":
+        print("Počítam štatistiky pre úseky...")
+    else:
+        print("Počítam štatistiky pre zóny...")
     
     # Pripravíme SINR stĺpec pre výpočet priemeru, ak existuje
     sinr_col = None
@@ -474,15 +523,22 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110):
     
     zone_stats = zone_stats[new_columns]
     
-    # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny)
+    # Konvertujeme zona_x a zona_y späť na latitude/longitude (stred zóny alebo začiatok úseku)
     transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
     
-    # Pridáme stred zóny
-    zone_stats['zona_stred_x'] = zone_stats['zona_x'] + ZONE_SIZE_METERS/2
-    zone_stats['zona_stred_y'] = zone_stats['zona_y'] + ZONE_SIZE_METERS/2
+    # Pridáme stred zóny alebo štart úseku
+    if zone_mode == "segments":
+        zone_stats['zona_stred_x'] = zone_stats['zona_x']
+        zone_stats['zona_stred_y'] = zone_stats['zona_y']
+    else:
+        zone_stats['zona_stred_x'] = zone_stats['zona_x'] + ZONE_SIZE_METERS/2
+        zone_stats['zona_stred_y'] = zone_stats['zona_y'] + ZONE_SIZE_METERS/2
     
     # Transformujeme späť na WGS84 s progress barom
-    print("Transformujem súradnice zón...")
+    if zone_mode == "segments":
+        print("Transformujem súradnice úsekov...")
+    else:
+        print("Transformujem súradnice zón...")
     zone_stats['longitude'] = 0.0
     zone_stats['latitude'] = 0.0
     
@@ -499,8 +555,8 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110):
     
     return zone_stats
 
-def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center):
-    """Uloží výsledky zón do CSV súboru, zachovávajúc pôvodný formát riadkov."""
+def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones"):
+    """Uloží výsledky zón alebo úsekov do CSV súboru, zachovávajúc pôvodný formát riadkov."""
     output_file = original_file.replace('.csv', '_zones.csv')
     
     # Použijeme originálnu hlavičku z načítaného súboru
@@ -594,8 +650,11 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             sinr_col = column_names[column_mapping['sinr']]
             base_row[sinr_col] = f"{zone_row['sinr_avg']:.2f}"
         
-        # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
-        if use_zone_center:
+        # Aktualizujeme súradnice podľa zvoleného režimu
+        if zone_mode == "segments":
+            base_row[lat_col] = f"{zone_row['latitude']:.6f}"
+            base_row[lon_col] = f"{zone_row['longitude']:.6f}"
+        elif use_zone_center:
             # Použijeme súradnice stredu zóny
             base_row[lat_col] = f"{zone_row['latitude']:.6f}"
             base_row[lon_col] = f"{zone_row['longitude']:.6f}"
@@ -645,7 +704,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         output_lines.append(csv_row)
     
     # Vytvoríme chýbajúce zóny pre všetkých operátorov
-    generate_empty_zones = input("Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): ").lower() == 'a'
+    if zone_mode == "segments":
+        generate_empty_zones = False
+    else:
+        generate_empty_zones = input("Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): ").lower() == 'a'
     
     if generate_empty_zones:
         print("Generujem prázdne zóny...")
@@ -1107,9 +1169,13 @@ def main():
         keep_original_rows = ask_for_keep_original_rows()
         df = apply_filters(df, file_info, filter_rules, keep_original_rows)
     
-    # Opýtame sa používateľa, či chce použiť súradnice stredu zóny
-    use_zone_center = ask_for_zone_center()
-    print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
+    # Opýtame sa používateľa na režim spracovania zón
+    zone_mode = ask_for_zone_mode()
+    use_zone_center = zone_mode == "center"
+    if zone_mode == "segments":
+        print("Použijú sa 100m úseky podľa poradia meraní.")
+    else:
+        print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
     
     # Opýtame sa používateľa na hranicu RSRP pre štatistiky
     rsrp_threshold = ask_for_rsrp_threshold()
@@ -1122,14 +1188,23 @@ def main():
     print(f"Hlavička súboru sa nachádza na riadku {header_line + 1}")
     
     # Spracujeme dáta s odovzdaním informácie o riadku hlavičky
-    processed_df, column_names = process_data(df, column_mapping, header_line)
+    processed_df, column_names = process_data(df, column_mapping, header_line, zone_mode)
     
     # Vypočítame štatistiky zón s použitím zadanej RSRP hranice
-    zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold)
+    zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold, zone_mode)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
     output_file = file_path.replace('.csv', '_zones.csv')
-    include_empty_zones, processed_zones, unique_zones = save_zone_results(zone_stats, file_path, processed_df, column_mapping, column_names, file_info, use_zone_center)
+    include_empty_zones, processed_zones, unique_zones = save_zone_results(
+        zone_stats,
+        file_path,
+        processed_df,
+        column_mapping,
+        column_names,
+        file_info,
+        use_zone_center,
+        zone_mode
+    )
     
     # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
     custom_operators_added = False
@@ -1142,41 +1217,46 @@ def main():
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach a RSRP hranicu
     save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold)
     
-    # Vypíšeme informácie o zónach a rozsahu merania
+    # Vypíšeme informácie o zónach/úsekoch a rozsahu merania
     print("\nSúhrn spracovania:")
     
-    # Počet unikátnych zón a operátorov
+    # Počet unikátnych zón/úsekov a operátorov
     unique_zones = zone_stats['zona_key'].nunique()
     unique_operators = zone_stats[['mcc', 'mnc']].drop_duplicates().shape[0]
     total_zones = len(zone_stats)
     
-    print(f"Počet unikátnych zón: {unique_zones}")
-    print(f"Počet unikátnych operátorov: {unique_operators}")
-    print(f"Celkový počet zón (zóna+operátor): {total_zones}")
-    
-    # Geografický rozsah merania
-    min_x = zone_stats['zona_x'].min()
-    max_x = zone_stats['zona_x'].max()
-    min_y = zone_stats['zona_y'].min()
-    max_y = zone_stats['zona_y'].max()
-    
-    # Výpočet geografického rozsahu v metroch a kilometroch
-    range_x_m = max_x - min_x + ZONE_SIZE_METERS
-    range_y_m = max_y - min_y + ZONE_SIZE_METERS
-    range_x_km = range_x_m / 1000
-    range_y_km = range_y_m / 1000
-    
-    print(f"\nGeografický rozsah merania:")
-    print(f"X: {min_x} až {max_x} metrov (rozsah: {range_x_m:.2f} m = {range_x_km:.2f} km)")
-    print(f"Y: {min_y} až {max_y} metrov (rozsah: {range_y_m:.2f} m = {range_y_km:.2f} km)")
-    
-    # Teoretický počet zón pre geografický rozsah
-    theoretical_zones_x = range_x_m / ZONE_SIZE_METERS
-    theoretical_zones_y = range_y_m / ZONE_SIZE_METERS
-    theoretical_total_zones = theoretical_zones_x * theoretical_zones_y
-    
-    print(f"\nTeoretrický počet zón pre celý geografický rozsah: {theoretical_total_zones:.0f}")
-    print(f"Teoretické pokrytie geografického rozsahu: {(unique_zones / theoretical_total_zones * 100):.2f}%")
+    if zone_mode == "segments":
+        print(f"Počet unikátnych úsekov: {unique_zones}")
+        print(f"Počet unikátnych operátorov: {unique_operators}")
+        print(f"Celkový počet úsekov (úsek+operátor): {total_zones}")
+    else:
+        print(f"Počet unikátnych zón: {unique_zones}")
+        print(f"Počet unikátnych operátorov: {unique_operators}")
+        print(f"Celkový počet zón (zóna+operátor): {total_zones}")
+        
+        # Geografický rozsah merania
+        min_x = zone_stats['zona_x'].min()
+        max_x = zone_stats['zona_x'].max()
+        min_y = zone_stats['zona_y'].min()
+        max_y = zone_stats['zona_y'].max()
+        
+        # Výpočet geografického rozsahu v metroch a kilometroch
+        range_x_m = max_x - min_x + ZONE_SIZE_METERS
+        range_y_m = max_y - min_y + ZONE_SIZE_METERS
+        range_x_km = range_x_m / 1000
+        range_y_km = range_y_m / 1000
+        
+        print(f"\nGeografický rozsah merania:")
+        print(f"X: {min_x} až {max_x} metrov (rozsah: {range_x_m:.2f} m = {range_x_km:.2f} km)")
+        print(f"Y: {min_y} až {max_y} metrov (rozsah: {range_y_m:.2f} m = {range_y_km:.2f} km)")
+        
+        # Teoretický počet zón pre geografický rozsah
+        theoretical_zones_x = range_x_m / ZONE_SIZE_METERS
+        theoretical_zones_y = range_y_m / ZONE_SIZE_METERS
+        theoretical_total_zones = theoretical_zones_x * theoretical_zones_y
+        
+        print(f"\nTeoretrický počet zón pre celý geografický rozsah: {theoretical_total_zones:.0f}")
+        print(f"Teoretické pokrytie geografického rozsahu: {(unique_zones / theoretical_total_zones * 100):.2f}%")
     
     print("\nSpracovanie úspešne dokončené!")
 
