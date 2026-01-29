@@ -45,6 +45,8 @@ Program vykonáva tieto operácie:
 
 Ak sa v adresári, z ktorého spúšťate skript, nachádza priečinok `filters/` alebo `filtre_5G/`,
 program načíta všetky `.txt` filtre a aplikuje ich na vstupný CSV súbor pred spracovaním zón.
+Program sa vás spýta, či má pôvodný riadok zostať zachovaný a pridať sa nový s aplikovaným
+filtrom, alebo sa má pôvodný riadok nahradiť iba filtrom.
 
 Formát filtra:
 - prvý výraz po `<Query>` určuje hodnoty, ktoré sa prepíšu (assignment)

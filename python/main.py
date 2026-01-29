@@ -177,8 +177,9 @@ def _load_filter_rules():
             continue
     return filter_rules
 
-def apply_filters(df, file_info=None):
-    filter_rules = _load_filter_rules()
+def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=False):
+    if filter_rules is None:
+        filter_rules = _load_filter_rules()
     if not filter_rules:
         return df
 
@@ -188,8 +189,12 @@ def apply_filters(df, file_info=None):
 
     print(f"Nájdených {len(filter_rules)} filtrov. Aplikujem predfiltre...")
 
-    for index, row in df.iterrows():
-        row_number = index + header_line + 1
+    for position, (index, row) in enumerate(df.iterrows()):
+        try:
+            row_index = int(index)
+        except (TypeError, ValueError):
+            row_index = position
+        row_number = row_index + header_line + 1
         matching_filters = [rule for rule in filter_rules if _row_matches_filter(row, rule)]
 
         if len(matching_filters) > 1:
@@ -198,6 +203,10 @@ def apply_filters(df, file_info=None):
 
         if len(matching_filters) == 1:
             rule = matching_filters[0]
+            if keep_original_on_match:
+                row_dict = row.to_dict()
+                row_dict["original_excel_row"] = row_number
+                output_rows.append(row_dict)
             for assignment in _build_assignment_combinations(rule["assignments"]):
                 row_dict = row.to_dict()
                 for field, value in assignment.items():
@@ -256,6 +265,18 @@ def ask_for_zone_center():
             return False
         else:
             print("Neplatná voľba. Prosím zadajte 1 alebo 2.")
+
+def ask_for_keep_original_rows():
+    """Opýta sa používateľa, či sa majú ponechať pôvodné riadky po filtrovaní."""
+    print("\nNastavenie filtrov:")
+    while True:
+        choice = input("Chcete ponechať pôvodný riadok a pridať nový s filtrom? (a/n): ").strip().lower()
+        if choice == "a":
+            return True
+        elif choice == "n":
+            return False
+        else:
+            print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
 
 def load_csv_file(file_path):
     """Načíta CSV súbor a vráti DataFrame a informácie o súbore."""
@@ -1081,7 +1102,10 @@ def main():
         return
 
     # Aplikujeme filtre pred spracovanim zon, ak existuju
-    df = apply_filters(df, file_info)
+    filter_rules = _load_filter_rules()
+    if filter_rules:
+        keep_original_rows = ask_for_keep_original_rows()
+        df = apply_filters(df, file_info, filter_rules, keep_original_rows)
     
     # Opýtame sa používateľa, či chce použiť súradnice stredu zóny
     use_zone_center = ask_for_zone_center()
