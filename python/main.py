@@ -705,80 +705,56 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     
     # Vytvoríme chýbajúce zóny pre všetkých operátorov
     if zone_mode == "segments":
-        generate_empty_zones = False
+        generate_empty_zones = input(
+            "Chcete vytvoriť prázdne úseky pre chýbajúce kombinácie úsekov a operátorov? (a/n): "
+        ).lower() == 'a'
     else:
-        generate_empty_zones = input("Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): ").lower() == 'a'
+        generate_empty_zones = input(
+            "Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): "
+        ).lower() == 'a'
     
     if generate_empty_zones:
-        print("Generujem prázdne zóny...")
+        if zone_mode == "segments":
+            print("Generujem prázdne úseky...")
+        else:
+            print("Generujem prázdne zóny...")
         
-        # Získame všetky unikátne zóny a operátorov
+        # Získame všetky unikátne zóny/úseky a operátorov
         unique_zones = sorted_zone_stats['zona_key'].unique()
         unique_operators = sorted_zone_stats[['mcc', 'mnc']].drop_duplicates().values
-        
-        # Pre každú kombináciu zóny a operátora skontrolujeme, či existuje
-        total_combinations = len(unique_zones) * len(unique_operators)
-        combinations_processed = 0
         added_empty_zones = 0
         
-        # Progress bar pre generovanie prázdnych zón
-        for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón"):
-            for mcc, mnc in unique_operators:
-                operator_key = f"{mcc}_{mnc}"
-                zona_operator_key = f"{zona_key}_{operator_key}"
-                
-                # Ak táto kombinácia neexistuje, vytvoríme ju
-                if zona_operator_key not in processed_zones:
-                    # Nájdeme vzorový riadok s týmto operátorom
-                    sample_operator_rows = df[
-                        (df[column_names[column_mapping['mcc']]] == mcc) & 
-                        (df[column_names[column_mapping['mnc']]] == mnc)
-                    ]
+        if zone_mode == "segments":
+            segment_coords = zone_stats.groupby('zona_key')[['longitude', 'latitude']].first()
+            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov"):
+                for mcc, mnc in unique_operators:
+                    operator_key = f"{mcc}_{mnc}"
+                    zona_operator_key = f"{zona_key}_{operator_key}"
                     
-                    # Ak nemáme vzorový riadok pre tohto operátora, vezmeme ľubovoľný riadok
-                    if len(sample_operator_rows) == 0:
-                        sample_operator_rows = df
-                    
-                    # Vezmeme prvý riadok od operátora ako základ
-                    sample_row = sample_operator_rows.iloc[0]
-                    base_row = sample_row.copy()
-                    
-                    # Aktualizujeme základné hodnoty
-                    rsrp_col = column_names[column_mapping['rsrp']]
-                    lat_col = column_names[column_mapping['latitude']]
-                    lon_col = column_names[column_mapping['longitude']]
-                    mcc_col = column_names[column_mapping['mcc']]
-                    mnc_col = column_names[column_mapping['mnc']]
-                    
-                    # Rozdelíme zona_key na súradnice
-                    zona_coords = zona_key.split('_')
-                    if len(zona_coords) == 2:
-                        zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                    if zona_operator_key not in processed_zones:
+                        sample_operator_rows = df[
+                            (df[column_names[column_mapping['mcc']]] == mcc) &
+                            (df[column_names[column_mapping['mnc']]] == mnc)
+                        ]
+                        if len(sample_operator_rows) == 0:
+                            sample_operator_rows = df
+                        sample_row = sample_operator_rows.iloc[0]
+                        base_row = sample_row.copy()
                         
-                        # Získame stred zóny
-                        zona_center_x = zona_x + ZONE_SIZE_METERS/2
-                        zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                        rsrp_col = column_names[column_mapping['rsrp']]
+                        lat_col = column_names[column_mapping['latitude']]
+                        lon_col = column_names[column_mapping['longitude']]
+                        mcc_col = column_names[column_mapping['mcc']]
+                        mnc_col = column_names[column_mapping['mnc']]
                         
-                        # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
-                        if use_zone_center:
-                            # Pre prázdne zóny pri use_zone_center=True nemusíme robiť nič extra,
-                            # keďže nižšie sa vždy nastavujú súradnice stredu zóny
-                            pass
-                        # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
+                        if zona_key in segment_coords.index:
+                            lat = segment_coords.loc[zona_key, 'latitude']
+                            lon = segment_coords.loc[zona_key, 'longitude']
+                            base_row[lat_col] = f"{lat:.6f}"
+                            base_row[lon_col] = f"{lon:.6f}"
                         
-                        # Pre prázdne zóny vždy používame stredové súradnice
-                        # Transformujeme späť na WGS84
-                        transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                        base_row[rsrp_col] = "-174"
                         
-                        # Vždy používame súradnice stredu zóny pre prázdne zóny
-                        lon, lat = transformer.transform(zona_center_x, zona_center_y)
-                        
-                        # Aktualizujeme hodnoty - používame bodku namiesto čiarky
-                        base_row[lat_col] = f"{lat:.6f}"
-                        base_row[lon_col] = f"{lon:.6f}"
-                        base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
-                        
-                        # Upravíme MCC a MNC na celé čísla
                         try:
                             base_row[mcc_col] = str(int(float(mcc)))
                         except:
@@ -789,12 +765,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         except:
                             base_row[mnc_col] = mnc
                         
-                        # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
                         row_values = []
                         for j, val in enumerate(base_row[column_names]):
                             if pd.isna(val):
                                 row_values.append("")
-                            # Kontrola, či index zodpovedá MCC alebo MNC
                             elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
                                 try:
                                     row_values.append(str(int(float(val))))
@@ -803,32 +777,130 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                             else:
                                 row_values.append(str(val))
                         
-                        # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
                         while len(row_values) < expected_columns:
                             row_values.append("")
                         
-                        # Ak máme viac stĺpcov, odrežeme nadbytočné
                         if len(row_values) > expected_columns:
                             row_values = row_values[:expected_columns]
                         
-                        # Vytvoríme základný CSV riadok
                         csv_row = ';'.join(row_values)
-                        
-                        # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
                         csv_row += ";;"
-                        
-                        # Pridáme informáciu o prázdnej zóne
-                        csv_row += " # Prázdna zóna - automaticky vygenerovaná"
+                        csv_row += " # Prázdny úsek - automaticky vygenerovaný"
                         
                         output_lines.append(csv_row)
                         added_empty_zones += 1
+        else:
+            # Progress bar pre generovanie prázdnych zón
+            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón"):
+                for mcc, mnc in unique_operators:
+                    operator_key = f"{mcc}_{mnc}"
+                    zona_operator_key = f"{zona_key}_{operator_key}"
+                    
+                    # Ak táto kombinácia neexistuje, vytvoríme ju
+                    if zona_operator_key not in processed_zones:
+                        # Nájdeme vzorový riadok s týmto operátorom
+                        sample_operator_rows = df[
+                            (df[column_names[column_mapping['mcc']]] == mcc) & 
+                            (df[column_names[column_mapping['mnc']]] == mnc)
+                        ]
+                        
+                        # Ak nemáme vzorový riadok pre tohto operátora, vezmeme ľubovoľný riadok
+                        if len(sample_operator_rows) == 0:
+                            sample_operator_rows = df
+                        
+                        # Vezmeme prvý riadok od operátora ako základ
+                        sample_row = sample_operator_rows.iloc[0]
+                        base_row = sample_row.copy()
+                        
+                        # Aktualizujeme základné hodnoty
+                        rsrp_col = column_names[column_mapping['rsrp']]
+                        lat_col = column_names[column_mapping['latitude']]
+                        lon_col = column_names[column_mapping['longitude']]
+                        mcc_col = column_names[column_mapping['mcc']]
+                        mnc_col = column_names[column_mapping['mnc']]
+                        
+                        # Rozdelíme zona_key na súradnice
+                        zona_coords = zona_key.split('_')
+                        if len(zona_coords) == 2:
+                            zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                            
+                            # Získame stred zóny
+                            zona_center_x = zona_x + ZONE_SIZE_METERS/2
+                            zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                            
+                            # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
+                            if use_zone_center:
+                                # Pre prázdne zóny pri use_zone_center=True nemusíme robiť nič extra,
+                                # keďže nižšie sa vždy nastavujú súradnice stredu zóny
+                                pass
+                            # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
+                            
+                            # Pre prázdne zóny vždy používame stredové súradnice
+                            # Transformujeme späť na WGS84
+                            transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                            
+                            # Vždy používame súradnice stredu zóny pre prázdne zóny
+                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
+                            
+                            # Aktualizujeme hodnoty - používame bodku namiesto čiarky
+                            base_row[lat_col] = f"{lat:.6f}"
+                            base_row[lon_col] = f"{lon:.6f}"
+                            base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
+                            
+                            # Upravíme MCC a MNC na celé čísla
+                            try:
+                                base_row[mcc_col] = str(int(float(mcc)))
+                            except:
+                                base_row[mcc_col] = mcc
+                                
+                            try:
+                                base_row[mnc_col] = str(int(float(mnc)))
+                            except:
+                                base_row[mnc_col] = mnc
+                            
+                            # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
+                            row_values = []
+                            for j, val in enumerate(base_row[column_names]):
+                                if pd.isna(val):
+                                    row_values.append("")
+                                # Kontrola, či index zodpovedá MCC alebo MNC
+                                elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
+                                    try:
+                                        row_values.append(str(int(float(val))))
+                                    except:
+                                        row_values.append(str(val))
+                                else:
+                                    row_values.append(str(val))
+                            
+                            # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
+                            while len(row_values) < expected_columns:
+                                row_values.append("")
+                            
+                            # Ak máme viac stĺpcov, odrežeme nadbytočné
+                            if len(row_values) > expected_columns:
+                                row_values = row_values[:expected_columns]
+                            
+                            # Vytvoríme základný CSV riadok
+                            csv_row = ';'.join(row_values)
+                            
+                            # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
+                            csv_row += ";;"
+                            
+                            # Pridáme informáciu o prázdnej zóne
+                            csv_row += " # Prázdna zóna - automaticky vygenerovaná"
+                            
+                            output_lines.append(csv_row)
+                            added_empty_zones += 1
     
     # Zapíšeme výsledky do súboru
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(output_lines))
     
     if generate_empty_zones:
-        print(f"Pridaných {added_empty_zones} prázdnych zón")
+        if zone_mode == "segments":
+            print(f"Pridaných {added_empty_zones} prázdnych úsekov")
+        else:
+            print(f"Pridaných {added_empty_zones} prázdnych zón")
     print(f"Výsledky zón uložené do súboru: {output_file}")
     
     return generate_empty_zones, processed_zones, unique_zones  # Vrátime informáciu, či boli generované prázdne zóny a zoznam spracovaných zón
@@ -1208,7 +1280,7 @@ def main():
     
     # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
     custom_operators_added = False
-    if include_empty_zones:
+    if include_empty_zones and zone_mode != "segments":
         zone_stats, custom_operators_added = add_custom_operators(
             zone_stats, processed_df, column_mapping, column_names, 
             output_file, use_zone_center, processed_zones, unique_zones

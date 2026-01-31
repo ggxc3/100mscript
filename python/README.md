@@ -41,6 +41,7 @@ Program vykonáva tieto operácie:
 4. Uloží výsledky do dvoch súborov:
    - `<original>_zones.csv` - detaily pre každú zónu
    - `<original>_stats.csv` - štatistiky pokrytia pre každého operátora
+5. Voliteľne vygeneruje prázdne zóny alebo úseky pre chýbajúce kombinácie operátorov
 
 ## Predspracovanie filtrov
 

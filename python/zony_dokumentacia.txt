@@ -74,3 +74,7 @@ Tento spôsob nám umožňuje:
 - Zistiť, kde nie sú žiadne merania (prázdne zóny)
 
 Program vytvára dáta, ktoré uľahčujú analýzu a porovnávanie pokrytia signálom na rôznych miestach a medzi rôznymi operátormi. 
+
+Poznámka:
+- Pri zónach aj úsekoch je možné voliteľne generovať prázdne záznamy pre chýbajúce
+  kombinácie zón/úsekov a operátorov, aby boli štatistiky konzistentné.
