@@ -50,6 +50,9 @@ program načíta všetky `.txt` filtre a aplikuje ich na vstupný CSV súbor pre
 Program sa vás spýta, či má pôvodný riadok zostať zachovaný a pridať sa nový s aplikovaným
 filtrom, alebo sa má pôvodný riadok nahradiť iba filtrom.
 
+Ak potrebujete skontrolovať, ako filtre upravili riadky, nastavte premennú prostredia
+`FILTERS_DEBUG_OUTPUT=1` a po filtrovaní sa uloží súbor `<original>_filters.csv`.
+
 Formát filtra:
 - prvý výraz po `<Query>` určuje hodnoty, ktoré sa prepíšu (assignment)
 - ďalšie výrazy v zátvorkách sú podmienky, kedy sa prepis uplatní (OR medzi skupinami)

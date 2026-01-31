@@ -224,6 +224,20 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
         result_df = result_df[base_columns + extra_columns]
     return result_df
 
+def _maybe_dump_filtered_df(df, original_file):
+    debug_output = os.getenv("FILTERS_DEBUG_OUTPUT", "").strip()
+    if not debug_output:
+        return
+    if debug_output.lower() in ("1", "true", "yes", "a"):
+        output_path = original_file.replace(".csv", "_filters.csv")
+    else:
+        output_path = debug_output
+    try:
+        df.to_csv(output_path, sep=';', index=False, encoding='utf-8')
+        print(f"Filtrované dáta uložené do súboru: {output_path}")
+    except Exception as exc:
+        print(f"Upozornenie: Nepodarilo sa uložiť filtrované dáta ({exc}).")
+
 def parse_arguments():
     """Spracovanie argumentov príkazového riadka."""
     parser = argparse.ArgumentParser(description='Spracovanie CSV súboru s meraniami do zón.')
@@ -1240,6 +1254,7 @@ def main():
     if filter_rules:
         keep_original_rows = ask_for_keep_original_rows()
         df = apply_filters(df, file_info, filter_rules, keep_original_rows)
+        _maybe_dump_filtered_df(df, file_path)
     
     # Opýtame sa používateľa na režim spracovania zón
     zone_mode = ask_for_zone_mode()
