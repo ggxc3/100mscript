@@ -1,0 +1,8 @@
+
+Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz);Riadky_v_zone;Frekvencie_v_zone
+2024-01-01;12:00:00;UTC;48.150000;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.00;-81.00;1;1;1;1;1;1;1;1;1;1;1,2;800 # Meraní: 2
+2024-01-01;12:00:00;UTC;48.150899;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.00;-85.00;1;1;1;1;1;1;1;1;1;1;3;800 # Meraní: 1
+2024-01-01;12:00:00;UTC;48.151799;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.00;-90.00;1;1;1;1;1;1;1;1;1;1;4;800 # Meraní: 1
+2024-01-01;12:00:00;UTC;48.154497;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.00;-95.00;1;1;1;1;1;1;1;1;1;1;5;800 # Meraní: 1
+2024-01-01;12:00:00;UTC;48.152698;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.0;-174;1;1;1;1;1;1;1;1;1;1;; # Prázdny úsek - automaticky vygenerovaný
+2024-01-01;12:00:00;UTC;48.153597;17.150000;100;0;0;8;1;800;1;231;1;1;1;1;1;1;1;1;10.0;-174;1;1;1;1;1;1;1;1;1;1;; # Prázdny úsek - automaticky vygenerovaný

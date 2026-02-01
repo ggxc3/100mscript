@@ -299,7 +299,7 @@ def ask_for_zone_mode():
     print("\nNastavenie súradníc a režimu:")
     print("1 - Štvorcové zóny (súradnice stredu zóny)")
     print("2 - Štvorcové zóny (prvý bod v zóne)")
-    print("3 - 100m úseky podľa poradia meraní (prvý bod úseku)")
+    print("3 - 100m úseky po trase (presný začiatok každých 100 m)")
     
     while True:
         choice = input("Vyberte možnosť [1/2/3]: ").strip()
@@ -462,6 +462,7 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
         df_filtered.loc[df_filtered.index[i:end_idx], 'y_meters'] = y_meters
     
     # Výpočet zóny/úseku pre každé meranie
+    segment_meta = None
     if zone_mode == "segments":
         print("Počítam úseky...")
         total_rows = len(df_filtered)
@@ -471,34 +472,51 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
         segment_ids = np.zeros(total_rows, dtype=int)
         segment_start_xs = np.zeros(total_rows)
         segment_start_ys = np.zeros(total_rows)
+        segment_meta = {}
+        epsilon = 1e-9
         
         if total_rows > 0:
-            current_segment = 0
-            segment_start_x = x_values[0]
-            segment_start_y = y_values[0]
+            cumulative_distance = 0.0
             prev_x = x_values[0]
             prev_y = y_values[0]
-            cumulative_distance = 0.0
+            segment_meta[0] = (prev_x, prev_y)
+            segment_ids[0] = 0
+            segment_start_xs[0] = prev_x
+            segment_start_ys[0] = prev_y
             
-            for i in range(total_rows):
+            for i in range(1, total_rows):
                 x = x_values[i]
                 y = y_values[i]
                 
-                if i != 0:
-                    step_distance = ((x - prev_x) ** 2 + (y - prev_y) ** 2) ** 0.5
-                    if cumulative_distance + step_distance > ZONE_SIZE_METERS:
-                        current_segment += 1
-                        segment_start_x = x
-                        segment_start_y = y
-                        cumulative_distance = 0.0
-                    else:
-                        cumulative_distance += step_distance
-                    prev_x = x
-                    prev_y = y
+                step_distance = ((x - prev_x) ** 2 + (y - prev_y) ** 2) ** 0.5
+                if step_distance > 0:
+                    prev_cumulative = cumulative_distance
+                    cumulative_distance += step_distance
+                    prev_segment = int((prev_cumulative + epsilon) // ZONE_SIZE_METERS)
+                    new_segment = int((cumulative_distance + epsilon) // ZONE_SIZE_METERS)
+                    
+                    if new_segment > prev_segment:
+                        for segment_id in range(prev_segment + 1, new_segment + 1):
+                            boundary_distance = segment_id * ZONE_SIZE_METERS
+                            offset = boundary_distance - prev_cumulative
+                            fraction = offset / step_distance
+                            if fraction < 0.0:
+                                fraction = 0.0
+                            elif fraction > 1.0:
+                                fraction = 1.0
+                            start_x = prev_x + (x - prev_x) * fraction
+                            start_y = prev_y + (y - prev_y) * fraction
+                            segment_meta[segment_id] = (start_x, start_y)
                 
+                current_segment = int((cumulative_distance + epsilon) // ZONE_SIZE_METERS)
                 segment_ids[i] = current_segment
-                segment_start_xs[i] = segment_start_x
-                segment_start_ys[i] = segment_start_y
+                prev_x = x
+                prev_y = y
+            
+            for i in range(total_rows):
+                start_x, start_y = segment_meta.get(segment_ids[i], (x_values[0], y_values[0]))
+                segment_start_xs[i] = start_x
+                segment_start_ys[i] = start_y
         
         df_filtered['segment_id'] = segment_ids
         df_filtered['zona_x'] = segment_start_xs
@@ -519,7 +537,7 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
     # Zachováme originálny riadok pre neskoršie použitie
     df_filtered['original_row_index'] = df_filtered.index
     
-    return df_filtered, column_names
+    return df_filtered, column_names, segment_meta
 
 def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, zone_mode="zones"):
     """Vypočíta štatistiky pre každú zónu alebo úsek."""
@@ -619,7 +637,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     
     return zone_stats
 
-def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones", output_suffix=""):
+def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones", output_suffix="", segment_meta=None):
     """Uloží výsledky zón alebo úsekov do CSV súboru, zachovávajúc pôvodný formát riadkov."""
     if output_suffix:
         output_file = original_file.replace('.csv', f'{output_suffix}_zones.csv')
@@ -792,7 +810,16 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         added_empty_zones = 0
         
         if zone_mode == "segments":
-            segment_coords = zone_stats.groupby('zona_key')[['longitude', 'latitude']].first()
+            segment_coords = None
+            if segment_meta:
+                transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                segment_coords = {}
+                for segment_id, (segment_x, segment_y) in segment_meta.items():
+                    lon, lat = transformer.transform(segment_x, segment_y)
+                    segment_coords[f"segment_{segment_id}"] = (lat, lon)
+                unique_zones = [f"segment_{segment_id}" for segment_id in sorted(segment_meta.keys())]
+            else:
+                segment_coords = zone_stats.groupby('zona_key')[['longitude', 'latitude']].first()
             for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov"):
                 for mcc, mnc in unique_operators:
                     operator_key = f"{mcc}_{mnc}"
@@ -814,7 +841,13 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         mcc_col = column_names[column_mapping['mcc']]
                         mnc_col = column_names[column_mapping['mnc']]
                         
-                        if zona_key in segment_coords.index:
+                        if isinstance(segment_coords, dict):
+                            coords = segment_coords.get(zona_key)
+                            if coords:
+                                lat, lon = coords
+                                base_row[lat_col] = f"{lat:.6f}"
+                                base_row[lon_col] = f"{lon:.6f}"
+                        elif segment_coords is not None and zona_key in segment_coords.index:
                             lat = segment_coords.loc[zona_key, 'latitude']
                             lon = segment_coords.loc[zona_key, 'longitude']
                             base_row[lat_col] = f"{lat:.6f}"
@@ -1184,7 +1217,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
     
     return zone_stats, True
 
-def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110, output_suffix=""):
+def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110, output_suffix="", zone_mode="zones", segment_meta=None):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
     if output_suffix:
         stats_file = original_file.replace('.csv', f'{output_suffix}_stats.csv')
@@ -1192,7 +1225,10 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
         stats_file = original_file.replace('.csv', '_stats.csv')
     
     # Získame všetky unikátne zóny
-    all_zones = set(zone_stats['zona_key'])
+    if zone_mode == "segments" and segment_meta:
+        all_zones = set([f"segment_{segment_id}" for segment_id in segment_meta.keys()])
+    else:
+        all_zones = set(zone_stats['zona_key'])
     total_unique_zones = len(all_zones)
     
     # Pripravíme dataframe pre štatistiky
@@ -1317,7 +1353,7 @@ def main():
     zone_mode = ask_for_zone_mode()
     use_zone_center = zone_mode == "center"
     if zone_mode == "segments":
-        print("Použijú sa 100m úseky podľa poradia meraní.")
+        print("Použijú sa presné 100m úseky po trase.")
     else:
         print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
     
@@ -1332,7 +1368,7 @@ def main():
     print(f"Hlavička súboru sa nachádza na riadku {header_line + 1}")
     
     # Spracujeme dáta s odovzdaním informácie o riadku hlavičky
-    processed_df, column_names = process_data(df, column_mapping, header_line, zone_mode)
+    processed_df, column_names, segment_meta = process_data(df, column_mapping, header_line, zone_mode)
     
     # Vypočítame štatistiky zón s použitím zadanej RSRP hranice
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold, zone_mode)
@@ -1351,7 +1387,8 @@ def main():
         file_info,
         use_zone_center,
         zone_mode,
-        output_suffix
+        output_suffix,
+        segment_meta
     )
     
     # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
@@ -1363,7 +1400,7 @@ def main():
         )
     
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach a RSRP hranicu
-    save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold, output_suffix)
+    save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold, output_suffix, zone_mode, segment_meta)
     
     # Vypíšeme informácie o zónach/úsekoch a rozsahu merania
     print("\nSúhrn spracovania:")

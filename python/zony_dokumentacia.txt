@@ -55,14 +55,16 @@ b) PRIRADENIE DO ZÓN
 - Pri spustení programu sa používateľa opýta, aké súradnice chce vo výstupnom súbore použiť:
   * Súradnice stredu zóny - presný stred každej 100m zóny
   * Pôvodné súradnice prvého bodu v zóne - zachová pôvodný bod z originálneho merania
-  * 100m úseky podľa poradia meraní - ignoruje štvorcové zóny a použije prvý bod úseku
+  * 100m úseky po trase (presný začiatok každých 100 m) - ignoruje štvorcové zóny a použije začiatok úseku (interpolovaný, ak treba)
 
 6. REŽIM 100m ÚSEKOV
 -------------------
 Pri tomto režime sa štvorcové zóny nepoužívajú. Program ide po meraniach v poradí a
-postupne kumuluje vzdialenosti medzi po sebe idúcimi bodmi. Ak by ďalší krok prekročil
-100 metrov, začne sa nový úsek. Vo výstupnom súbore sa potom použijú súradnice prvého
-bodu z každého úseku.
+postupne kumuluje vzdialenosť medzi po sebe idúcimi bodmi. Každých presných 100 metrov
+sa začína nový úsek. Ak na hranici 100 m nie je meraný bod, začiatok úseku sa vypočíta
+interpoláciou medzi bodmi. Vo výstupnom súbore sa použijú súradnice začiatku úseku.
+Ak používateľ zvolí generovanie prázdnych úsekov, chýbajúce úseky (napr. tunel) sa
+doplnia s RSRP -174 a započítajú sa do štatistík ako zlé pokrytie.
 
 7. VIZUALIZÁCIA ZÓN
 ------------------

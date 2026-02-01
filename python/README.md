@@ -16,7 +16,7 @@ Pri spustení programu sa vás aplikácia opýta, aký formát súradníc chcete
 
 1. Štvorcové zóny (súradnice stredu zóny) - výstupný súbor bude obsahovať súradnice stredu každej 100m zóny
 2. Štvorcové zóny (prvý bod v zóne) - výstupný súbor bude obsahovať pôvodné súradnice prvého bodu v zóne
-3. 100m úseky podľa poradia meraní - výstupný súbor bude obsahovať súradnice prvého bodu úseku
+3. 100m úseky po trase (presný začiatok každých 100 m) - výstupný súbor bude obsahovať súradnice začiatku úseku (začiatok sa interpoluje, ak nie je meraný bod)
 
 ### EXE súbor
 
@@ -33,7 +33,7 @@ Ak nie je zadaná cesta k súboru, aplikácia vás vyzve na jej zadanie.
 Program vykonáva tieto operácie:
 
 1. Načíta CSV súbor s meraniami
-2. Rozdelí merania do štvorcových zón (100m x 100m) alebo do 100m úsekov podľa poradia meraní
+2. Rozdelí merania do štvorcových zón (100m x 100m) alebo do presných 100m úsekov po trase
 3. Pre každú zónu a kombináciu MNC+MCC vypočíta:
    - Priemerné RSRP
    - Frekvenciu s najvyšším priemerným RSRP v zóne (pre daného operátora)
