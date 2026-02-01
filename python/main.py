@@ -10,6 +10,7 @@ from collections import defaultdict
 from itertools import product
 from tqdm import tqdm
 import re
+import traceback
 
 # Konštanty
 ZONE_SIZE_METERS = 100  # Veľkosť zóny v metroch
@@ -40,6 +41,12 @@ def _parse_number(value):
             return int(num)
         return num
     return None
+
+def _normalize_integer_like(value):
+    parsed = _parse_number(value)
+    if isinstance(parsed, int):
+        return parsed
+    return value
 
 def _extract_query_content(text):
     match = re.search(r'<Query>(.*?)</Query>', text, flags=re.IGNORECASE | re.DOTALL)
@@ -219,6 +226,16 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
             output_rows.append(row_dict)
 
     result_df = pd.DataFrame(output_rows)
+    assignment_fields = set()
+    for rule in filter_rules:
+        assignment_fields.update(rule["assignments"].keys())
+    for field in assignment_fields:
+        if field in result_df.columns:
+            numeric = pd.to_numeric(result_df[field], errors='coerce')
+            if not ((result_df[field].notna()) & (numeric.isna())).any():
+                result_df[field] = numeric.astype("Int64")
+            else:
+                result_df[field] = result_df[field].apply(_normalize_integer_like)
     if not result_df.empty:
         extra_columns = [col for col in result_df.columns if col not in base_columns]
         result_df = result_df[base_columns + extra_columns]
@@ -237,6 +254,12 @@ def _maybe_dump_filtered_df(df, original_file):
         print(f"Filtrované dáta uložené do súboru: {output_path}")
     except Exception as exc:
         print(f"Upozornenie: Nepodarilo sa uložiť filtrované dáta ({exc}).")
+
+def _wait_for_exit():
+    try:
+        input("Stlačte Enter pre ukončenie...")
+    except EOFError:
+        pass
 
 def parse_arguments():
     """Spracovanie argumentov príkazového riadka."""
@@ -1348,4 +1371,13 @@ def main():
     print("\nSpracovanie úspešne dokončené!")
 
 if __name__ == "__main__":
-    main() 
+    try:
+        main()
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            _wait_for_exit()
+        raise
+    except BaseException:
+        traceback.print_exc()
+        _wait_for_exit()
+        raise
