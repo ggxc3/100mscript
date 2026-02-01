@@ -255,6 +255,12 @@ def _maybe_dump_filtered_df(df, original_file):
     except Exception as exc:
         print(f"Upozornenie: Nepodarilo sa uložiť filtrované dáta ({exc}).")
 
+def _get_output_suffix():
+    suffix = os.getenv("OUTPUT_SUFFIX", "").strip()
+    if suffix and not suffix.startswith("_"):
+        suffix = "_" + suffix
+    return suffix
+
 def _wait_for_exit():
     try:
         input("Stlačte Enter pre ukončenie...")
@@ -366,10 +372,31 @@ def load_csv_file(file_path):
     
     # Teraz načítame súbor s identifikovaným kódovaním
     try:
-        df = pd.read_csv(file_path, sep=';', header=header_line, encoding=encoding_to_use or 'utf-8')
+        encoding_selected = encoding_to_use or 'utf-8'
+        df = pd.read_csv(file_path, sep=';', header=header_line, encoding=encoding_selected)
+
+        # Ak je počet stĺpcov odlišný od hlavičky alebo sú prítomné "Unnamed" stĺpce,
+        # znovu načítame dáta s explicitnými názvami stĺpcov.
+        header_cols = original_header.split(';') if original_header else None
+        if header_cols and (
+            len(df.columns) != len(header_cols)
+            or any(str(col).startswith('Unnamed') for col in df.columns)
+        ):
+            df = pd.read_csv(
+                file_path,
+                sep=';',
+                skiprows=header_line + 1,
+                header=None,
+                names=header_cols,
+                usecols=range(len(header_cols)),
+                encoding=encoding_selected,
+                engine='python',
+                encoding_errors='ignore'
+            )
+
         # Vrátime DataFrame a informácie o súbore
         return df, {
-            'encoding': encoding_to_use or 'utf-8',
+            'encoding': encoding_selected,
             'header_line': header_line,
             'original_header': original_header
         }
@@ -592,9 +619,12 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     
     return zone_stats
 
-def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones"):
+def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones", output_suffix=""):
     """Uloží výsledky zón alebo úsekov do CSV súboru, zachovávajúc pôvodný formát riadkov."""
-    output_file = original_file.replace('.csv', '_zones.csv')
+    if output_suffix:
+        output_file = original_file.replace('.csv', f'{output_suffix}_zones.csv')
+    else:
+        output_file = original_file.replace('.csv', '_zones.csv')
     
     # Použijeme originálnu hlavičku z načítaného súboru
     header_line = file_info.get('original_header') if file_info else None
@@ -1154,9 +1184,12 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
     
     return zone_stats, True
 
-def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110):
+def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110, output_suffix=""):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
-    stats_file = original_file.replace('.csv', '_stats.csv')
+    if output_suffix:
+        stats_file = original_file.replace('.csv', f'{output_suffix}_stats.csv')
+    else:
+        stats_file = original_file.replace('.csv', '_stats.csv')
     
     # Získame všetky unikátne zóny
     all_zones = set(zone_stats['zona_key'])
@@ -1278,6 +1311,7 @@ def main():
         keep_original_rows = ask_for_keep_original_rows()
         df = apply_filters(df, file_info, filter_rules, keep_original_rows)
         _maybe_dump_filtered_df(df, file_path)
+    output_suffix = _get_output_suffix()
     
     # Opýtame sa používateľa na režim spracovania zón
     zone_mode = ask_for_zone_mode()
@@ -1304,7 +1338,10 @@ def main():
     zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold, zone_mode)
     
     # Uložíme výsledky zachovávajúc pôvodný formát
-    output_file = file_path.replace('.csv', '_zones.csv')
+    if output_suffix:
+        output_file = file_path.replace('.csv', f'{output_suffix}_zones.csv')
+    else:
+        output_file = file_path.replace('.csv', '_zones.csv')
     include_empty_zones, processed_zones, unique_zones = save_zone_results(
         zone_stats,
         file_path,
@@ -1313,7 +1350,8 @@ def main():
         column_names,
         file_info,
         use_zone_center,
-        zone_mode
+        zone_mode,
+        output_suffix
     )
     
     # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
@@ -1325,7 +1363,7 @@ def main():
         )
     
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach a RSRP hranicu
-    save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold)
+    save_stats(zone_stats, file_path, include_empty_zones, rsrp_threshold, output_suffix)
     
     # Vypíšeme informácie o zónach/úsekoch a rozsahu merania
     print("\nSúhrn spracovania:")
