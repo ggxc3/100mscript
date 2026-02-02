@@ -529,7 +529,14 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
         
         # Vytvoríme kľúč zóny a operátora
         df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
-    df_filtered['operator_key'] = df_filtered[column_names[column_mapping['mcc']]].astype(str) + '_' + df_filtered[column_names[column_mapping['mnc']]].astype(str)
+    mcc_col = column_names[column_mapping['mcc']]
+    mnc_col = column_names[column_mapping['mnc']]
+    pci_col = column_names[column_mapping['pci']]
+    df_filtered['operator_key'] = (
+        df_filtered[mcc_col].astype(str)
+        + '_' + df_filtered[mnc_col].astype(str)
+        + '_' + df_filtered[pci_col].astype(str)
+    )
     
     # Vytvoríme kombinovaný kľúč zóna+operátor
     df_filtered['zona_operator_key'] = df_filtered['zona_key'] + '_' + df_filtered['operator_key']
@@ -559,6 +566,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     freq_col = column_names[column_mapping['frequency']]
     mcc_col = column_names[column_mapping['mcc']]
     mnc_col = column_names[column_mapping['mnc']]
+    pci_col = column_names[column_mapping['pci']]
     
     # Agregačný slovník pre rôzne stĺpce (po frekvencii v rámci zóny + operátora)
     agg_kwargs = {
@@ -573,7 +581,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     
     # Agregácia dát podľa zón, operátorov a frekvencií
     zone_freq_stats = df.groupby(
-        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, freq_col]
+        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, pci_col, freq_col]
     ).agg(**agg_kwargs).reset_index()
     
     # Výber najlepšej frekvencie podľa priemernej RSRP (s deterministickým tie-break)
@@ -585,18 +593,18 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     )
     
     zone_stats = zone_freq_stats.groupby(
-        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col],
+        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, pci_col],
         as_index=False
     ).first()
     
     # Po výbere necháme len jednu frekvenciu
     zone_stats['najcastejsia_frekvencia'] = zone_stats[freq_col]
     zone_stats['vsetky_frekvencie'] = zone_stats[freq_col].apply(lambda value: [value])
-    zone_stats = zone_stats.rename(columns={mcc_col: 'mcc', mnc_col: 'mnc'})
+    zone_stats = zone_stats.rename(columns={mcc_col: 'mcc', mnc_col: 'mnc', pci_col: 'pci'})
     zone_stats = zone_stats.drop(columns=[freq_col, 'frequency_sort_numeric', 'frequency_sort_text'])
     
     new_columns = [
-        'zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc',
+        'zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc', 'pci',
         'rsrp_avg', 'pocet_merani', 'najcastejsia_frekvencia', 'vsetky_frekvencie', 'original_excel_rows'
     ]
     
@@ -673,6 +681,9 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     # Spočítame očakávaný počet stĺpcov
     expected_columns = len(orig_header_cols)
     print(f"Počet stĺpcov v pôvodnej hlavičke: {expected_columns}")
+    mcc_col = column_names[column_mapping['mcc']]
+    mnc_col = column_names[column_mapping['mnc']]
+    pci_col = column_names[column_mapping['pci']] if 'pci' in column_mapping else None
     
     # Vytvoríme nový obsah pre výstupný súbor - začíname prázdnym riadkom
     output_lines = ['']  # Prázdny riadok na začiatku
@@ -682,8 +693,11 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     # Pre každú zónu vytvoríme riadok založený na prvom meraní v danej zóne
     processed_zones = {}  # Slúži na sledovanie už spracovaných zón
     
-    # Zoradíme zóny podľa operátora (MCC, MNC)
-    sorted_zone_stats = zone_stats.sort_values(['mcc', 'mnc'])
+    # Zoradíme zóny podľa operátora (MCC, MNC, PCI)
+    sort_columns = ['mcc', 'mnc']
+    if 'pci' in zone_stats.columns:
+        sort_columns.append('pci')
+    sorted_zone_stats = zone_stats.sort_values(sort_columns)
     
     # Získame všetky unikátne zóny bez ohľadu na to, či budeme generovať prázdne zóny
     unique_zones = sorted_zone_stats['zona_key'].unique()
@@ -692,6 +706,7 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     
     # Kontrolujeme, či máme SINR stĺpec
     has_sinr = 'sinr' in column_mapping and 'sinr_avg' in sorted_zone_stats.columns
+    pci_index = column_mapping.get('pci') if isinstance(column_mapping, dict) else None
     
     # Vytvorím progress bar pre zápis zón
     for i in tqdm(range(len(sorted_zone_stats)), desc="Zápis zón"):
@@ -761,7 +776,7 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             if pd.isna(val):
                 row_values.append("")
             # Ak je to MCC alebo MNC, zaokrúhlime na celé číslo
-            elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
+            elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
                 try:
                     row_values.append(str(int(float(val))))
                 except:
@@ -806,7 +821,10 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         
         # Získame všetky unikátne zóny/úseky a operátorov
         unique_zones = sorted_zone_stats['zona_key'].unique()
-        unique_operators = sorted_zone_stats[['mcc', 'mnc']].drop_duplicates().values
+        operator_columns = ['mcc', 'mnc']
+        if 'pci' in sorted_zone_stats.columns:
+            operator_columns.append('pci')
+        unique_operators = sorted_zone_stats[operator_columns].drop_duplicates().values
         added_empty_zones = 0
         
         if zone_mode == "segments":
@@ -821,15 +839,19 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
             else:
                 segment_coords = zone_stats.groupby('zona_key')[['longitude', 'latitude']].first()
             for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov"):
-                for mcc, mnc in unique_operators:
-                    operator_key = f"{mcc}_{mnc}"
+                for operator_values in unique_operators:
+                    mcc, mnc = operator_values[0], operator_values[1]
+                    pci = operator_values[2] if len(operator_values) > 2 else ""
+                    operator_key = f"{mcc}_{mnc}_{pci}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
                     
                     if zona_operator_key not in processed_zones:
                         sample_operator_rows = df[
-                            (df[column_names[column_mapping['mcc']]] == mcc) &
-                            (df[column_names[column_mapping['mnc']]] == mnc)
+                            (df[mcc_col] == mcc) &
+                            (df[mnc_col] == mnc)
                         ]
+                        if pci_col is not None:
+                            sample_operator_rows = sample_operator_rows[sample_operator_rows[pci_col] == pci]
                         if len(sample_operator_rows) == 0:
                             sample_operator_rows = df
                         sample_row = sample_operator_rows.iloc[0]
@@ -838,8 +860,6 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         rsrp_col = column_names[column_mapping['rsrp']]
                         lat_col = column_names[column_mapping['latitude']]
                         lon_col = column_names[column_mapping['longitude']]
-                        mcc_col = column_names[column_mapping['mcc']]
-                        mnc_col = column_names[column_mapping['mnc']]
                         
                         if isinstance(segment_coords, dict):
                             coords = segment_coords.get(zona_key)
@@ -865,11 +885,17 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         except:
                             base_row[mnc_col] = mnc
                         
+                        if pci_col is not None:
+                            try:
+                                base_row[pci_col] = str(int(float(pci)))
+                            except:
+                                base_row[pci_col] = pci
+                        
                         row_values = []
                         for j, val in enumerate(base_row[column_names]):
                             if pd.isna(val):
                                 row_values.append("")
-                            elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
+                            elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
                                 try:
                                     row_values.append(str(int(float(val))))
                                 except:
@@ -892,17 +918,21 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         else:
             # Progress bar pre generovanie prázdnych zón
             for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón"):
-                for mcc, mnc in unique_operators:
-                    operator_key = f"{mcc}_{mnc}"
+                for operator_values in unique_operators:
+                    mcc, mnc = operator_values[0], operator_values[1]
+                    pci = operator_values[2] if len(operator_values) > 2 else ""
+                    operator_key = f"{mcc}_{mnc}_{pci}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
                     
                     # Ak táto kombinácia neexistuje, vytvoríme ju
                     if zona_operator_key not in processed_zones:
                         # Nájdeme vzorový riadok s týmto operátorom
                         sample_operator_rows = df[
-                            (df[column_names[column_mapping['mcc']]] == mcc) & 
-                            (df[column_names[column_mapping['mnc']]] == mnc)
+                            (df[mcc_col] == mcc) & 
+                            (df[mnc_col] == mnc)
                         ]
+                        if pci_col is not None:
+                            sample_operator_rows = sample_operator_rows[sample_operator_rows[pci_col] == pci]
                         
                         # Ak nemáme vzorový riadok pre tohto operátora, vezmeme ľubovoľný riadok
                         if len(sample_operator_rows) == 0:
@@ -916,8 +946,6 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         rsrp_col = column_names[column_mapping['rsrp']]
                         lat_col = column_names[column_mapping['latitude']]
                         lon_col = column_names[column_mapping['longitude']]
-                        mcc_col = column_names[column_mapping['mcc']]
-                        mnc_col = column_names[column_mapping['mnc']]
                         
                         # Rozdelíme zona_key na súradnice
                         zona_coords = zona_key.split('_')
@@ -958,13 +986,19 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                             except:
                                 base_row[mnc_col] = mnc
                             
+                            if pci_col is not None:
+                                try:
+                                    base_row[pci_col] = str(int(float(pci)))
+                                except:
+                                    base_row[pci_col] = pci
+                            
                             # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
                             row_values = []
                             for j, val in enumerate(base_row[column_names]):
                                 if pd.isna(val):
                                     row_values.append("")
                                 # Kontrola, či index zodpovedá MCC alebo MNC
-                                elif j == column_mapping['mcc'] or j == column_mapping['mnc']:
+                                elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
                                     try:
                                         row_values.append(str(int(float(val))))
                                     except:
@@ -1013,7 +1047,14 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
         return zone_stats, False
     
     # Získame existujúcich operátorov
-    existing_operators = set([f"{mcc}_{mnc}" for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])])
+    has_pci = 'pci' in zone_stats.columns
+    if has_pci:
+        existing_operators = set([
+            f"{mcc}_{mnc}_{pci}"
+            for mcc, mnc, pci in zip(zone_stats['mcc'], zone_stats['mnc'], zone_stats['pci'])
+        ])
+    else:
+        existing_operators = set([f"{mcc}_{mnc}" for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])])
     
     custom_operators = []
     continue_adding = True
@@ -1021,11 +1062,15 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
     # Regex vzor: MCC a MNC musia obsahovať iba čísla a nesmú byť prázdne
     mcc_pattern = re.compile(r'^\d+$')
     mnc_pattern = re.compile(r'^\d+$')
+    pci_pattern = re.compile(r'^\d+$')
     
     while continue_adding:
         # Zadáme nových operátorov v jednom riadku oddelených dvojbodkou
         try:
-            operators_input = input("Zadajte MCC:MNC operátorov oddelené medzerou (napr. '231:01 231:02'), alebo 'koniec' pre ukončenie: ").strip()
+            operators_input = input(
+                "Zadajte MCC:MNC:PCI operátorov oddelené medzerou (napr. '231:01:123 231:02:45'), "
+                "PCI je voliteľné. Alebo 'koniec' pre ukončenie: "
+            ).strip()
             
             # Kontrola ukončenia
             if not operators_input or operators_input.lower() in ['koniec', 'quit', 'q', 'exit']:
@@ -1037,11 +1082,12 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             
             for operator_pair in operator_pairs:
                 parts = operator_pair.split(':')
-                if len(parts) != 2:
-                    print(f"Neplatný formát operátora '{operator_pair}'. Použite formát MCC:MNC.")
+                if len(parts) not in (2, 3):
+                    print(f"Neplatný formát operátora '{operator_pair}'. Použite formát MCC:MNC alebo MCC:MNC:PCI.")
                     continue
                     
-                mcc, mnc = parts
+                mcc, mnc = parts[0], parts[1]
+                pci = parts[2] if len(parts) == 3 else ""
                 
                 # Validácia MCC a MNC pomocou regex
                 if not mcc_pattern.match(mcc):
@@ -1052,16 +1098,26 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                     print(f"Neplatné MNC '{mnc}'. MNC musí obsahovať iba čísla a nesmie byť prázdne.")
                     continue
                 
+                if pci and not pci_pattern.match(pci):
+                    print(f"Neplatné PCI '{pci}'. PCI musí obsahovať iba čísla alebo zostať prázdne.")
+                    continue
+                
                 # Skontrolujeme, či tento operátor už existuje
-                operator_key = f"{mcc}_{mnc}"
+                operator_key = f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"
                 if operator_key in existing_operators:
-                    print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach!")
+                    if has_pci:
+                        print(f"Operátor s MCC={mcc}, MNC={mnc}, PCI={pci} už existuje v dátach!")
+                    else:
+                        print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach!")
                     continue
                     
                 # Pridáme operátora do zoznamu
-                custom_operators.append((mcc, mnc))
+                custom_operators.append((mcc, mnc, pci))
                 existing_operators.add(operator_key)
-                print(f"Operátor s MCC={mcc} a MNC={mnc} bol pridaný.")
+                if has_pci:
+                    print(f"Operátor s MCC={mcc}, MNC={mnc}, PCI={pci} bol pridaný.")
+                else:
+                    print(f"Operátor s MCC={mcc} a MNC={mnc} bol pridaný.")
                 added_in_batch = True
                 
             # Opýtame sa, či chce pridať ďalšie, iba ak bol pridaný aspoň jeden operátor
@@ -1102,6 +1158,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             lon_col = column_names[column_mapping['longitude']]
             mcc_col = column_names[column_mapping['mcc']]
             mnc_col = column_names[column_mapping['mnc']]
+            pci_col = column_names[column_mapping['pci']] if 'pci' in column_mapping else None
             
             # Premenná pre sledovanie, či sme už pridali prvý riadok
             first_custom_operator_line = True
@@ -1109,8 +1166,8 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             # Pre každú kombináciu zóny a nového operátora vytvoríme záznam
             print("Generujem zóny pre nových operátorov...")
             for zona_key in tqdm(unique_zones, desc="Generovanie zón pre nových operátorov"):
-                for mcc, mnc in custom_operators:
-                    operator_key = f"{mcc}_{mnc}"
+                for mcc, mnc, pci in custom_operators:
+                    operator_key = f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
                     
                     # Ak táto kombinácia neexistuje, vytvoríme ju
@@ -1141,6 +1198,8 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                             # Nastavíme MCC a MNC
                             base_row[mcc_col] = mcc
                             base_row[mnc_col] = mnc
+                            if pci_col is not None:
+                                base_row[pci_col] = pci
                             
                             # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
                             row_values = []
@@ -1187,15 +1246,16 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
         print(f"Pridaných {new_zones_added} prázdnych zón pre vlastných operátorov.")
     
     # Pridáme vlastných operátorov do dataframe so štatistikami
-    for mcc, mnc in custom_operators:
+    for mcc, mnc, pci in custom_operators:
         # Vytvoríme nový riadok pre tento operátor
         new_row = pd.DataFrame({
             'zona_key': [unique_zones[0] if len(unique_zones) > 0 else '0_0'],
-            'operator_key': [f"{mcc}_{mnc}"],
+            'operator_key': [f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"],
             'zona_x': [0],
             'zona_y': [0],
             'mcc': [mcc],
             'mnc': [mnc],
+            **({'pci': [pci]} if has_pci else {}),
             'rsrp_avg': [-174],
             'pocet_merani': [0],
             'najcastejsia_frekvencia': [''],
@@ -1235,7 +1295,10 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     stats_data = []
     
     # Získame všetkých unikátnych operátorov
-    operators = zone_stats[['mcc', 'mnc']].drop_duplicates()
+    operator_columns = ['mcc', 'mnc']
+    if 'pci' in zone_stats.columns:
+        operator_columns.append('pci')
+    operators = zone_stats[operator_columns].drop_duplicates()
     
     # Vytvoríme dynamické názvy stĺpcov na základe RSRP hranice
     rsrp_good_column = f"RSRP >= {rsrp_threshold}"
@@ -1244,9 +1307,12 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     print("Vytváram štatistiky...")
     for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov"):
         mcc, mnc = op['mcc'], op['mnc']
+        pci = op['pci'] if 'pci' in op else None
         
         # Filtrujeme zóny pre daného operátora
         op_zones = zone_stats[(zone_stats['mcc'] == mcc) & (zone_stats['mnc'] == mnc)]
+        if 'pci' in zone_stats.columns:
+            op_zones = op_zones[op_zones['pci'] == pci]
         
         # Počítame RSRP kategórie
         rsrp_good = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_GOOD'])
@@ -1271,12 +1337,22 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
         except:
             mnc_int = mnc
         
-        stats_data.append({
+        pci_int = None
+        if 'pci' in zone_stats.columns:
+            try:
+                pci_int = int(float(pci))
+            except:
+                pci_int = pci
+        
+        stats_row = {
             'MNC': mnc_int,
             'MCC': mcc_int,
-            rsrp_good_column: rsrp_good,
-            rsrp_bad_column: rsrp_bad
-        })
+        }
+        if 'pci' in zone_stats.columns:
+            stats_row['PCI'] = pci_int
+        stats_row[rsrp_good_column] = rsrp_good
+        stats_row[rsrp_bad_column] = rsrp_bad
+        stats_data.append(stats_row)
     
     # Vytvoríme dataframe a uložíme
     stats_df = pd.DataFrame(stats_data)
@@ -1290,6 +1366,7 @@ def get_column_mapping():
         'latitude': 'D',
         'longitude': 'E',
         'frequency': 'K',
+        'pci': 'L',
         'mnc': 'N',
         'mcc': 'M',
         'rsrp': 'W',
@@ -1407,7 +1484,10 @@ def main():
     
     # Počet unikátnych zón/úsekov a operátorov
     unique_zones = zone_stats['zona_key'].nunique()
-    unique_operators = zone_stats[['mcc', 'mnc']].drop_duplicates().shape[0]
+    operator_columns = ['mcc', 'mnc']
+    if 'pci' in zone_stats.columns:
+        operator_columns.append('pci')
+    unique_operators = zone_stats[operator_columns].drop_duplicates().shape[0]
     total_zones = len(zone_stats)
     
     if zone_mode == "segments":
