@@ -1,75 +1,66 @@
-# 100mscript - Python verzia
+# 100mscript – Python verzia
 
-Táto aplikácia slúži na spracovanie CSV súborov s meraniami mobilného signálu a ich rozdelenie do zón.
+Táto aplikácia spracúva CSV súbory s meraniami mobilného signálu a agreguje ich do 100 m zón (štvorce) alebo 100 m úsekov po trase. Pre každú zónu/úsek a operátora vypočíta priemerné RSRP, vyberie „najlepšiu“ frekvenciu (podľa najvyššieho priemeru RSRP) a vytvorí štatistiky pokrytia.
 
-## Hlavná funkcionalita
+## Hlavné funkcionality
 
-1. Načítanie CSV súboru s meraniami mobilného signálu
-2. Transformácia geografických súradníc (WGS84) na S-JTSK súradnice (metre)
-3. Rozdelenie meraní do zón s definovanou veľkosťou
-4. Výpočet štatistík pre každú zónu a operátora
-5. Uloženie výsledkov do nových CSV súborov
+- prevod GPS súradníc (WGS84) do S-JTSK (EPSG:5514) a práca v metroch,
+- režimy výstupu súradníc:
+  1. **Stred 100 m zóny**,
+  2. **Pôvodné súradnice vzorového merania** (prvý nájdený riadok pre vybranú frekvenciu),
+  3. **100 m úseky po trase** (začiatok úseku, interpolovaný, ak chýba meraný bod),
+- voliteľné predfiltre z `filters/` a `filtre_5G/`,
+- voliteľné generovanie prázdnych zón/úsekov (RSRP = -174),
+- štatistiky pokrytia s nastaviteľnou RSRP hranicou.
 
-## Nastavenie formátu súradníc
+## Spustenie
 
-Pri spustení programu sa vás aplikácia opýta, aký formát súradníc chcete použiť vo výslednom súbore:
-
-1. Štvorcové zóny (súradnice stredu zóny) - výstupný súbor bude obsahovať súradnice stredu každej 100m zóny
-2. Štvorcové zóny (prvý bod v zóne) - výstupný súbor bude obsahovať pôvodné súradnice prvého bodu v zóne
-3. 100m úseky po trase (presný začiatok každých 100 m) - výstupný súbor bude obsahovať súradnice začiatku úseku (začiatok sa interpoluje, ak nie je meraný bod)
-
-### EXE súbor
-
-K dispozícii je jeden EXE súbor, ktorý vám umožní vybrať si formát súradníc počas behu programu:
-
-```
-100mscript-vX.X.X.exe [cesta_k_csv_suboru]
+```bash
+python3 python/main.py cesta/k/suboru.csv
 ```
 
-Ak nie je zadaná cesta k súboru, aplikácia vás vyzve na jej zadanie.
+Program je interaktívny a vyžiada si:
+- potvrdenie použitia filtrov (ak existujú),
+- režim zón/úsekov (1/2/3),
+- hranicu RSRP pre štatistiky (predvolene -110 dBm),
+- mapovanie stĺpcov podľa písmen (predvolené A–Z mapovanie).
 
-## Funkcie programu
+## Vstupné CSV
 
-Program vykonáva tieto operácie:
+- oddeľovač `;` (bodkočiarka),
+- hlavička môže byť aj na inom riadku — skript sa ju pokúsi nájsť automaticky,
+- minimálne stĺpce: latitude, longitude, frequency, MCC, MNC, RSRP,
+- SINR stĺpec je podporovaný (ak ho mapujete, vypočíta sa priemer `sinr_avg`).
 
-1. Načíta CSV súbor s meraniami
-2. Rozdelí merania do štvorcových zón (100m x 100m) alebo do presných 100m úsekov po trase
-3. Pre každú zónu a kombináciu MNC+MCC vypočíta:
-   - Priemerné RSRP
-   - Frekvenciu s najvyšším priemerným RSRP v zóne (pre daného operátora)
-   - Počet meraní
-4. Uloží výsledky do dvoch súborov:
-   - `<original>_zones.csv` - detaily pre každú zónu
-   - `<original>_stats.csv` - štatistiky pokrytia pre každého operátora
-5. Voliteľne vygeneruje prázdne zóny alebo úseky pre chýbajúce kombinácie operátorov
+## Výstupy
 
-## Predspracovanie filtrov
+- `<vstup>_zones.csv` – agregované zóny/úseky (jeden riadok na kombináciu zóna+operátor).
+- `<vstup>_stats.csv` – štatistiky podľa operátorov, s názvami stĺpcov podľa zvolenej RSRP hranice.
 
-Ak sa v adresári, z ktorého spúšťate skript, nachádza priečinok `filters/` alebo `filtre_5G/`,
-program načíta všetky `.txt` filtre a aplikuje ich na vstupný CSV súbor pred spracovaním zón.
-Program sa vás spýta, či má pôvodný riadok zostať zachovaný a pridať sa nový s aplikovaným
-filtrom, alebo sa má pôvodný riadok nahradiť iba filtrom.
+### Poznámky k `_zones.csv`
 
-Ak potrebujete skontrolovať, ako filtre upravili riadky, nastavte premennú prostredia
-`FILTERS_DEBUG_OUTPUT=1` a po filtrovaní sa uloží súbor `<original>_filters.csv`.
+- zachováva pôvodnú hlavičku a pridá `Riadky_v_zone;Frekvencie_v_zone`,
+- na konci riadku pridáva komentár `# Meraní: X`,
+- pri prázdnych zónach/úsekoch pridá poznámku o automatickom generovaní.
 
-Formát filtra:
-- prvý výraz po `<Query>` určuje hodnoty, ktoré sa prepíšu (assignment)
-- ďalšie výrazy v zátvorkách sú podmienky, kedy sa prepis uplatní (OR medzi skupinami)
-- v podmienkach je podporený aj rozsah `start-end` (inkluzívne)
+## Filtre
 
-Ak sa v assignmente opakuje kľúč (napr. `MNC` viac krát), riadok sa duplikuje pre každú
-kombináciu hodnôt. Ak jeden riadok vyhovuje viac ako jednému filtru, program vypíše chybu
-s číslom riadku a spracovanie ukončí.
+Ak existuje `filters/` alebo `filtre_5G/`, všetky `.txt` filtre sa načítajú a použijú pred spracovaním.
 
-## Mapovanie stĺpcov
+Správanie filtrov:
+- assignmenty v `<Query>` menia hodnoty stĺpcov,
+- podmienky v zátvorkách sú AND, skupiny sú OR,
+- rozsahy sa zapisujú ako `start-end`,
+- ak riadok vyhovuje viac filtrom, spracovanie skončí chybou,
+- podľa voľby používateľa sa pôvodný riadok môže ponechať alebo nahradiť filtrovaným.
 
-Pri spustení programu môžete použiť predvolené mapovanie stĺpcov alebo zadať vlastné:
+Debug:
+- `FILTERS_DEBUG_OUTPUT=1` uloží `<vstup>_filters.csv`.
 
-- Latitude (zemepisná šírka): D
-- Longitude (zemepisná dĺžka): E
-- Frequency (frekvencia): K
-- MNC (Mobile Network Code): N
-- MCC (Mobile Country Code): M
-- RSRP: W
-- SINR: V 
+## Premenné prostredia
+
+- `OUTPUT_SUFFIX` – suffix pre výstupy (napr. `_dev` → `<vstup>_dev_zones.csv`).
+
+## Poznámky k režimu úsekov
+
+Režim 100 m úsekov počíta kumulatívnu vzdialenosť medzi po sebe idúcimi bodmi **v poradí riadkov**. Ak body nie sú v poradí trasy, úseky budú skreslené.

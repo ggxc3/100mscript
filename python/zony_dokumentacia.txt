@@ -1,82 +1,79 @@
-DOKUMENTÁCIA - PRIDELOVANIE SÚRADNÍC DO ZÓN
+DOKUMENTÁCIA - PRIDEĽOVANIE SÚRADNÍC DO ZÓN A ÚSEKOV
 
 Ako funguje prideľovanie súradníc do zón?
 ==========================================
 
-Program spracováva GPS súradnice (zemepisná šírka a dĺžka) a rozdeľuje ich do štvorcových zón s veľkosťou 100 x 100 metrov. Tento dokument vysvetľuje, ako celý proces funguje jednoducho a zrozumiteľne.
+Program spracováva GPS súradnice (zemepisná šírka a dĺžka) a rozdeľuje ich do štvorcových
+zón s veľkosťou 100 x 100 metrov alebo do presných 100 m úsekov po trase. Tento dokument
+vysvetľuje proces zrozumiteľne a v súlade s aktuálnym správaním programu.
 
 1. ČO SÚ GPS SÚRADNICE?
 ----------------------
-GPS súradnice sú čísla, ktoré presne určujú polohu na Zemi. Používame dva typy súradníc:
-- Zemepisná šírka (latitude) - určuje polohu severne alebo južne od rovníka (v stupňoch)
-- Zemepisná dĺžka (longitude) - určuje polohu východne alebo západne od nultého poludníka (v stupňoch)
-
-Príklad: GPS súradnice Bratislavy sú približne: 48.1486° severnej šírky, 17.1077° východnej dĺžky
+GPS súradnice presne určujú polohu na Zemi:
+- latitude (zemepisná šírka) v stupňoch
+- longitude (zemepisná dĺžka) v stupňoch
 
 2. PREČO POTREBUJEME ZÓNY?
 -------------------------
-Pri meraní signálu mobilných operátorov sa získavajú tisíce meraní z rôznych miest. Aby sme lepšie porozumeli kvalite signálu v určitej oblasti, je užitočné tieto merania zoskupiť do menších oblastí - zón.
+Pri meraní signálu vznikajú tisíce bodov. Zoskupenie do zón umožní porovnateľné a stabilné
+výsledky v priestore a medzi operátormi.
 
 3. AKO PROGRAM VYTVÁRA ZÓNY
 ---------------------------
-Program vykonáva tieto kroky:
 
 a) PREVOD STUPŇOV NA METRE
-   - GPS súradnice v stupňoch nie sú vhodné na priame vytváranie štvorcových zón
-   - Program najprv prevádza GPS súradnice (v stupňoch) na súradnice v metroch pomocou špeciálnej projekcie S-JTSK (Systém Jednotnej trigonometrickej siete katastrálnej)
-   - Táto projekcia je optimálna pre územie Slovenska a poskytuje presné vzdialenosti v metroch
+   - GPS súradnice sa transformujú z WGS84 (EPSG:4326) do S-JTSK (EPSG:5514)
+   - Táto projekcia je vhodná pre územie Slovenska a umožňuje presnú prácu v metroch
 
 b) PRIRADENIE DO ZÓN
-   - Po prevode súradníc na metre, sa každý bod priradí do štvorčekovej zóny s veľkosťou 100 x 100 metrov
-   - Program to robí matematicky takto:
-     1. Zoberie súradnicu X v metroch a vydelí ju 100
-     2. Odstráni desatinnú časť (zoberie len celé číslo)
-     3. Vynásobí výsledok 100 - tým získa ľavú hranicu zóny
-     4. Rovnako postupuje so súradnicou Y - tým získa dolnú hranicu zóny
-   
-   Príklad: 
-   - Ak má bod súradnice X = 1234,56 metrov a Y = 5678,90 metrov
-   - Pre X: 1234,56 ÷ 100 = 12,3456 → odstránime desatinnú časť → 12 → 12 × 100 = 1200
-   - Pre Y: 5678,90 ÷ 100 = 56,789 → odstránime desatinnú časť → 56 → 56 × 100 = 5600
-   - Tento bod patrí do zóny so súradnicami [1200, 5600] - to je ľavý dolný roh zóny
+   - Po prevode sa bod priradí do štvorcovej zóny 100 x 100 m
+   - Použije sa matematika:
+     - zona_x = floor(x / 100) * 100
+     - zona_y = floor(y / 100) * 100
 
-4. VÝPOČET ŠTATISTÍK PRE ZÓNY
-----------------------------
-- Pre každú zónu program následne vypočíta:
-  * Priemerná hodnota RSRP (sila signálu) zo všetkých meraní v danej zóne
-  * Počet meraní v danej zóne
-  * Najčastejšie používaná frekvencia v zóne
+Príklad:
+- Ak má bod súradnice X = 1234,56 m a Y = 5678,90 m
+- X: 1234,56 / 100 = 12,3456 → 12 → 12 * 100 = 1200
+- Y: 5678,90 / 100 = 56,789 → 56 → 56 * 100 = 5600
+- Bod patrí do zóny so súradnicami [1200, 5600]
 
-- Každá zóna je identifikovaná jej súradnicami a operátorom (kombináciou MCC a MNC - kódy mobilného operátora)
+4. VÝSTUPNÉ SÚRADNICE ZÓN
+-------------------------
+Program ponúka tri režimy výstupu:
 
-5. VÝSTUP PROGRAMU
-----------------
-- Program vytvorí nový súbor, ktorý pre každú zónu obsahuje jeden riadok s priemernými hodnotami
-- Pri spustení programu sa používateľa opýta, aké súradnice chce vo výstupnom súbore použiť:
-  * Súradnice stredu zóny - presný stred každej 100m zóny
-  * Pôvodné súradnice prvého bodu v zóne - zachová pôvodný bod z originálneho merania
-  * 100m úseky po trase (presný začiatok každých 100 m) - ignoruje štvorcové zóny a použije začiatok úseku (interpolovaný, ak treba)
+1) Stred zóny
+   - do výstupu sa zapíšu súradnice stredu zóny (zona_x + 50, zona_y + 50)
 
-6. REŽIM 100m ÚSEKOV
--------------------
-Pri tomto režime sa štvorcové zóny nepoužívajú. Program ide po meraniach v poradí a
-postupne kumuluje vzdialenosť medzi po sebe idúcimi bodmi. Každých presných 100 metrov
-sa začína nový úsek. Ak na hranici 100 m nie je meraný bod, začiatok úseku sa vypočíta
-interpoláciou medzi bodmi. Vo výstupnom súbore sa použijú súradnice začiatku úseku.
-Ak používateľ zvolí generovanie prázdnych úsekov, chýbajúce úseky (napr. tunel) sa
-doplnia s RSRP -174 a započítajú sa do štatistík ako zlé pokrytie.
+2) Pôvodné súradnice
+   - použijú sa súradnice vzorového merania v danej zóne (prvý nájdený riadok pre
+     vybranú frekvenciu)
 
-7. VIZUALIZÁCIA ZÓN
-------------------
-Predstavte si mapu pokrytú štvorcovou sieťou, kde každý štvorec má rozmery 100 x 100 metrov. Každý štvorec predstavuje jednu zónu a obsahuje priemernú hodnotu všetkých meraní, ktoré boli v tomto štvorci zaznamenané.
+3) 100 m úseky po trase
+   - nepoužijú sa štvorcové zóny, ale úseky merané po 100 m
+   - začiatok úseku sa interpoluje, ak na hranici 100 m nie je meraný bod
+   - vo výstupe sú súradnice začiatku úseku
 
-Tento spôsob nám umožňuje:
-- Identifikovať miesta s dobrým a zlým signálom
-- Porovnávať kvalitu signálu medzi rôznymi operátormi v rovnakých oblastiach
-- Zistiť, kde nie sú žiadne merania (prázdne zóny)
+5. REŽIM 100 m ÚSEKOV
+--------------------
+- Program ide po meraniach v poradí riadkov a kumuluje vzdialenosť medzi bodmi.
+- Každých 100 m vznikne nový segment.
+- Segmenty sú označené kľúčmi `segment_0`, `segment_1`, ...
+- Ak používateľ zvolí generovanie prázdnych úsekov, chýbajúce segmenty dostanú RSRP -174
+  a započítajú sa ako zlé pokrytie.
 
-Program vytvára dáta, ktoré uľahčujú analýzu a porovnávanie pokrytia signálom na rôznych miestach a medzi rôznymi operátormi. 
+6. PRÁZDNE ZÓNY A ÚSEKY
+----------------------
+- Program sa môže spýtať, či má generovať prázdne zóny/úseky pre chýbajúce kombinácie
+  zóna+operátor.
+- Prázdne záznamy vždy používajú RSRP = -174.
+- Pri prázdnych zónach sa do výstupu vždy zapisuje stred zóny (aj keď bol zvolený
+  režim „pôvodné súradnice“).
 
-Poznámka:
-- Pri zónach aj úsekoch je možné voliteľne generovať prázdne záznamy pre chýbajúce
-  kombinácie zón/úsekov a operátorov, aby boli štatistiky konzistentné.
+7. VÝSTUP A ŠTATISTIKY
+---------------------
+- Výstup `_zones.csv` obsahuje jeden riadok na zónu/úsek + operátora,
+  vrátane zoznamu riadkov z pôvodného CSV a vybranej frekvencie.
+- Výstup `_stats.csv` sumarizuje počet zón/úsekov s RSRP >= hranica a < hranica.
+
+Tento prístup umožňuje porovnávať kvalitu signálu medzi operátormi a rýchlo
+identifikovať oblasti so slabým pokrytím.

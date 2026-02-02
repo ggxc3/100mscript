@@ -1,46 +1,61 @@
-# CSV Zónový Analyzátor
+# CSV Zónový Analyzátor (100mscript)
 
-Tento skript spracováva CSV súbory s geografickými dátami a RSRP meraniami. Rozdeľuje merania do 100-metrových zón a počíta priemerné hodnoty RSRP pre každú zónu a MNC.
+Tento projekt spracováva CSV súbory s meraniami mobilného signálu. Dáta prepočíta do 100 m zón (štvorce) alebo 100 m úsekov po trase a pre každú zónu/úsek + operátora vypočíta priemerné RSRP, vyberie najlepšiu frekvenciu a vytvorí štatistiky pokrytia.
 
 ## Požiadavky
 
-- [Deno](https://deno.land/) runtime
+- Python 3.9+
+- Knižnice: `pandas`, `numpy`, `pyproj`, `tqdm` (viď `requirements.txt` alebo `python/requirements.txt`)
 
-## Použitie
+Inštalácia:
 
 ```bash
-deno run --allow-read main.ts <cesta_k_csv_suboru>
+pip install -r requirements.txt
 ```
 
-Program vás požiada o zadanie:
-1. Rozsahu riadkov na spracovanie (napr. "1-100")
-2. Písmeno stĺpca pre latitude
-3. Písmeno stĺpca pre longitude
-4. Písmeno stĺpca pre MNC
-5. Písmeno stĺpca pre RSRP
+## Spustenie
 
-## Výstup
+```bash
+python3 python/main.py cesta/k/suboru.csv
+```
 
-Program vytvorí analýzu priemerných hodnôt RSRP pre každú 100-metrovú zónu, rozdelenú podľa MNC.
+Program je interaktívny a postupne sa pýta na:
+- použitie filtrov (ak existuje `filters/` alebo `filtre_5G/`),
+- režim zón/úsekov (stred zóny, pôvodné súradnice, alebo 100 m úseky),
+- hranicu RSRP pre štatistiky (predvolene -110 dBm),
+- mapovanie stĺpcov (predvolené písmená alebo vlastné).
+
+## Vstupné dáta
+
+- CSV musí byť oddelené bodkočiarkou `;`.
+- Hlavička nemusí byť na prvom riadku — skript sa ju pokúsi automaticky nájsť.
+- Očakávané stĺpce: latitude, longitude, frequency, MCC, MNC, RSRP (voliteľne SINR).
+
+## Výstupy
+
+Skript vytvorí dva súbory vedľa vstupu:
+- `<vstup>_zones.csv` — jedna zóna/úsek na riadok.
+- `<vstup>_stats.csv` — štatistiky pokrytia pre každého operátora.
+
+Poznámky k výstupu zón:
+- zachováva pôvodnú hlavičku a pridá stĺpce `Riadky_v_zone;Frekvencie_v_zone`,
+- na konci riadku pridá komentár `# Meraní: X`,
+- pri prázdnych zónach/úsekoch použije RSRP `-174` a poznámku o automatickom generovaní.
+
+## Filtre
+
+Ak existujú priečinky `filters/` alebo `filtre_5G/`, všetky `.txt` filtre sa načítajú a aplikujú pred spracovaním zón. Filtre môžu prepísať hodnoty stĺpcov, prípadne duplikovať riadky pre viaceré kombinácie. Ak jeden riadok vyhovuje viac filtrom, spracovanie sa ukončí chybou.
+
+Voliteľné premenné prostredia:
+- `FILTERS_DEBUG_OUTPUT=1` vytvorí `<vstup>_filters.csv` po filtrovaní,
+- `OUTPUT_SUFFIX=_nieco` pridá suffix k výstupom (napr. `_dev_zones.csv`).
 
 ## Testovanie
 
-Projekt obsahuje testovacie scenáre na overenie funkčnosti programu. Testovacie súbory a dokumentácia sa nachádzajú v priečinku `test_data/`.
-
-### Spustenie testov
-
-Všetky testy môžete spustiť naraz pomocou skriptu:
+Testovacie scenáre sú v `test_data/scenarios/`. Manuálne spustenie:
 
 ```bash
-./test_data/test_script.sh
+python3 python/main.py test_data/scenarios/test_scenarios.csv
 ```
 
-Alebo jednotlivé testy pomocou:
-
-```bash
-deno run --allow-read --allow-write main.ts test_data/scenarios/[nazov_suboru].csv
-```
-
-### Pridávanie testov
-
-Nové testovacie scenáre môžete pridať do priečinka `test_data/scenarios/`. Viac informácií nájdete v `test_data/README.md`. 
+Súbor `test_data/test_script.sh` je legacy (používa `deno run main.ts`) a neodráža aktuálny Python workflow.
