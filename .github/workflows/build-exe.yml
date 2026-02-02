@@ -50,7 +50,7 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: Release ${{ env.VERSION }}
           body: |
-            Automaticky vygenerovaný release pre vetvu python-refactor
+            Automaticky vygenerovaný release pre vetvu main
             
             Tento release obsahuje EXE súbor:
             - 100mscript-${{ env.VERSION }}.exe - interaktívna verzia, ktorá sa počas behu opýta na nastavenie formátu súradníc
