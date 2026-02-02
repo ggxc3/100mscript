@@ -41,7 +41,7 @@ jobs:
       - name: Create EXE file
         run: |
           # Vytvoríme EXE s PyInstaller
-          pyinstaller --onefile --name="100mscript-${{ env.VERSION }}" python/main.py
+          pyinstaller --onefile --name="100mscript-${{ env.VERSION }}" main.py
 
       - name: Create Release
         id: create_release

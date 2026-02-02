@@ -5,7 +5,7 @@ Tento projekt spracováva CSV súbory s meraniami mobilného signálu. Dáta pre
 ## Požiadavky
 
 - Python 3.9+
-- Knižnice: `pandas`, `numpy`, `pyproj`, `tqdm` (viď `requirements.txt` alebo `python/requirements.txt`)
+- Knižnice: `pandas`, `numpy`, `pyproj`, `tqdm` (viď `requirements.txt`)
 
 Inštalácia:
 
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 ## Spustenie
 
 ```bash
-python3 python/main.py cesta/k/suboru.csv
+python3 main.py cesta/k/suboru.csv
 ```
 
 Program je interaktívny a postupne sa pýta na:
@@ -50,12 +50,18 @@ Voliteľné premenné prostredia:
 - `FILTERS_DEBUG_OUTPUT=1` vytvorí `<vstup>_filters.csv` po filtrovaní,
 - `OUTPUT_SUFFIX=_nieco` pridá suffix k výstupom (napr. `_dev_zones.csv`).
 
+Poznámka pre EXE: ak sú priečinky `filters/` alebo `filtre_5G/` v aktuálnom pracovnom priečinku, použijú sa tie. Inak sa hľadá priečinok s EXE (vedľa `100mscript-*.exe`).
+
+## Poznámka k režimu úsekov
+
+Režim 100 m úsekov počíta kumulatívnu vzdialenosť medzi po sebe idúcimi bodmi **v poradí riadkov**. Ak body nie sú v poradí trasy, úseky budú skreslené.
+
 ## Testovanie
 
 Testovacie scenáre sú v `test_data/scenarios/`. Manuálne spustenie:
 
 ```bash
-python3 python/main.py test_data/scenarios/test_scenarios.csv
+python3 main.py test_data/scenarios/test_scenarios.csv
 ```
 
-Súbor `test_data/test_script.sh` je legacy (používa `deno run main.ts`) a neodráža aktuálny Python workflow.
+Súbor `test_data/test_script.sh` používa `python3 main.py` s predvolenými odpoveďami; upravte vstupy podľa poradia otázok, ak meníte správanie.

@@ -20,8 +20,8 @@ TEST_FILES=(
 # Spustenie testov
 for test_file in "${TEST_FILES[@]}"; do
   echo "Spúšťam test: $test_file"
-  # Automaticky odpovie "a" na otázku o použití predvolených hodnôt stĺpcov
-  echo "a" | deno run --allow-read --allow-write main.ts "$SCENARIOS_DIR/$test_file"
+  # Odpovede na interaktívne otázky (filtre, režim, RSRP hranica, stĺpce, prázdne zóny)
+  printf "n\n1\na\na\nn\n" | python3 main.py "$SCENARIOS_DIR/$test_file"
   
   # Kontrola, či bol test úspešný
   if [ $? -eq 0 ]; then

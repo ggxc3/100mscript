@@ -5,14 +5,14 @@ Tento priečinok obsahuje testovacie scenáre (CSV) pre overenie spracovania zó
 ## Štruktúra
 
 - `scenarios/` – testovacie CSV súbory
-- `test_script.sh` – legacy skript (aktuálne odkazuje na `deno run main.ts`)
+- `test_script.sh` – jednoduchý skript s predvolenými odpoveďami na interaktívne otázky
 
 ## Ako spúšťať testy
 
 Program je interaktívny, preto je najspoľahlivejšie spúšťať testy manuálne:
 
 ```bash
-python3 python/main.py test_data/scenarios/test_scenarios.csv
+python3 main.py test_data/scenarios/test_scenarios.csv
 ```
 
 Počas behu odpovedajte na otázky (režim zón/úsekov, RSRP hranica, mapovanie stĺpcov, prípadne filtre).
@@ -22,7 +22,7 @@ Počas behu odpovedajte na otázky (režim zón/úsekov, RSRP hranica, mapovanie
 Ak potrebujete neinteraktívny beh, môžete do procesu poslať odpovede cez `printf`/`echo`, napríklad:
 
 ```bash
-printf "n\n1\na\na\n" | python3 python/main.py test_data/scenarios/test_scenarios.csv
+printf "n\n1\na\na\nn\n" | python3 main.py test_data/scenarios/test_scenarios.csv
 ```
 
 Vzor vyššie je len príklad – počet a poradie otázok závisí od toho, či existujú filtre a či zvolíte generovanie prázdnych zón.
@@ -57,6 +57,5 @@ Zamerajte sa na:
 
 ## Poznámka k `test_script.sh`
 
-Skript momentálne používa `deno run main.ts`, čo nezodpovedá aktuálnemu Python workflow.
-Ak ho chcete používať, je potrebné ho aktualizovať na `python3 python/main.py` a doplniť
-odpovede na nové interaktívne otázky.
+Skript posiela predvolené odpovede (bez generovania prázdnych zón). Ak potrebujete iné
+správanie, upravte vstupy v `printf` podľa poradia otázok.
