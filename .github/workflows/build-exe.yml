@@ -3,7 +3,7 @@ name: Build EXE s PyInstaller
 on:
   push:
     branches:
-      - python-refactor
+      - main
   workflow_dispatch:
     # Umožňuje manuálne spustenie workflow cez GitHub rozhranie
 
