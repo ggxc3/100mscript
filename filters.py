@@ -145,8 +145,13 @@ def _row_matches_group(row, group):
             if row_value != condition[1]:
                 return False
         elif condition_type == "range":
-            if row_value < condition[1] or row_value > condition[2]:
-                return False
+            low, high = condition[1], condition[2]
+            if low == high:
+                if row_value != low:
+                    return False
+            else:
+                if row_value < low or row_value >= high:
+                    return False
     return True
 
 
@@ -221,14 +226,33 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
         except (TypeError, ValueError):
             row_index = position
         row_number = row_index + header_line + 1
-        matching_filters = [rule for rule in filter_rules if _row_matches_filter(row, rule)]
+        matching_filters = []
+        for rule in filter_rules:
+            best_group_size = 0
+            for group in rule["condition_groups"]:
+                if _row_matches_group(row, group):
+                    if len(group) > best_group_size:
+                        best_group_size = len(group)
+            if best_group_size > 0:
+                matching_filters.append((best_group_size, rule))
 
         if len(matching_filters) > 1:
-            print(f"CHYBA: Riadok {row_number} vyhovuje viac filtrom. Spracovanie sa zastavi.")
-            raise SystemExit(1)
+            matching_filters.sort(key=lambda item: (-item[0], item[1]["name"]))
+            best_size = matching_filters[0][0]
+            best_matches = [rule for size, rule in matching_filters if size == best_size]
+            if len(best_matches) > 1:
+                names = ", ".join(rule["name"] for rule in best_matches)
+                print(
+                    f"Upozornenie: Riadok {row_number} vyhovuje viac filtrom ({names}). "
+                    f"Použijem prvý podľa poradia."
+                )
+            rule = matching_filters[0][1]
+        elif len(matching_filters) == 1:
+            rule = matching_filters[0][1]
+        else:
+            rule = None
 
-        if len(matching_filters) == 1:
-            rule = matching_filters[0]
+        if rule is not None:
             if keep_original_on_match:
                 row_dict = row.to_dict()
                 row_dict["original_excel_row"] = row_number

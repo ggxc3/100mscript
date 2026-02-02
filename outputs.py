@@ -72,6 +72,38 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     # Kontrolujeme, či máme SINR stĺpec
     has_sinr = 'sinr' in column_mapping and 'sinr_avg' in sorted_zone_stats.columns
     pci_index = column_mapping.get('pci') if isinstance(column_mapping, dict) else None
+    rsrp_col = column_names[column_mapping['rsrp']]
+    freq_col = column_names[column_mapping['frequency']]
+    lat_col = column_names[column_mapping['latitude']]
+    lon_col = column_names[column_mapping['longitude']]
+
+    # Predpočítame prvý riadok pre každú kombináciu zóna+operátor+frekvencia+PCI
+    # (stráca sa O(n^2) filtrovanie v hlavnej slučke)
+    missing_freq_key = "__MISSING_FREQ__"
+    freq_keys = df[freq_col].astype(object)
+    freq_keys[pd.isna(freq_keys)] = missing_freq_key
+    missing_pci_key = "__MISSING_PCI__"
+    if pci_col is not None:
+        pci_keys = df[pci_col].astype(object)
+        pci_keys[pd.isna(pci_keys)] = missing_pci_key
+    else:
+        pci_keys = pd.Series([missing_pci_key] * len(df), index=df.index)
+    sample_lookup = pd.DataFrame({
+        "zona_operator_key": df["zona_operator_key"],
+        "freq_key": freq_keys,
+        "pci_key": pci_keys,
+        "row_index": df.index,
+    })
+    sample_lookup = sample_lookup.drop_duplicates(
+        subset=["zona_operator_key", "freq_key", "pci_key"],
+        keep="first"
+    )
+    sample_row_index_by_key = dict(
+        zip(
+            zip(sample_lookup["zona_operator_key"], sample_lookup["freq_key"], sample_lookup["pci_key"]),
+            sample_lookup["row_index"]
+        )
+    )
 
     # Vytvorím progress bar pre zápis zón
     for i in tqdm(range(len(sorted_zone_stats)), desc="Zápis zón"):
@@ -85,22 +117,19 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Označíme túto zónu ako spracovanú
         processed_zones[zona_operator_key] = True
 
-        # Nájdeme vzorový riadok z tejto zóny a vybranej frekvencie
-        rsrp_col = column_names[column_mapping['rsrp']]
-        freq_col = column_names[column_mapping['frequency']]
-        lat_col = column_names[column_mapping['latitude']]
-        lon_col = column_names[column_mapping['longitude']]
+        # Nájdeme vzorový riadok z tejto zóny a vybranej kombinácie frekvencia+PCI
         selected_frequency = zone_row['najcastejsia_frekvencia']
-        if pd.isna(selected_frequency):
-            sample_rows = df[(df['zona_operator_key'] == zona_operator_key) & (df[freq_col].isna())]
+        selected_freq_key = missing_freq_key if pd.isna(selected_frequency) else selected_frequency
+        if pci_col is not None and 'pci' in zone_row:
+            selected_pci = zone_row['pci']
+            selected_pci_key = missing_pci_key if pd.isna(selected_pci) else selected_pci
         else:
-            sample_rows = df[(df['zona_operator_key'] == zona_operator_key) & (df[freq_col] == selected_frequency)]
-
-        if len(sample_rows) == 0:
+            selected_pci_key = missing_pci_key
+        row_index = sample_row_index_by_key.get((zona_operator_key, selected_freq_key, selected_pci_key))
+        if row_index is None:
             continue  # Preskočíme, ak nemáme vzorový riadok
-
         # Vezmeme prvý riadok ako základ
-        sample_row = sample_rows.iloc[0]
+        sample_row = df.loc[row_index]
 
         # Vytvoríme kópiu vzorového riadku - už filtrovaného dataframu
         # Nepoužívame original_row_index, ktorý by mohol byť mimo rozsahu
@@ -109,6 +138,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Aktualizujeme hodnoty - používame bodku namiesto čiarky pre desatinné hodnoty
         base_row[rsrp_col] = f"{zone_row['rsrp_avg']:.2f}"
         base_row[freq_col] = zone_row['najcastejsia_frekvencia']
+        if pci_col is not None and 'pci' in zone_row:
+            base_row[pci_col] = zone_row['pci']
 
         # Aktualizujeme SINR, ak je k dispozícii
         if has_sinr and not pd.isna(zone_row['sinr_avg']):
@@ -187,10 +218,78 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
         # Získame všetky unikátne zóny/úseky a operátorov
         unique_zones = sorted_zone_stats['zona_key'].unique()
         operator_columns = ['mcc', 'mnc']
-        if 'pci' in sorted_zone_stats.columns:
-            operator_columns.append('pci')
         unique_operators = sorted_zone_stats[operator_columns].drop_duplicates().values
         added_empty_zones = 0
+
+        # Predpočítame prvý riadok pre každú kombináciu operátora (rovnaké správanie ako filtrovanie)
+        operator_key_columns = [mcc_col, mnc_col]
+
+        def _normalize_operator_value(value):
+            if isinstance(value, (int, float, np.integer, np.floating)):
+                try:
+                    return float(value)
+                except Exception:
+                    return value
+            return value
+
+        operator_first_row = {}
+        for row_index, *values in df[operator_key_columns].itertuples(index=True, name=None):
+            key = tuple(_normalize_operator_value(v) for v in values)
+            if key not in operator_first_row:
+                operator_first_row[key] = row_index
+
+        rsrp_col = column_names[column_mapping['rsrp']]
+        lat_col = column_names[column_mapping['latitude']]
+        lon_col = column_names[column_mapping['longitude']]
+        rsrp_index = column_mapping['rsrp']
+        lat_index = column_mapping['latitude']
+        lon_index = column_mapping['longitude']
+
+        operator_row_templates = {}
+        for operator_values in unique_operators:
+            mcc, mnc = operator_values[0], operator_values[1]
+            operator_key = f"{mcc}_{mnc}"
+
+            operator_key_values = (mcc, mnc)
+            lookup_key = tuple(_normalize_operator_value(v) for v in operator_key_values)
+            row_index = operator_first_row.get(lookup_key)
+            if row_index is None:
+                sample_row = df.iloc[0]
+            else:
+                sample_row = df.loc[row_index]
+            base_row = sample_row.copy()
+
+            try:
+                base_row[mcc_col] = str(int(float(mcc)))
+            except:
+                base_row[mcc_col] = mcc
+
+            try:
+                base_row[mnc_col] = str(int(float(mnc)))
+            except:
+                base_row[mnc_col] = mnc
+
+            base_row[rsrp_col] = "-174"
+
+            row_values = []
+            for j, val in enumerate(base_row[column_names]):
+                if pd.isna(val):
+                    row_values.append("")
+                elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
+                    try:
+                        row_values.append(str(int(float(val))))
+                    except:
+                        row_values.append(str(val))
+                else:
+                    row_values.append(str(val))
+
+            while len(row_values) < expected_columns:
+                row_values.append("")
+
+            if len(row_values) > expected_columns:
+                row_values = row_values[:expected_columns]
+
+            operator_row_templates[operator_key] = row_values
 
         if zone_mode == "segments":
             segment_coords = None
@@ -203,76 +302,32 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                 unique_zones = [f"segment_{segment_id}" for segment_id in sorted(segment_meta.keys())]
             else:
                 segment_coords = zone_stats.groupby('zona_key')[['longitude', 'latitude']].first()
+            segment_latlon = {}
+            if isinstance(segment_coords, dict):
+                for zona_key, coords in segment_coords.items():
+                    if coords:
+                        lat, lon = coords
+                        segment_latlon[zona_key] = (f"{lat:.6f}", f"{lon:.6f}")
+            elif segment_coords is not None:
+                for zona_key, coords in segment_coords.iterrows():
+                    segment_latlon[zona_key] = (f"{coords['latitude']:.6f}", f"{coords['longitude']:.6f}")
             for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov"):
+                coords = segment_latlon.get(zona_key)
                 for operator_values in unique_operators:
                     mcc, mnc = operator_values[0], operator_values[1]
-                    pci = operator_values[2] if len(operator_values) > 2 else ""
-                    operator_key = f"{mcc}_{mnc}_{pci}"
+                    operator_key = f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
 
                     if zona_operator_key not in processed_zones:
-                        sample_operator_rows = df[
-                            (df[mcc_col] == mcc) &
-                            (df[mnc_col] == mnc)
-                        ]
-                        if pci_col is not None:
-                            sample_operator_rows = sample_operator_rows[sample_operator_rows[pci_col] == pci]
-                        if len(sample_operator_rows) == 0:
-                            sample_operator_rows = df
-                        sample_row = sample_operator_rows.iloc[0]
-                        base_row = sample_row.copy()
-
-                        rsrp_col = column_names[column_mapping['rsrp']]
-                        lat_col = column_names[column_mapping['latitude']]
-                        lon_col = column_names[column_mapping['longitude']]
-
-                        if isinstance(segment_coords, dict):
-                            coords = segment_coords.get(zona_key)
-                            if coords:
-                                lat, lon = coords
-                                base_row[lat_col] = f"{lat:.6f}"
-                                base_row[lon_col] = f"{lon:.6f}"
-                        elif segment_coords is not None and zona_key in segment_coords.index:
-                            lat = segment_coords.loc[zona_key, 'latitude']
-                            lon = segment_coords.loc[zona_key, 'longitude']
-                            base_row[lat_col] = f"{lat:.6f}"
-                            base_row[lon_col] = f"{lon:.6f}"
-
-                        base_row[rsrp_col] = "-174"
-
-                        try:
-                            base_row[mcc_col] = str(int(float(mcc)))
-                        except:
-                            base_row[mcc_col] = mcc
-
-                        try:
-                            base_row[mnc_col] = str(int(float(mnc)))
-                        except:
-                            base_row[mnc_col] = mnc
-
-                        if pci_col is not None:
-                            try:
-                                base_row[pci_col] = str(int(float(pci)))
-                            except:
-                                base_row[pci_col] = pci
-
-                        row_values = []
-                        for j, val in enumerate(base_row[column_names]):
-                            if pd.isna(val):
-                                row_values.append("")
-                            elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
-                                try:
-                                    row_values.append(str(int(float(val))))
-                                except:
-                                    row_values.append(str(val))
-                            else:
-                                row_values.append(str(val))
-
-                        while len(row_values) < expected_columns:
-                            row_values.append("")
-
-                        if len(row_values) > expected_columns:
-                            row_values = row_values[:expected_columns]
+                        row_values = operator_row_templates[operator_key].copy()
+                        if coords:
+                            lat_str, lon_str = coords
+                            if lat_index < expected_columns:
+                                row_values[lat_index] = lat_str
+                            if lon_index < expected_columns:
+                                row_values[lon_index] = lon_str
+                        if rsrp_index < expected_columns:
+                            row_values[rsrp_index] = "-174"
 
                         csv_row = ';'.join(row_values)
                         csv_row += ";;"
@@ -281,115 +336,45 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                         output_lines.append(csv_row)
                         added_empty_zones += 1
         else:
+            zone_latlon = {}
+            transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+            for zona_key in unique_zones:
+                zona_coords = zona_key.split('_')
+                if len(zona_coords) != 2:
+                    continue
+                zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                zona_center_x = zona_x + ZONE_SIZE_METERS/2
+                zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                lon, lat = transformer.transform(zona_center_x, zona_center_y)
+                zone_latlon[zona_key] = (f"{lat:.6f}", f"{lon:.6f}")
+
             # Progress bar pre generovanie prázdnych zón
             for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón"):
+                coords = zone_latlon.get(zona_key)
+                if coords is None:
+                    continue
                 for operator_values in unique_operators:
                     mcc, mnc = operator_values[0], operator_values[1]
-                    pci = operator_values[2] if len(operator_values) > 2 else ""
-                    operator_key = f"{mcc}_{mnc}_{pci}"
+                    operator_key = f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
 
                     # Ak táto kombinácia neexistuje, vytvoríme ju
                     if zona_operator_key not in processed_zones:
-                        # Nájdeme vzorový riadok s týmto operátorom
-                        sample_operator_rows = df[
-                            (df[mcc_col] == mcc) &
-                            (df[mnc_col] == mnc)
-                        ]
-                        if pci_col is not None:
-                            sample_operator_rows = sample_operator_rows[sample_operator_rows[pci_col] == pci]
+                        lat_str, lon_str = coords
+                        row_values = operator_row_templates[operator_key].copy()
+                        if lat_index < expected_columns:
+                            row_values[lat_index] = lat_str
+                        if lon_index < expected_columns:
+                            row_values[lon_index] = lon_str
+                        if rsrp_index < expected_columns:
+                            row_values[rsrp_index] = "-174"
 
-                        # Ak nemáme vzorový riadok pre tohto operátora, vezmeme ľubovoľný riadok
-                        if len(sample_operator_rows) == 0:
-                            sample_operator_rows = df
+                        csv_row = ';'.join(row_values)
+                        csv_row += ";;"
+                        csv_row += " # Prázdna zóna - automaticky vygenerovaná"
 
-                        # Vezmeme prvý riadok od operátora ako základ
-                        sample_row = sample_operator_rows.iloc[0]
-                        base_row = sample_row.copy()
-
-                        # Aktualizujeme základné hodnoty
-                        rsrp_col = column_names[column_mapping['rsrp']]
-                        lat_col = column_names[column_mapping['latitude']]
-                        lon_col = column_names[column_mapping['longitude']]
-
-                        # Rozdelíme zona_key na súradnice
-                        zona_coords = zona_key.split('_')
-                        if len(zona_coords) == 2:
-                            zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
-
-                            # Získame stred zóny
-                            zona_center_x = zona_x + ZONE_SIZE_METERS/2
-                            zona_center_y = zona_y + ZONE_SIZE_METERS/2
-
-                            # Aktualizujeme súradnice na stred zóny alebo ponecháme pôvodné podľa nastavenia
-                            if use_zone_center:
-                                # Pre prázdne zóny pri use_zone_center=True nemusíme robiť nič extra,
-                                # keďže nižšie sa vždy nastavujú súradnice stredu zóny
-                                pass
-                            # V prípade False necháme pôvodné súradnice (t.j. neaktualizujeme súradnice vôbec)
-
-                            # Pre prázdne zóny vždy používame stredové súradnice
-                            # Transformujeme späť na WGS84
-                            transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
-
-                            # Vždy používame súradnice stredu zóny pre prázdne zóny
-                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
-
-                            # Aktualizujeme hodnoty - používame bodku namiesto čiarky
-                            base_row[lat_col] = f"{lat:.6f}"
-                            base_row[lon_col] = f"{lon:.6f}"
-                            base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
-
-                            # Upravíme MCC a MNC na celé čísla
-                            try:
-                                base_row[mcc_col] = str(int(float(mcc)))
-                            except:
-                                base_row[mcc_col] = mcc
-
-                            try:
-                                base_row[mnc_col] = str(int(float(mnc)))
-                            except:
-                                base_row[mnc_col] = mnc
-
-                            if pci_col is not None:
-                                try:
-                                    base_row[pci_col] = str(int(float(pci)))
-                                except:
-                                    base_row[pci_col] = pci
-
-                            # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
-                            row_values = []
-                            for j, val in enumerate(base_row[column_names]):
-                                if pd.isna(val):
-                                    row_values.append("")
-                                # Kontrola, či index zodpovedá MCC alebo MNC
-                                elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
-                                    try:
-                                        row_values.append(str(int(float(val))))
-                                    except:
-                                        row_values.append(str(val))
-                                else:
-                                    row_values.append(str(val))
-
-                            # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
-                            while len(row_values) < expected_columns:
-                                row_values.append("")
-
-                            # Ak máme viac stĺpcov, odrežeme nadbytočné
-                            if len(row_values) > expected_columns:
-                                row_values = row_values[:expected_columns]
-
-                            # Vytvoríme základný CSV riadok
-                            csv_row = ';'.join(row_values)
-
-                            # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
-                            csv_row += ";;"
-
-                            # Pridáme informáciu o prázdnej zóne
-                            csv_row += " # Prázdna zóna - automaticky vygenerovaná"
-
-                            output_lines.append(csv_row)
-                            added_empty_zones += 1
+                        output_lines.append(csv_row)
+                        added_empty_zones += 1
 
     # Zapíšeme výsledky do súboru
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -414,13 +399,10 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
 
     # Získame existujúcich operátorov
     has_pci = 'pci' in zone_stats.columns
-    if has_pci:
-        existing_operators = set([
-            f"{mcc}_{mnc}_{pci}"
-            for mcc, mnc, pci in zip(zone_stats['mcc'], zone_stats['mnc'], zone_stats['pci'])
-        ])
-    else:
-        existing_operators = set([f"{mcc}_{mnc}" for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])])
+    existing_operators = set([
+        f"{mcc}_{mnc}"
+        for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])
+    ])
 
     custom_operators = []
     continue_adding = True
@@ -434,8 +416,8 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
         # Zadáme nových operátorov v jednom riadku oddelených dvojbodkou
         try:
             operators_input = input(
-                "Zadajte MCC:MNC:PCI operátorov oddelené medzerou (napr. '231:01:123 231:02:45'), "
-                "PCI je voliteľné. Alebo 'koniec' pre ukončenie: "
+                "Zadajte MCC:MNC operátorov oddelené medzerou (napr. '231:01 231:02'), "
+                "PCI je voliteľné (MCC:MNC:PCI). Alebo 'koniec' pre ukončenie: "
             ).strip()
 
             # Kontrola ukončenia
@@ -469,18 +451,15 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                     continue
 
                 # Skontrolujeme, či tento operátor už existuje
-                operator_key = f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"
+                operator_key = f"{mcc}_{mnc}"
                 if operator_key in existing_operators:
-                    if has_pci:
-                        print(f"Operátor s MCC={mcc}, MNC={mnc}, PCI={pci} už existuje v dátach!")
-                    else:
-                        print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach!")
+                    print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach!")
                     continue
 
                 # Pridáme operátora do zoznamu
                 custom_operators.append((mcc, mnc, pci))
                 existing_operators.add(operator_key)
-                if has_pci:
+                if pci:
                     print(f"Operátor s MCC={mcc}, MNC={mnc}, PCI={pci} bol pridaný.")
                 else:
                     print(f"Operátor s MCC={mcc} a MNC={mnc} bol pridaný.")
@@ -533,7 +512,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
             print("Generujem zóny pre nových operátorov...")
             for zona_key in tqdm(unique_zones, desc="Generovanie zón pre nových operátorov"):
                 for mcc, mnc, pci in custom_operators:
-                    operator_key = f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"
+                    operator_key = f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
 
                     # Ak táto kombinácia neexistuje, vytvoríme ju
@@ -616,7 +595,7 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
         # Vytvoríme nový riadok pre tento operátor
         new_row = pd.DataFrame({
             'zona_key': [unique_zones[0] if len(unique_zones) > 0 else '0_0'],
-            'operator_key': [f"{mcc}_{mnc}_{pci}" if has_pci else f"{mcc}_{mnc}"],
+            'operator_key': [f"{mcc}_{mnc}"],
             'zona_x': [0],
             'zona_y': [0],
             'mcc': [mcc],
@@ -663,8 +642,6 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
 
     # Získame všetkých unikátnych operátorov
     operator_columns = ['mcc', 'mnc']
-    if 'pci' in zone_stats.columns:
-        operator_columns.append('pci')
     operators = zone_stats[operator_columns].drop_duplicates()
 
     # Vytvoríme dynamické názvy stĺpcov na základe RSRP hranice
@@ -674,12 +651,9 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     print("Vytváram štatistiky...")
     for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov"):
         mcc, mnc = op['mcc'], op['mnc']
-        pci = op['pci'] if 'pci' in op else None
 
         # Filtrujeme zóny pre daného operátora
         op_zones = zone_stats[(zone_stats['mcc'] == mcc) & (zone_stats['mnc'] == mnc)]
-        if 'pci' in zone_stats.columns:
-            op_zones = op_zones[op_zones['pci'] == pci]
 
         # Počítame RSRP kategórie
         rsrp_good = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_GOOD'])
@@ -704,19 +678,10 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
         except:
             mnc_int = mnc
 
-        pci_int = None
-        if 'pci' in zone_stats.columns:
-            try:
-                pci_int = int(float(pci))
-            except:
-                pci_int = pci
-
         stats_row = {
             'MNC': mnc_int,
             'MCC': mcc_int,
         }
-        if 'pci' in zone_stats.columns:
-            stats_row['PCI'] = pci_int
         stats_row[rsrp_good_column] = rsrp_good
         stats_row[rsrp_bad_column] = rsrp_bad
         stats_data.append(stats_row)

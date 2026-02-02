@@ -136,10 +136,10 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
     mcc_col = column_names[column_mapping['mcc']]
     mnc_col = column_names[column_mapping['mnc']]
     pci_col = column_names[column_mapping['pci']]
+    # Operátor je unikátny podľa MCC+MNC. PCI sa vyberá spolu s frekvenciou.
     df_filtered['operator_key'] = (
         df_filtered[mcc_col].astype(str)
         + '_' + df_filtered[mnc_col].astype(str)
-        + '_' + df_filtered[pci_col].astype(str)
     )
 
     # Vytvoríme kombinovaný kľúč zóna+operátor
@@ -173,7 +173,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     mnc_col = column_names[column_mapping['mnc']]
     pci_col = column_names[column_mapping['pci']]
 
-    # Agregačný slovník pre rôzne stĺpce (po frekvencii v rámci zóny + operátora)
+    # Agregačný slovník pre rôzne stĺpce (po kombinácii frekvencia+PCI v rámci zóny + operátora)
     agg_kwargs = {
         'rsrp_avg': (rsrp_col, 'mean'),
         'pocet_merani': (rsrp_col, 'count'),
@@ -184,21 +184,23 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     if sinr_col:
         agg_kwargs['sinr_avg'] = (sinr_col, lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan)
 
-    # Agregácia dát podľa zón, operátorov a frekvencií
+    # Agregácia dát podľa zón, operátorov a kombinácie frekvencia+PCI
     zone_freq_stats = df.groupby(
         ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, pci_col, freq_col]
     ).agg(**agg_kwargs).reset_index()
 
-    # Výber najlepšej frekvencie podľa priemernej RSRP (s deterministickým tie-break)
+    # Výber najlepšej kombinácie frekvencia+PCI podľa priemernej RSRP (s deterministickým tie-break)
     zone_freq_stats['frequency_sort_numeric'] = pd.to_numeric(zone_freq_stats[freq_col], errors='coerce')
     zone_freq_stats['frequency_sort_text'] = zone_freq_stats[freq_col].astype(str)
+    zone_freq_stats['pci_sort_numeric'] = pd.to_numeric(zone_freq_stats[pci_col], errors='coerce')
+    zone_freq_stats['pci_sort_text'] = zone_freq_stats[pci_col].astype(str)
     zone_freq_stats = zone_freq_stats.sort_values(
-        ['rsrp_avg', 'pocet_merani', 'frequency_sort_numeric', 'frequency_sort_text'],
-        ascending=[False, False, True, True]
+        ['rsrp_avg', 'pocet_merani', 'frequency_sort_numeric', 'frequency_sort_text', 'pci_sort_numeric', 'pci_sort_text'],
+        ascending=[False, False, True, True, True, True]
     )
 
     zone_stats = zone_freq_stats.groupby(
-        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col, pci_col],
+        ['zona_key', 'operator_key', 'zona_x', 'zona_y', mcc_col, mnc_col],
         as_index=False
     ).first()
 
@@ -206,7 +208,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     zone_stats['najcastejsia_frekvencia'] = zone_stats[freq_col]
     zone_stats['vsetky_frekvencie'] = zone_stats[freq_col].apply(lambda value: [value])
     zone_stats = zone_stats.rename(columns={mcc_col: 'mcc', mnc_col: 'mnc', pci_col: 'pci'})
-    zone_stats = zone_stats.drop(columns=[freq_col, 'frequency_sort_numeric', 'frequency_sort_text'])
+    zone_stats = zone_stats.drop(columns=[freq_col, 'frequency_sort_numeric', 'frequency_sort_text', 'pci_sort_numeric', 'pci_sort_text'])
 
     new_columns = [
         'zona_key', 'operator_key', 'zona_x', 'zona_y', 'mcc', 'mnc', 'pci',

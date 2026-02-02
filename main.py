@@ -105,8 +105,6 @@ def main():
     # Počet unikátnych zón/úsekov a operátorov
     unique_zones = zone_stats['zona_key'].nunique()
     operator_columns = ['mcc', 'mnc']
-    if 'pci' in zone_stats.columns:
-        operator_columns.append('pci')
     unique_operators = zone_stats[operator_columns].drop_duplicates().shape[0]
     total_zones = len(zone_stats)
 
