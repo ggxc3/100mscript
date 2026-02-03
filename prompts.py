@@ -2,6 +2,8 @@
 
 import argparse
 
+from constants import ZONE_SIZE_METERS
+
 
 def parse_arguments():
     """Spracovanie argumentov príkazového riadka."""
@@ -37,7 +39,7 @@ def ask_for_zone_mode():
     print("\nNastavenie súradníc a režimu:")
     print("1 - Štvorcové zóny (súradnice stredu zóny)")
     print("2 - Štvorcové zóny (prvý bod v zóne)")
-    print("3 - 100m úseky po trase (presný začiatok každých 100 m)")
+    print("3 - Úseky po trase (presný začiatok každých zvolených m)")
 
     while True:
         choice = input("Vyberte možnosť [1/2/3]: ").strip()
@@ -49,6 +51,32 @@ def ask_for_zone_mode():
             return "segments"
         else:
             print("Neplatná voľba. Prosím zadajte 1, 2 alebo 3.")
+
+
+def ask_for_zone_size(default_zone_size=ZONE_SIZE_METERS):
+    """Opýta sa používateľa na veľkosť zóny/úseku v metroch."""
+    print("\nNastavenie veľkosti zóny/úseku:")
+    print(f"Predvolená hodnota: {default_zone_size} m")
+
+    while True:
+        choice = input(f"Chcete použiť predvolenú hodnotu {default_zone_size} m? (a/n): ").strip().lower()
+        if choice == "a":
+            return default_zone_size
+        elif choice == "n":
+            while True:
+                try:
+                    size_input = input("Zadajte veľkosť zóny/úseku v metroch (napr. 50 alebo 200): ").strip()
+                    size_value = float(size_input.replace(',', '.'))
+                    if size_value <= 0:
+                        raise ValueError("Veľkosť musí byť kladná.")
+                    if size_value.is_integer():
+                        size_value = int(size_value)
+                    print(f"Použije sa veľkosť zóny/úseku: {size_value} m")
+                    return size_value
+                except ValueError:
+                    print("Neplatná hodnota. Prosím zadajte kladné číslo (napr. 50).")
+        else:
+            print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
 
 
 def ask_for_keep_original_rows():

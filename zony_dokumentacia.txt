@@ -4,7 +4,8 @@ Ako funguje prideľovanie súradníc do zón?
 ==========================================
 
 Program spracováva GPS súradnice (zemepisná šírka a dĺžka) a rozdeľuje ich do štvorcových
-zón s veľkosťou 100 x 100 metrov alebo do presných 100 m úsekov po trase. Tento dokument
+zón s veľkosťou S x S metrov (predvolene 100 m) alebo do presných úsekov po trase s dĺžkou S m
+(predvolene 100 m). Tento dokument
 vysvetľuje proces zrozumiteľne a v súlade s aktuálnym správaním programu.
 
 1. ČO SÚ GPS SÚRADNICE?
@@ -26,12 +27,12 @@ a) PREVOD STUPŇOV NA METRE
    - Táto projekcia je vhodná pre územie Slovenska a umožňuje presnú prácu v metroch
 
 b) PRIRADENIE DO ZÓN
-   - Po prevode sa bod priradí do štvorcovej zóny 100 x 100 m
+   - Po prevode sa bod priradí do štvorcovej zóny s veľkosťou S x S m
    - Použije sa matematika:
-     - zona_x = floor(x / 100) * 100
-     - zona_y = floor(y / 100) * 100
+     - zona_x = floor(x / S) * S
+     - zona_y = floor(y / S) * S
 
-Príklad:
+Príklad (pri S = 100 m):
 - Ak má bod súradnice X = 1234,56 m a Y = 5678,90 m
 - X: 1234,56 / 100 = 12,3456 → 12 → 12 * 100 = 1200
 - Y: 5678,90 / 100 = 56,789 → 56 → 56 * 100 = 5600
@@ -42,21 +43,21 @@ Príklad:
 Program ponúka tri režimy výstupu:
 
 1) Stred zóny
-   - do výstupu sa zapíšu súradnice stredu zóny (zona_x + 50, zona_y + 50)
+   - do výstupu sa zapíšu súradnice stredu zóny (zona_x + S/2, zona_y + S/2)
 
 2) Pôvodné súradnice
    - použijú sa súradnice vzorového merania v danej zóne (prvý nájdený riadok pre
      vybranú frekvenciu)
 
-3) 100 m úseky po trase
-   - nepoužijú sa štvorcové zóny, ale úseky merané po 100 m
-   - začiatok úseku sa interpoluje, ak na hranici 100 m nie je meraný bod
+3) Úseky po trase
+   - nepoužijú sa štvorcové zóny, ale úseky merané po zvolenej dĺžke S m
+   - začiatok úseku sa interpoluje, ak na hranici segmentu nie je meraný bod
    - vo výstupe sú súradnice začiatku úseku
 
-5. REŽIM 100 m ÚSEKOV
---------------------
+5. REŽIM ÚSEKOV
+--------------
 - Program ide po meraniach v poradí riadkov a kumuluje vzdialenosť medzi bodmi.
-- Každých 100 m vznikne nový segment.
+- Každých S m vznikne nový segment.
 - Segmenty sú označené kľúčmi `segment_0`, `segment_1`, ...
 - Ak používateľ zvolí generovanie prázdnych úsekov, chýbajúce segmenty dostanú RSRP -174
   a započítajú sa ako zlé pokrytie.

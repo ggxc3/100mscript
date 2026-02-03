@@ -3,7 +3,6 @@
 
 import traceback
 
-from constants import ZONE_SIZE_METERS
 from filters import apply_filters, load_filter_rules, maybe_dump_filtered_df
 from io_utils import get_output_suffix, load_csv_file
 from outputs import add_custom_operators, save_stats, save_zone_results
@@ -12,6 +11,7 @@ from prompts import (
     ask_for_keep_original_rows,
     ask_for_rsrp_threshold,
     ask_for_zone_mode,
+    ask_for_zone_size,
     get_column_mapping,
     parse_arguments,
 )
@@ -49,10 +49,12 @@ def main():
     # Opýtame sa používateľa na režim spracovania zón
     zone_mode = ask_for_zone_mode()
     use_zone_center = zone_mode == "center"
+    zone_size_m = ask_for_zone_size()
     if zone_mode == "segments":
-        print("Použijú sa presné 100m úseky po trase.")
+        print(f"Použijú sa presné {zone_size_m} m úseky po trase.")
     else:
         print(f"Použijú sa {'súradnice stredu zóny' if use_zone_center else 'pôvodné súradnice'}.")
+        print(f"Veľkosť zóny: {zone_size_m} m")
 
     # Opýtame sa používateľa na hranicu RSRP pre štatistiky
     rsrp_threshold = ask_for_rsrp_threshold()
@@ -65,10 +67,14 @@ def main():
     print(f"Hlavička súboru sa nachádza na riadku {header_line + 1}")
 
     # Spracujeme dáta s odovzdaním informácie o riadku hlavičky
-    processed_df, column_names, segment_meta = process_data(df, column_mapping, header_line, zone_mode)
+    processed_df, column_names, segment_meta = process_data(
+        df, column_mapping, header_line, zone_mode, zone_size_m
+    )
 
     # Vypočítame štatistiky zón s použitím zadanej RSRP hranice
-    zone_stats = calculate_zone_stats(processed_df, column_mapping, column_names, rsrp_threshold, zone_mode)
+    zone_stats = calculate_zone_stats(
+        processed_df, column_mapping, column_names, rsrp_threshold, zone_mode, zone_size_m
+    )
 
     # Uložíme výsledky zachovávajúc pôvodný formát
     if output_suffix:
@@ -85,7 +91,8 @@ def main():
         use_zone_center,
         zone_mode,
         output_suffix,
-        segment_meta
+        segment_meta,
+        zone_size_m
     )
 
     # Pridáme vlastných operátorov iba ak používateľ chce generovať prázdne zóny
@@ -93,7 +100,7 @@ def main():
     if include_empty_zones and zone_mode != "segments":
         zone_stats, custom_operators_added = add_custom_operators(
             zone_stats, processed_df, column_mapping, column_names,
-            output_file, use_zone_center, processed_zones, unique_zones
+            output_file, use_zone_center, processed_zones, unique_zones, zone_size_m
         )
 
     # Uložíme štatistiky - zohľadňujeme voľbu používateľa o prázdnych zónach a RSRP hranicu
@@ -124,8 +131,8 @@ def main():
         max_y = zone_stats['zona_y'].max()
 
         # Výpočet geografického rozsahu v metroch a kilometroch
-        range_x_m = max_x - min_x + ZONE_SIZE_METERS
-        range_y_m = max_y - min_y + ZONE_SIZE_METERS
+        range_x_m = max_x - min_x + zone_size_m
+        range_y_m = max_y - min_y + zone_size_m
         range_x_km = range_x_m / 1000
         range_y_km = range_y_m / 1000
 
@@ -134,8 +141,8 @@ def main():
         print(f"Y: {min_y} až {max_y} metrov (rozsah: {range_y_m:.2f} m = {range_y_km:.2f} km)")
 
         # Teoretický počet zón pre geografický rozsah
-        theoretical_zones_x = range_x_m / ZONE_SIZE_METERS
-        theoretical_zones_y = range_y_m / ZONE_SIZE_METERS
+        theoretical_zones_x = range_x_m / zone_size_m
+        theoretical_zones_y = range_y_m / zone_size_m
         theoretical_total_zones = theoretical_zones_x * theoretical_zones_y
 
         print(f"\nTeoretrický počet zón pre celý geografický rozsah: {theoretical_total_zones:.0f}")

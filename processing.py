@@ -8,7 +8,7 @@ from tqdm import tqdm
 from constants import ZONE_SIZE_METERS
 
 
-def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
+def process_data(df, column_mapping, header_line=0, zone_mode="zones", zone_size_m=ZONE_SIZE_METERS):
     """Spracuje dataframe a rozdelí ho do zón alebo úsekov."""
     # Vytvoríme transformátor z WGS84 (latitute, longitude) na S-JTSK (metre) - optimálna projekcia pre Slovensko
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
@@ -96,12 +96,12 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
                 if step_distance > 0:
                     prev_cumulative = cumulative_distance
                     cumulative_distance += step_distance
-                    prev_segment = int((prev_cumulative + epsilon) // ZONE_SIZE_METERS)
-                    new_segment = int((cumulative_distance + epsilon) // ZONE_SIZE_METERS)
+                    prev_segment = int((prev_cumulative + epsilon) // zone_size_m)
+                    new_segment = int((cumulative_distance + epsilon) // zone_size_m)
 
                     if new_segment > prev_segment:
                         for segment_id in range(prev_segment + 1, new_segment + 1):
-                            boundary_distance = segment_id * ZONE_SIZE_METERS
+                            boundary_distance = segment_id * zone_size_m
                             offset = boundary_distance - prev_cumulative
                             fraction = offset / step_distance
                             if fraction < 0.0:
@@ -112,7 +112,7 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
                             start_y = prev_y + (y - prev_y) * fraction
                             segment_meta[segment_id] = (start_x, start_y)
 
-                current_segment = int((cumulative_distance + epsilon) // ZONE_SIZE_METERS)
+                current_segment = int((cumulative_distance + epsilon) // zone_size_m)
                 segment_ids[i] = current_segment
                 prev_x = x
                 prev_y = y
@@ -128,8 +128,8 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
         df_filtered['zona_key'] = [f"segment_{segment_id}" for segment_id in segment_ids]
     else:
         print("Počítam zóny...")
-        df_filtered['zona_x'] = (df_filtered['x_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
-        df_filtered['zona_y'] = (df_filtered['y_meters'] // ZONE_SIZE_METERS) * ZONE_SIZE_METERS
+        df_filtered['zona_x'] = (df_filtered['x_meters'] // zone_size_m) * zone_size_m
+        df_filtered['zona_y'] = (df_filtered['y_meters'] // zone_size_m) * zone_size_m
 
         # Vytvoríme kľúč zóny a operátora
         df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
@@ -151,7 +151,7 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones"):
     return df_filtered, column_names, segment_meta
 
 
-def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, zone_mode="zones"):
+def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, zone_mode="zones", zone_size_m=ZONE_SIZE_METERS):
     """Vypočíta štatistiky pre každú zónu alebo úsek."""
     if zone_mode == "segments":
         print("Počítam štatistiky pre úseky...")
@@ -228,8 +228,8 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
         zone_stats['zona_stred_x'] = zone_stats['zona_x']
         zone_stats['zona_stred_y'] = zone_stats['zona_y']
     else:
-        zone_stats['zona_stred_x'] = zone_stats['zona_x'] + ZONE_SIZE_METERS/2
-        zone_stats['zona_stred_y'] = zone_stats['zona_y'] + ZONE_SIZE_METERS/2
+        zone_stats['zona_stred_x'] = zone_stats['zona_x'] + zone_size_m / 2
+        zone_stats['zona_stred_y'] = zone_stats['zona_y'] + zone_size_m / 2
 
     # Transformujeme späť na WGS84 s progress barom
     if zone_mode == "segments":

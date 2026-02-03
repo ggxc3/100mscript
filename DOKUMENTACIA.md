@@ -12,14 +12,14 @@
 
 ## Úvod
 
-CSV Zónový Analyzátor je Python skript, ktorý spracováva CSV merania mobilného signálu. Merania agreguje do 100 m štvorcových zón alebo do presných 100 m úsekov po trase a vypočíta štatistiky pokrytia podľa operátorov (MCC+MNC).
+CSV Zónový Analyzátor je Python skript, ktorý spracováva CSV merania mobilného signálu. Merania agreguje do štvorcových zón alebo do presných úsekov po trase s voliteľnou veľkosťou (predvolene 100 m) a vypočíta štatistiky pokrytia podľa operátorov (MCC+MNC).
 
 ## Základné koncepty
 
 - **Meranie**: jeden riadok vstupného CSV so súradnicami, frekvenciou, MCC/MNC a RSRP.
 - **Operátor**: kombinácia MCC + MNC, kľúč `operator_key = "<MCC>_<MNC>"`.
-- **Zóna**: 100×100 m štvorcová bunka v metrovej projekcii (S-JTSK).
-- **Úsek**: 100 m segment po trase, definovaný kumulatívnou vzdialenosťou.
+- **Zóna**: štvorcová bunka v metrovej projekcii (S-JTSK) s veľkosťou `S × S` m (predvolene 100 m).
+- **Úsek**: segment po trase s dĺžkou `S` m (predvolene 100 m), definovaný kumulatívnou vzdialenosťou.
 
 ## Spracovanie dát – krok za krokom
 
@@ -34,6 +34,7 @@ CSV Zónový Analyzátor je Python skript, ktorý spracováva CSV merania mobiln
 
 3. **Interaktívne voľby**
    - režim zón/úsekov,
+   - veľkosť zóny/úseku (predvolene 100 m),
    - hranica RSRP (predvolene -110 dBm),
    - mapovanie stĺpcov podľa písmen.
 
@@ -47,30 +48,30 @@ CSV Zónový Analyzátor je Python skript, ktorý spracováva CSV merania mobiln
 
 ## Zóny a úseky
 
-### Zóny (štvorce 100×100 m)
+### Zóny (štvorce S×S m)
 
 Po transformácii do metrov sa pre každý bod vypočíta ľavý dolný roh zóny:
 
 ```
-zona_x = floor(x / 100) * 100
-zona_y = floor(y / 100) * 100
+zona_x = floor(x / S) * S
+zona_y = floor(y / S) * S
 zona_key = "<zona_x>_<zona_y>"
 ```
 
 Výstupné súradnice môžu byť:
-- **stred zóny** (zona_x + 50, zona_y + 50), alebo
+- **stred zóny** (zona_x + S/2, zona_y + S/2), alebo
 - **pôvodné súradnice vzorového merania** (prvý nájdený riadok pre vybranú frekvenciu).
 
-### Úseky (100 m po trase)
+### Úseky (S m po trase)
 
-Pri režime úsekov sa merania spracúvajú **v poradí riadkov**. Vzdialenosť medzi bodmi sa sčíta a každých 100 m začína nový segment:
+Pri režime úsekov sa merania spracúvajú **v poradí riadkov**. Vzdialenosť medzi bodmi sa sčíta a každých `S` m začína nový segment:
 
 ```
-segment_id = floor(cumulative_distance / 100)
+segment_id = floor(cumulative_distance / S)
 segment_key = "segment_<id>"
 ```
 
-Ak presný 100 m bod neexistuje, začiatok segmentu sa interpoluje medzi dvoma bodmi. Na výstup sa používajú súradnice začiatku segmentu.
+Ak presný bod na hranici segmentu neexistuje, začiatok segmentu sa interpoluje medzi dvoma bodmi. Na výstup sa používajú súradnice začiatku segmentu.
 
 ## Agregácie a výber frekvencie
 

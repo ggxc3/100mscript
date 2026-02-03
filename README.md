@@ -1,6 +1,6 @@
 # CSV Zónový Analyzátor (100mscript)
 
-Tento projekt spracováva CSV súbory s meraniami mobilného signálu. Dáta prepočíta do 100 m zón (štvorce) alebo 100 m úsekov po trase a pre každú zónu/úsek + operátora vypočíta priemerné RSRP, vyberie najlepšiu frekvenciu a vytvorí štatistiky pokrytia.
+Tento projekt spracováva CSV súbory s meraniami mobilného signálu. Dáta prepočíta do zón (štvorce) alebo úsekov po trase s voliteľnou veľkosťou (predvolene 100 m) a pre každú zónu/úsek + operátora vypočíta priemerné RSRP, vyberie najlepšiu frekvenciu a vytvorí štatistiky pokrytia.
 
 ## Požiadavky
 
@@ -21,7 +21,8 @@ python3 main.py cesta/k/suboru.csv
 
 Program je interaktívny a postupne sa pýta na:
 - použitie filtrov (ak existuje `filters/` alebo `filtre_5G/`),
-- režim zón/úsekov (stred zóny, pôvodné súradnice, alebo 100 m úseky),
+- režim zón/úsekov (stred zóny, pôvodné súradnice, alebo úseky po trase),
+- veľkosť zóny/úseku v metroch (predvolene 100 m),
 - hranicu RSRP pre štatistiky (predvolene -110 dBm),
 - mapovanie stĺpcov (predvolené písmená alebo vlastné).
 
@@ -54,7 +55,7 @@ Poznámka pre EXE: ak sú priečinky `filters/` alebo `filtre_5G/` v aktuálnom 
 
 ## Poznámka k režimu úsekov
 
-Režim 100 m úsekov počíta kumulatívnu vzdialenosť medzi po sebe idúcimi bodmi **v poradí riadkov**. Ak body nie sú v poradí trasy, úseky budú skreslené.
+Režim úsekov (predvolene 100 m) počíta kumulatívnu vzdialenosť medzi po sebe idúcimi bodmi **v poradí riadkov**. Ak body nie sú v poradí trasy, úseky budú skreslené.
 
 ## Testovanie
 

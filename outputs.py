@@ -10,7 +10,19 @@ from tqdm import tqdm
 from constants import ZONE_SIZE_METERS
 
 
-def save_zone_results(zone_stats, original_file, df, column_mapping, column_names, file_info, use_zone_center, zone_mode="zones", output_suffix="", segment_meta=None):
+def save_zone_results(
+    zone_stats,
+    original_file,
+    df,
+    column_mapping,
+    column_names,
+    file_info,
+    use_zone_center,
+    zone_mode="zones",
+    output_suffix="",
+    segment_meta=None,
+    zone_size_m=ZONE_SIZE_METERS
+):
     """Uloží výsledky zón alebo úsekov do CSV súboru, zachovávajúc pôvodný formát riadkov."""
     if output_suffix:
         output_file = original_file.replace('.csv', f'{output_suffix}_zones.csv')
@@ -343,8 +355,8 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
                 if len(zona_coords) != 2:
                     continue
                 zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
-                zona_center_x = zona_x + ZONE_SIZE_METERS/2
-                zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                zona_center_x = zona_x + zone_size_m / 2
+                zona_center_y = zona_y + zone_size_m / 2
                 lon, lat = transformer.transform(zona_center_x, zona_center_y)
                 zone_latlon[zona_key] = (f"{lat:.6f}", f"{lon:.6f}")
 
@@ -390,7 +402,17 @@ def save_zone_results(zone_stats, original_file, df, column_mapping, column_name
     return generate_empty_zones, processed_zones, unique_zones  # Vrátime informáciu, či boli generované prázdne zóny a zoznam spracovaných zón
 
 
-def add_custom_operators(zone_stats, df, column_mapping, column_names, output_file, use_zone_center, processed_zones, unique_zones):
+def add_custom_operators(
+    zone_stats,
+    df,
+    column_mapping,
+    column_names,
+    output_file,
+    use_zone_center,
+    processed_zones,
+    unique_zones,
+    zone_size_m=ZONE_SIZE_METERS
+):
     """Pridá vlastných operátorov do zón a štatistík."""
     add_operators = input("Chcete pridať vlastných operátorov, ktorí neboli nájdení v dátach? (a/n): ").lower() == 'a'
 
@@ -525,8 +547,8 @@ def add_custom_operators(zone_stats, df, column_mapping, column_names, output_fi
                             zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
 
                             # Získame stred zóny
-                            zona_center_x = zona_x + ZONE_SIZE_METERS/2
-                            zona_center_y = zona_y + ZONE_SIZE_METERS/2
+                            zona_center_x = zona_x + zone_size_m / 2
+                            zona_center_y = zona_y + zone_size_m / 2
 
                             # Pre prázdne zóny vždy používame stredové súradnice
                             # Transformujeme späť na WGS84
