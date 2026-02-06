@@ -38,11 +38,15 @@ def main():
     if df is None:
         return
 
+    # Získame mapovanie stĺpcov pred aplikovaním filtrov,
+    # aby filtre fungovali aj pri iných názvoch stĺpcov.
+    column_mapping = get_column_mapping()
+
     # Aplikujeme filtre pred spracovanim zon, ak existuju
     filter_rules = load_filter_rules()
     if filter_rules:
         keep_original_rows = ask_for_keep_original_rows()
-        df = apply_filters(df, file_info, filter_rules, keep_original_rows)
+        df = apply_filters(df, file_info, filter_rules, keep_original_rows, column_mapping)
         maybe_dump_filtered_df(df, file_path)
     output_suffix = get_output_suffix()
 
@@ -58,9 +62,6 @@ def main():
 
     # Opýtame sa používateľa na hranicu RSRP pre štatistiky
     rsrp_threshold = ask_for_rsrp_threshold()
-
-    # Získame mapovanie stĺpcov
-    column_mapping = get_column_mapping()
 
     # Získame číslo riadku hlavičky z info o súbore
     header_line = file_info.get('header_line', 0) if file_info else 0

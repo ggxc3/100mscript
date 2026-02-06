@@ -12,6 +12,20 @@ from io_utils import get_app_base_dir
 
 FILTER_VALUE_RE = re.compile(r'"([^"]+)"\s*=\s*([-\d.,\s]+)')
 RANGE_VALUE_RE = re.compile(r'^(-?\d+(?:[.,]\d+)?)\s*-\s*(-?\d+(?:[.,]\d+)?)$')
+FILTER_FIELD_ALIASES = {
+    "latitude": "latitude",
+    "lat": "latitude",
+    "longitude": "longitude",
+    "lon": "longitude",
+    "frequency": "frequency",
+    "freq": "frequency",
+    "earfcn": "frequency",
+    "pci": "pci",
+    "mcc": "mcc",
+    "mnc": "mnc",
+    "rsrp": "rsrp",
+    "sinr": "sinr",
+}
 
 
 def _parse_number(value):
@@ -162,6 +176,51 @@ def _row_matches_filter(row, filter_rule):
     return False
 
 
+def _resolve_df_column(field, df_columns, column_mapping):
+    if field in df_columns:
+        return field
+
+    field_lower = str(field).strip().lower()
+    for column in df_columns:
+        if str(column).strip().lower() == field_lower:
+            return column
+
+    mapping_key = FILTER_FIELD_ALIASES.get(field_lower)
+    if mapping_key and isinstance(column_mapping, dict):
+        column_index = column_mapping.get(mapping_key)
+        if isinstance(column_index, int) and 0 <= column_index < len(df_columns):
+            return df_columns[column_index]
+
+    return field
+
+
+def _resolve_filter_rules(filter_rules, df_columns, column_mapping):
+    resolved_rules = []
+    for rule in filter_rules:
+        resolved_assignments = defaultdict(list)
+        for field, values in rule.get("assignments", {}).items():
+            resolved_field = _resolve_df_column(field, df_columns, column_mapping)
+            for value in values:
+                if value not in resolved_assignments[resolved_field]:
+                    resolved_assignments[resolved_field].append(value)
+
+        resolved_groups = []
+        for group in rule.get("condition_groups", []):
+            resolved_group = []
+            for field, condition in group:
+                resolved_field = _resolve_df_column(field, df_columns, column_mapping)
+                resolved_group.append((resolved_field, condition))
+            if resolved_group:
+                resolved_groups.append(resolved_group)
+
+        resolved_rules.append({
+            "name": rule.get("name", ""),
+            "assignments": dict(resolved_assignments),
+            "condition_groups": resolved_groups
+        })
+    return resolved_rules
+
+
 def load_filter_rules():
     filter_rules = []
     cwd = os.getcwd()
@@ -208,7 +267,13 @@ def load_filter_rules():
     return filter_rules
 
 
-def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=False):
+def apply_filters(
+    df,
+    file_info=None,
+    filter_rules=None,
+    keep_original_on_match=False,
+    column_mapping=None,
+):
     if filter_rules is None:
         filter_rules = load_filter_rules()
     if not filter_rules:
@@ -217,8 +282,9 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
     header_line = file_info.get('header_line', 0) if file_info else 0
     output_rows = []
     base_columns = list(df.columns)
+    resolved_filter_rules = _resolve_filter_rules(filter_rules, base_columns, column_mapping)
 
-    print(f"Nájdených {len(filter_rules)} filtrov. Aplikujem predfiltre...")
+    print(f"Nájdených {len(resolved_filter_rules)} filtrov. Aplikujem predfiltre...")
 
     for position, (index, row) in enumerate(df.iterrows()):
         try:
@@ -227,7 +293,7 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
             row_index = position
         row_number = row_index + header_line + 1
         matching_filters = []
-        for rule in filter_rules:
+        for rule in resolved_filter_rules:
             best_group_size = 0
             for group in rule["condition_groups"]:
                 if _row_matches_group(row, group):
@@ -270,7 +336,7 @@ def apply_filters(df, file_info=None, filter_rules=None, keep_original_on_match=
 
     result_df = pd.DataFrame(output_rows)
     assignment_fields = set()
-    for rule in filter_rules:
+    for rule in resolved_filter_rules:
         assignment_fields.update(rule["assignments"].keys())
     for field in assignment_fields:
         if field in result_df.columns:
