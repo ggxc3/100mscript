@@ -19,12 +19,26 @@ pip install -r requirements.txt
 python3 main.py cesta/k/suboru.csv
 ```
 
+Desktop GUI verzia:
+
+```bash
+python3 desktop_app.py
+```
+
+CLI aj GUI používajú rovnaký backend (`app_backend.py`), takže pri rovnakých vstupoch/nastaveniach generujú identické výsledky.
+Desktop GUI je primárne cielené na Windows používanie (aj release buildy sú Windows `.exe`).
+
 Program je interaktívny a postupne sa pýta na:
 - použitie filtrov (ak existuje `filters/` alebo `filtre_5G/`),
 - režim zón/úsekov (stred zóny, pôvodné súradnice, alebo úseky po trase),
 - veľkosť zóny/úseku v metroch (predvolene 100 m),
 - hranicu RSRP pre štatistiky (predvolene -110 dBm),
 - mapovanie stĺpcov (predvolené písmená alebo vlastné).
+
+GUI umožňuje:
+- vybrať CSV súbor kliknutím,
+- pridať vlastné `.txt` filtre (alebo použiť auto-načítanie z `filters/` a `filtre_5G/`),
+- sledovať priebeh spracovania v stavovom paneli.
 
 ## Vstupné dáta
 
@@ -56,6 +70,13 @@ Poznámka pre EXE: ak sú priečinky `filters/` alebo `filtre_5G/` v aktuálnom 
 ## Poznámka k režimu úsekov
 
 Režim úsekov (predvolene 100 m) počíta kumulatívnu vzdialenosť medzi po sebe idúcimi bodmi **v poradí riadkov**. Ak body nie sú v poradí trasy, úseky budú skreslené.
+
+## CI/CD build
+
+GitHub Actions workflow `.github/workflows/build-exe.yml` buildí oba výstupy cez PyInstaller:
+- `100mscript-console-<verzia>.exe`
+- `100mscript-desktop-<verzia>.exe`
+Build job beží výhradne na Windows runneri (`windows-2022`).
 
 ## Testovanie
 

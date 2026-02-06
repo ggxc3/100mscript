@@ -8,7 +8,14 @@ from tqdm import tqdm
 from constants import ZONE_SIZE_METERS
 
 
-def process_data(df, column_mapping, header_line=0, zone_mode="zones", zone_size_m=ZONE_SIZE_METERS):
+def process_data(
+    df,
+    column_mapping,
+    header_line=0,
+    zone_mode="zones",
+    zone_size_m=ZONE_SIZE_METERS,
+    progress_enabled=True
+):
     """Spracuje dataframe a rozdelí ho do zón alebo úsekov."""
     # Vytvoríme transformátor z WGS84 (latitute, longitude) na S-JTSK (metre) - optimálna projekcia pre Slovensko
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
@@ -49,7 +56,12 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones", zone_size
     df_filtered['y_meters'] = 0.0
 
     # Spracovávame dáta po častiach s progress barom
-    for i in tqdm(range(0, total_rows, chunk_size), total=num_chunks, desc="Transformácia súradníc"):
+    for i in tqdm(
+        range(0, total_rows, chunk_size),
+        total=num_chunks,
+        desc="Transformácia súradníc",
+        disable=not progress_enabled
+    ):
         end_idx = min(i + chunk_size, total_rows)
         chunk = df_filtered.iloc[i:end_idx]
 
@@ -151,7 +163,15 @@ def process_data(df, column_mapping, header_line=0, zone_mode="zones", zone_size
     return df_filtered, column_names, segment_meta
 
 
-def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, zone_mode="zones", zone_size_m=ZONE_SIZE_METERS):
+def calculate_zone_stats(
+    df,
+    column_mapping,
+    column_names,
+    rsrp_threshold=-110,
+    zone_mode="zones",
+    zone_size_m=ZONE_SIZE_METERS,
+    progress_enabled=True
+):
     """Vypočíta štatistiky pre každú zónu alebo úsek."""
     if zone_mode == "segments":
         print("Počítam štatistiky pre úseky...")
@@ -239,7 +259,7 @@ def calculate_zone_stats(df, column_mapping, column_names, rsrp_threshold=-110, 
     zone_stats['longitude'] = 0.0
     zone_stats['latitude'] = 0.0
 
-    for i in tqdm(range(len(zone_stats)), desc="Transformácia zón"):
+    for i in tqdm(range(len(zone_stats)), desc="Transformácia zón", disable=not progress_enabled):
         lon, lat = transformer.transform(
             zone_stats.iloc[i]['zona_stred_x'],
             zone_stats.iloc[i]['zona_stred_y']

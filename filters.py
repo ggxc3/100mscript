@@ -221,8 +221,24 @@ def _resolve_filter_rules(filter_rules, df_columns, column_mapping):
     return resolved_rules
 
 
-def load_filter_rules():
-    filter_rules = []
+def _load_filter_rule_from_file(path):
+    name = os.path.basename(path)
+    with open(path, "r", encoding="utf-8") as f:
+        raw_text = f.read()
+    query_text = _extract_query_content(raw_text)
+    assignment_text, conditions_text = _split_assignment_and_conditions(query_text)
+    assignments = _parse_assignments(assignment_text)
+    condition_groups = _parse_condition_groups(conditions_text)
+    if not assignments or not condition_groups:
+        raise ValueError("Filter je neplatny alebo nema podmienky")
+    return {
+        "name": name,
+        "assignments": assignments,
+        "condition_groups": condition_groups
+    }
+
+
+def discover_filter_paths():
     cwd = os.getcwd()
     app_base_dir = get_app_base_dir()
     has_cwd_filters = any(
@@ -235,36 +251,31 @@ def load_filter_rules():
     for base_dir in candidate_base_dirs:
         filter_dirs.append(os.path.join(base_dir, "filters"))
         filter_dirs.append(os.path.join(base_dir, "filtre_5G"))
-    filter_paths = []
 
+    filter_paths = []
     for filter_dir in filter_dirs:
         if not os.path.isdir(filter_dir):
             continue
         for filename in sorted(os.listdir(filter_dir)):
             if filename.lower().endswith(".txt"):
                 filter_paths.append(os.path.join(filter_dir, filename))
+    return filter_paths
 
+
+def load_filter_rules_from_paths(filter_paths):
+    filter_rules = []
     for path in filter_paths:
-        name = os.path.basename(path)
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw_text = f.read()
-            query_text = _extract_query_content(raw_text)
-            assignment_text, conditions_text = _split_assignment_and_conditions(query_text)
-            assignments = _parse_assignments(assignment_text)
-            condition_groups = _parse_condition_groups(conditions_text)
-            if not assignments or not condition_groups:
-                print(f"Upozornenie: Filter {name} je neplatny alebo nema podmienky, preskakujem.")
-                continue
-            filter_rules.append({
-                "name": name,
-                "assignments": assignments,
-                "condition_groups": condition_groups
-            })
+            filter_rules.append(_load_filter_rule_from_file(path))
         except Exception as exc:
+            name = os.path.basename(path)
             print(f"Upozornenie: Filter {name} sa nepodarilo nacitat ({exc}).")
             continue
     return filter_rules
+
+
+def load_filter_rules():
+    return load_filter_rules_from_paths(discover_filter_paths())
 
 
 def apply_filters(

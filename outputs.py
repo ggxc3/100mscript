@@ -21,7 +21,9 @@ def save_zone_results(
     zone_mode="zones",
     output_suffix="",
     segment_meta=None,
-    zone_size_m=ZONE_SIZE_METERS
+    zone_size_m=ZONE_SIZE_METERS,
+    generate_empty_zones=False,
+    progress_enabled=True
 ):
     """Uloží výsledky zón alebo úsekov do CSV súboru, zachovávajúc pôvodný formát riadkov."""
     if output_suffix:
@@ -118,7 +120,7 @@ def save_zone_results(
     )
 
     # Vytvorím progress bar pre zápis zón
-    for i in tqdm(range(len(sorted_zone_stats)), desc="Zápis zón"):
+    for i in tqdm(range(len(sorted_zone_stats)), desc="Zápis zón", disable=not progress_enabled):
         zone_row = sorted_zone_stats.iloc[i]
         zona_operator_key = f"{zone_row['zona_key']}_{zone_row['operator_key']}"
 
@@ -212,15 +214,6 @@ def save_zone_results(
         output_lines.append(csv_row)
 
     # Vytvoríme chýbajúce zóny pre všetkých operátorov
-    if zone_mode == "segments":
-        generate_empty_zones = input(
-            "Chcete vytvoriť prázdne úseky pre chýbajúce kombinácie úsekov a operátorov? (a/n): "
-        ).lower() == 'a'
-    else:
-        generate_empty_zones = input(
-            "Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): "
-        ).lower() == 'a'
-
     if generate_empty_zones:
         if zone_mode == "segments":
             print("Generujem prázdne úseky...")
@@ -323,7 +316,7 @@ def save_zone_results(
             elif segment_coords is not None:
                 for zona_key, coords in segment_coords.iterrows():
                     segment_latlon[zona_key] = (f"{coords['latitude']:.6f}", f"{coords['longitude']:.6f}")
-            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov"):
+            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych úsekov", disable=not progress_enabled):
                 coords = segment_latlon.get(zona_key)
                 for operator_values in unique_operators:
                     mcc, mnc = operator_values[0], operator_values[1]
@@ -361,7 +354,7 @@ def save_zone_results(
                 zone_latlon[zona_key] = (f"{lat:.6f}", f"{lon:.6f}")
 
             # Progress bar pre generovanie prázdnych zón
-            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón"):
+            for zona_key in tqdm(unique_zones, desc="Generovanie prázdnych zón", disable=not progress_enabled):
                 coords = zone_latlon.get(zona_key)
                 if coords is None:
                     continue
@@ -411,10 +404,16 @@ def add_custom_operators(
     use_zone_center,
     processed_zones,
     unique_zones,
-    zone_size_m=ZONE_SIZE_METERS
+    zone_size_m=ZONE_SIZE_METERS,
+    add_operators=None,
+    custom_operators=None,
+    progress_enabled=True
 ):
     """Pridá vlastných operátorov do zón a štatistík."""
-    add_operators = input("Chcete pridať vlastných operátorov, ktorí neboli nájdení v dátach? (a/n): ").lower() == 'a'
+    if add_operators is None:
+        add_operators = input(
+            "Chcete pridať vlastných operátorov, ktorí neboli nájdení v dátach? (a/n): "
+        ).lower() == 'a'
 
     if not add_operators:
         return zone_stats, False
@@ -425,8 +424,10 @@ def add_custom_operators(
         f"{mcc}_{mnc}"
         for mcc, mnc in zip(zone_stats['mcc'], zone_stats['mnc'])
     ])
+    existing_operators_at_start = set(existing_operators)
 
-    custom_operators = []
+    if custom_operators is None:
+        custom_operators = []
     continue_adding = True
 
     # Regex vzor: MCC a MNC musia obsahovať iba čísla a nesmú byť prázdne
@@ -434,7 +435,7 @@ def add_custom_operators(
     mnc_pattern = re.compile(r'^\d+$')
     pci_pattern = re.compile(r'^\d+$')
 
-    while continue_adding:
+    while continue_adding and not custom_operators:
         # Zadáme nových operátorov v jednom riadku oddelených dvojbodkou
         try:
             operators_input = input(
@@ -494,6 +495,27 @@ def add_custom_operators(
         except Exception as e:
             print(f"Chyba pri zadávaní operátorov: {e}")
 
+    deduped_custom_operators = []
+    seen_custom_operator_keys = set()
+    for operator in custom_operators:
+        if not isinstance(operator, (list, tuple)):
+            continue
+        if len(operator) < 2:
+            continue
+        mcc = str(operator[0]).strip()
+        mnc = str(operator[1]).strip()
+        pci = str(operator[2]).strip() if len(operator) >= 3 else ""
+        operator_key = f"{mcc}_{mnc}"
+        if operator_key in existing_operators_at_start:
+            print(f"Operátor s MCC={mcc} a MNC={mnc} už existuje v dátach, preskakujem.")
+            continue
+        if operator_key in seen_custom_operator_keys:
+            continue
+        deduped_custom_operators.append((mcc, mnc, pci))
+        seen_custom_operator_keys.add(operator_key)
+        existing_operators.add(operator_key)
+
+    custom_operators = deduped_custom_operators
     if not custom_operators:
         return zone_stats, False
 
@@ -532,7 +554,11 @@ def add_custom_operators(
 
             # Pre každú kombináciu zóny a nového operátora vytvoríme záznam
             print("Generujem zóny pre nových operátorov...")
-            for zona_key in tqdm(unique_zones, desc="Generovanie zón pre nových operátorov"):
+            for zona_key in tqdm(
+                unique_zones,
+                desc="Generovanie zón pre nových operátorov",
+                disable=not progress_enabled
+            ):
                 for mcc, mnc, pci in custom_operators:
                     operator_key = f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
@@ -645,7 +671,16 @@ def add_custom_operators(
     return zone_stats, True
 
 
-def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_threshold=-110, output_suffix="", zone_mode="zones", segment_meta=None):
+def save_stats(
+    zone_stats,
+    original_file,
+    include_empty_zones=False,
+    rsrp_threshold=-110,
+    output_suffix="",
+    zone_mode="zones",
+    segment_meta=None,
+    progress_enabled=True
+):
     """Uloží štatistiky pre každého operátora do CSV súboru."""
     if output_suffix:
         stats_file = original_file.replace('.csv', f'{output_suffix}_stats.csv')
@@ -671,7 +706,7 @@ def save_stats(zone_stats, original_file, include_empty_zones=False, rsrp_thresh
     rsrp_bad_column = f"RSRP < {rsrp_threshold}"
 
     print("Vytváram štatistiky...")
-    for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov"):
+    for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov", disable=not progress_enabled):
         mcc, mnc = op['mcc'], op['mnc']
 
         # Filtrujeme zóny pre daného operátora

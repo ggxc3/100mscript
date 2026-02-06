@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import re
 
 from constants import ZONE_SIZE_METERS
 
@@ -90,6 +91,74 @@ def ask_for_keep_original_rows():
             return False
         else:
             print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
+
+
+def ask_for_include_empty_zones(zone_mode="zones"):
+    """Opýta sa používateľa, či sa majú generovať prázdne zóny/úseky."""
+    if zone_mode == "segments":
+        prompt = "Chcete vytvoriť prázdne úseky pre chýbajúce kombinácie úsekov a operátorov? (a/n): "
+    else:
+        prompt = "Chcete vytvoriť prázdne zóny pre chýbajúce kombinácie zón a operátorov? (a/n): "
+
+    while True:
+        choice = input(prompt).strip().lower()
+        if choice == "a":
+            return True
+        if choice == "n":
+            return False
+        print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
+
+
+def parse_custom_operators_text(text):
+    """Spracuje text MCC:MNC[:PCI] a vráti zoznam trojíc (mcc, mnc, pci)."""
+    mcc_pattern = re.compile(r'^\d+$')
+    mnc_pattern = re.compile(r'^\d+$')
+    pci_pattern = re.compile(r'^\d+$')
+
+    operators = []
+    for raw_item in text.replace(',', ' ').split():
+        parts = raw_item.split(':')
+        if len(parts) not in (2, 3):
+            raise ValueError(
+                f"Neplatný formát operátora '{raw_item}'. Použite MCC:MNC alebo MCC:MNC:PCI."
+            )
+        mcc = parts[0].strip()
+        mnc = parts[1].strip()
+        pci = parts[2].strip() if len(parts) == 3 else ""
+        if not mcc_pattern.match(mcc):
+            raise ValueError(f"Neplatné MCC '{mcc}'. MCC musí obsahovať iba čísla.")
+        if not mnc_pattern.match(mnc):
+            raise ValueError(f"Neplatné MNC '{mnc}'. MNC musí obsahovať iba čísla.")
+        if pci and not pci_pattern.match(pci):
+            raise ValueError(f"Neplatné PCI '{pci}'. PCI musí obsahovať iba čísla.")
+        operators.append((mcc, mnc, pci))
+    return operators
+
+
+def ask_for_custom_operators():
+    """Interaktívne načíta vlastných operátorov."""
+    add_operators = input(
+        "Chcete pridať vlastných operátorov, ktorí neboli nájdení v dátach? (a/n): "
+    ).strip().lower() == "a"
+    if not add_operators:
+        return False, []
+
+    custom_operators = []
+    while True:
+        operators_input = input(
+            "Zadajte MCC:MNC operátorov oddelené medzerou (napr. '231:01 231:02'), "
+            "PCI je voliteľné (MCC:MNC:PCI). Alebo 'koniec' pre ukončenie: "
+        ).strip()
+        if not operators_input or operators_input.lower() in ['koniec', 'quit', 'q', 'exit']:
+            break
+        try:
+            custom_operators.extend(parse_custom_operators_text(operators_input))
+        except ValueError as exc:
+            print(exc)
+            continue
+        if input("Chcete pridať ďalších operátorov? (a/n): ").strip().lower() != 'a':
+            break
+    return True, custom_operators
 
 
 def get_column_mapping():

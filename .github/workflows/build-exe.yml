@@ -1,4 +1,4 @@
-name: Build EXE s PyInstaller
+name: Build Desktop + Console EXE
 
 on:
   push:
@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pin runner na konkrétnu Windows verziu, aby build nebol ovplyvnený zmenami v windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,10 +39,21 @@ jobs:
           echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
         shell: pwsh
       
-      - name: Create EXE file
+      - name: Build console EXE
         run: |
-          # Vytvoríme EXE s PyInstaller
-          pyinstaller --onefile --name="100mscript-${{ env.VERSION }}" main.py
+          pyinstaller --clean --onefile ^
+            --add-data "filters;filters" ^
+            --add-data "filtre_5G;filtre_5G" ^
+            --name="100mscript-console-${{ env.VERSION }}" main.py
+        shell: cmd
+
+      - name: Build desktop EXE
+        run: |
+          pyinstaller --clean --onefile --noconsole ^
+            --add-data "filters;filters" ^
+            --add-data "filtre_5G;filtre_5G" ^
+            --name="100mscript-desktop-${{ env.VERSION }}" desktop_app.py
+        shell: cmd
 
       - name: Create Release
         id: create_release
@@ -52,11 +64,13 @@ jobs:
           body: |
             Automaticky vygenerovaný release pre vetvu main
             
-            Tento release obsahuje EXE súbor:
-            - 100mscript-${{ env.VERSION }}.exe - interaktívna verzia, ktorá sa počas behu opýta na nastavenie formátu súradníc
+            Tento release obsahuje EXE súbory:
+            - 100mscript-console-${{ env.VERSION }}.exe - konzolová interaktívna verzia
+            - 100mscript-desktop-${{ env.VERSION }}.exe - desktop GUI verzia
             
             Dátum vytvorenia: ${{ env.VERSION }}
           files: |
-            dist/100mscript-${{ env.VERSION }}.exe
+            dist/100mscript-console-${{ env.VERSION }}.exe
+            dist/100mscript-desktop-${{ env.VERSION }}.exe
           draft: false
           prerelease: false 
