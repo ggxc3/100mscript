@@ -6,6 +6,7 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+import traceback
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -640,7 +641,7 @@ class DesktopApp:
             result = run_processing(config, status_callback=lambda msg: self.queue.put(("status", msg)))
             self.queue.put(("done", result))
         except Exception as exc:
-            self.queue.put(("error", str(exc)))
+            self.queue.put(("error", f"{exc}\n\n{traceback.format_exc()}"))
 
     def _process_queue(self):
         try:

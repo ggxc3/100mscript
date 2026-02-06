@@ -8,6 +8,11 @@ from tqdm import tqdm
 from constants import ZONE_SIZE_METERS
 
 
+def _to_string_series(series):
+    """Bezpečne prevedie pandas Series na string pre skladanie kľúčov."""
+    return series.astype("string").fillna("")
+
+
 def process_data(
     df,
     column_mapping,
@@ -144,18 +149,24 @@ def process_data(
         df_filtered['zona_y'] = (df_filtered['y_meters'] // zone_size_m) * zone_size_m
 
         # Vytvoríme kľúč zóny a operátora
-        df_filtered['zona_key'] = df_filtered['zona_x'].astype(str) + '_' + df_filtered['zona_y'].astype(str)
+        df_filtered['zona_key'] = _to_string_series(df_filtered['zona_x']).str.cat(
+            _to_string_series(df_filtered['zona_y']),
+            sep="_"
+        )
     mcc_col = column_names[column_mapping['mcc']]
     mnc_col = column_names[column_mapping['mnc']]
     pci_col = column_names[column_mapping['pci']]
     # Operátor je unikátny podľa MCC+MNC. PCI sa vyberá spolu s frekvenciou.
-    df_filtered['operator_key'] = (
-        df_filtered[mcc_col].astype(str)
-        + '_' + df_filtered[mnc_col].astype(str)
+    df_filtered['operator_key'] = _to_string_series(df_filtered[mcc_col]).str.cat(
+        _to_string_series(df_filtered[mnc_col]),
+        sep="_"
     )
 
     # Vytvoríme kombinovaný kľúč zóna+operátor
-    df_filtered['zona_operator_key'] = df_filtered['zona_key'] + '_' + df_filtered['operator_key']
+    df_filtered['zona_operator_key'] = _to_string_series(df_filtered['zona_key']).str.cat(
+        _to_string_series(df_filtered['operator_key']),
+        sep="_"
+    )
 
     # Zachováme originálny riadok pre neskoršie použitie
     df_filtered['original_row_index'] = df_filtered.index
