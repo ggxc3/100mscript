@@ -26,6 +26,7 @@ class ProcessingConfig:
     zone_mode: str = "center"  # center | original | segments
     zone_size_m: float = 100
     rsrp_threshold: float = -110
+    sinr_threshold: float = -5
     include_empty_zones: bool = False
     add_custom_operators: bool = False
     custom_operators: List[Tuple[str, str, str]] = field(default_factory=list)
@@ -120,6 +121,7 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
         config.column_mapping,
         column_names,
         config.rsrp_threshold,
+        config.sinr_threshold,
         config.zone_mode,
         config.zone_size_m,
         progress_enabled=config.progress_enabled,
@@ -165,6 +167,7 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
         config.file_path,
         include_empty_zones,
         config.rsrp_threshold,
+        config.sinr_threshold,
         output_suffix,
         config.zone_mode,
         segment_meta,

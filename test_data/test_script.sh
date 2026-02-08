@@ -20,8 +20,8 @@ TEST_FILES=(
 # Spustenie testov
 for test_file in "${TEST_FILES[@]}"; do
   echo "Spúšťam test: $test_file"
-  # Odpovede na interaktívne otázky (stĺpce, filtre, režim, veľkosť zóny/úseku, RSRP hranica, prázdne zóny)
-  printf "a\nn\n1\na\na\nn\n" | python3 main.py "$SCENARIOS_DIR/$test_file"
+  # Odpovede na interaktívne otázky (stĺpce, filtre, režim, veľkosť zóny/úseku, RSRP, SINR, prázdne zóny)
+  printf "a\nn\n1\na\na\na\nn\n" | python3 main.py "$SCENARIOS_DIR/$test_file"
   
   # Kontrola, či bol test úspešný
   if [ $? -eq 0 ]; then

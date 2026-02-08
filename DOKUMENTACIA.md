@@ -101,7 +101,8 @@ Poznámka: stĺpec `najcastejsia_frekvencia` v `_zones.csv` reprezentuje **vybra
 ### `<vstup>_stats.csv`
 
 - sumarizuje pokrytie podľa operátora,
-- názvy stĺpcov závisia od zvolenej hranice (napr. `RSRP >= -110`).
+- názvy stĺpcov závisia od zvolených hraníc (napr. `RSRP >= -110 a SINR >= -5`),
+- zóna/úsek je vyhovujúca iba keď súčasne platí `RSRP >= hranica_RSRP` a `SINR >= hranica_SINR`.
 
 Ak používateľ zvolí generovanie prázdnych zón/úsekov, chýbajúce kombinácie sa započítajú ako zlé pokrytie.
 

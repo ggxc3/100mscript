@@ -35,6 +35,28 @@ def ask_for_rsrp_threshold():
             print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
 
 
+def ask_for_sinr_threshold():
+    """Opýta sa používateľa na hranicu SINR pre štatistiky."""
+    print("\nNastavenie hranice SINR pre štatistiky:")
+    print("Predvolená hodnota: -5 dB")
+
+    while True:
+        choice = input("Chcete použiť predvolenú hodnotu -5 dB? (a/n): ").strip().lower()
+        if choice == "a":
+            return -5
+        elif choice == "n":
+            while True:
+                try:
+                    threshold = input("Zadajte vlastnú hranicu SINR (napr. 0 alebo -3): ").strip()
+                    threshold_value = float(threshold.replace(',', '.'))
+                    print(f"Použije sa hranica SINR: {threshold_value} dB")
+                    return threshold_value
+                except ValueError:
+                    print("Neplatná hodnota. Prosím zadajte číslo (napr. 0 alebo -3).")
+        else:
+            print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
+
+
 def ask_for_zone_mode():
     """Opýta sa používateľa na režim spracovania zón/úsekov."""
     print("\nNastavenie súradníc a režimu:")

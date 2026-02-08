@@ -344,11 +344,12 @@ class DesktopApp:
         card = self._make_card(parent)
         card.pack(fill="both", expand=True, pady=(10, 0))
 
-        self._label(card, "Nastavenia spracovania", kind="section").grid(row=0, column=0, columnspan=3, sticky="w")
+        self._label(card, "Nastavenia spracovania", kind="section").grid(row=0, column=0, columnspan=4, sticky="w")
 
         self._label(card, "Režim", kind="muted").grid(row=1, column=0, sticky="w", pady=(10, 4))
         self._label(card, "Veľkosť zóny/úseku (m)", kind="muted").grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(10, 4))
         self._label(card, "RSRP hranica", kind="muted").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=(10, 4))
+        self._label(card, "SINR hranica", kind="muted").grid(row=1, column=3, sticky="w", padx=(10, 0), pady=(10, 4))
 
         self.zone_mode_var = tk.StringVar(value=list(ZONE_MODES.keys())[0])
         self.zone_mode_combo = ttk.Combobox(
@@ -367,6 +368,9 @@ class DesktopApp:
         self.rsrp_threshold_var = tk.StringVar(value="-110")
         self._make_entry(card, self.rsrp_threshold_var).grid(row=2, column=2, sticky="ew", padx=(10, 0))
 
+        self.sinr_threshold_var = tk.StringVar(value="-5")
+        self._make_entry(card, self.sinr_threshold_var).grid(row=2, column=3, sticky="ew", padx=(10, 0))
+
         self.keep_original_rows_var = tk.BooleanVar(value=False)
         self._make_checkbutton(
             card,
@@ -380,7 +384,7 @@ class DesktopApp:
             "Generovať prázdne zóny/úseky",
             self.include_empty_var,
             command=self._refresh_operator_fields,
-        ).grid(row=3, column=2, sticky="w", padx=(10, 0), pady=(10, 0))
+        ).grid(row=3, column=3, sticky="w", padx=(10, 0), pady=(10, 0))
 
         self.add_custom_operators_var = tk.BooleanVar(value=False)
         self.add_custom_operators_check = self._make_checkbutton(
@@ -388,23 +392,23 @@ class DesktopApp:
             "Pridať vlastných operátorov",
             self.add_custom_operators_var,
         )
-        self.add_custom_operators_check.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.add_custom_operators_check.grid(row=4, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
         self._label(card, "Vlastní operátori", kind="muted").grid(row=5, column=0, sticky="w", pady=(10, 4))
         self.custom_operators_var = tk.StringVar(value="")
         self.custom_operators_entry = self._make_entry(card, self.custom_operators_var)
-        self.custom_operators_entry.grid(row=6, column=0, columnspan=3, sticky="ew")
+        self.custom_operators_entry.grid(row=6, column=0, columnspan=4, sticky="ew")
 
         self._label(
             card,
             "Formát: 231:01 alebo 231:01:10, viac hodnôt oddeľ medzerou",
             kind="muted",
-        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 8))
+        ).grid(row=7, column=0, columnspan=4, sticky="w", pady=(4, 8))
 
-        self._label(card, "Mapovanie stĺpcov (písmená)", kind="section").grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 8))
+        self._label(card, "Mapovanie stĺpcov (písmená)", kind="section").grid(row=8, column=0, columnspan=4, sticky="w", pady=(4, 8))
 
         columns_holder = tk.Frame(card, bg=card["bg"])
-        columns_holder.grid(row=9, column=0, columnspan=3, sticky="ew")
+        columns_holder.grid(row=9, column=0, columnspan=4, sticky="ew")
 
         self.column_vars = {}
         ordered_keys = ["latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp", "sinr"]
@@ -422,7 +426,7 @@ class DesktopApp:
             self._make_entry(columns_holder, var, width=5).grid(row=row, column=col + 1, sticky="w", padx=(0, 12), pady=6)
             self.column_vars[key] = var
 
-        for idx in range(3):
+        for idx in range(4):
             card.grid_columnconfigure(idx, weight=1)
         self._refresh_operator_fields()
 
@@ -591,6 +595,7 @@ class DesktopApp:
             raise ValueError("Veľkosť zóny/úseku musí byť kladná.")
 
         rsrp_threshold = float(self.rsrp_threshold_var.get().replace(",", ".").strip())
+        sinr_threshold = float(self.sinr_threshold_var.get().replace(",", ".").strip())
 
         custom_operators = []
         if self.add_custom_operators_var.get() and self.custom_operators_var.get().strip():
@@ -603,6 +608,7 @@ class DesktopApp:
             zone_mode=zone_mode,
             zone_size_m=zone_size,
             rsrp_threshold=rsrp_threshold,
+            sinr_threshold=sinr_threshold,
             include_empty_zones=self.include_empty_var.get(),
             add_custom_operators=self.add_custom_operators_var.get(),
             custom_operators=custom_operators,

@@ -33,6 +33,7 @@ Program je interaktívny a postupne sa pýta na:
 - režim zón/úsekov (stred zóny, pôvodné súradnice, alebo úseky po trase),
 - veľkosť zóny/úseku v metroch (predvolene 100 m),
 - hranicu RSRP pre štatistiky (predvolene -110 dBm),
+- hranicu SINR pre štatistiky (predvolene -5 dB),
 - mapovanie stĺpcov (predvolené písmená alebo vlastné).
 
 GUI umožňuje:
@@ -51,6 +52,10 @@ GUI umožňuje:
 Skript vytvorí dva súbory vedľa vstupu:
 - `<vstup>_zones.csv` — jedna zóna/úsek na riadok.
 - `<vstup>_stats.csv` — štatistiky pokrytia pre každého operátora.
+
+V `_stats.csv` je zóna vyhovujúca iba vtedy, keď platí súčasne:
+- `RSRP >= rsrp_threshold`
+- `SINR >= sinr_threshold`
 
 Poznámky k výstupu zón:
 - zachováva pôvodnú hlavičku a pridá stĺpce `Riadky_v_zone;Frekvencie_v_zone`,

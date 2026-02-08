@@ -74,7 +74,9 @@ Program ponúka tri režimy výstupu:
 ---------------------
 - Výstup `_zones.csv` obsahuje jeden riadok na zónu/úsek + operátora,
   vrátane zoznamu riadkov z pôvodného CSV a vybranej frekvencie.
-- Výstup `_stats.csv` sumarizuje počet zón/úsekov s RSRP >= hranica a < hranica.
+- Výstup `_stats.csv` sumarizuje počet zón/úsekov podľa kombinovaných hraníc:
+  vyhovujúce iba ak RSRP >= hranica_RSRP a SINR >= hranica_SINR,
+  nevyhovujúce ak aspoň jedna z podmienok neplatí.
 
 Tento prístup umožňuje porovnávať kvalitu signálu medzi operátormi a rýchlo
 identifikovať oblasti so slabým pokrytím.

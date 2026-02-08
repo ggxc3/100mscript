@@ -10,6 +10,7 @@ from prompts import (
     ask_for_include_empty_zones,
     ask_for_keep_original_rows,
     ask_for_rsrp_threshold,
+    ask_for_sinr_threshold,
     ask_for_zone_mode,
     ask_for_zone_size,
     get_column_mapping,
@@ -48,6 +49,7 @@ def main():
         print(f"Veľkosť zóny: {zone_size_m} m")
 
     rsrp_threshold = ask_for_rsrp_threshold()
+    sinr_threshold = ask_for_sinr_threshold()
     include_empty_zones = ask_for_include_empty_zones(zone_mode)
 
     add_operators = False
@@ -62,6 +64,7 @@ def main():
         zone_mode=zone_mode,
         zone_size_m=zone_size_m,
         rsrp_threshold=rsrp_threshold,
+        sinr_threshold=sinr_threshold,
         include_empty_zones=include_empty_zones,
         add_custom_operators=add_operators,
         custom_operators=custom_operators,

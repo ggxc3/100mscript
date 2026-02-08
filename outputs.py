@@ -676,6 +676,7 @@ def save_stats(
     original_file,
     include_empty_zones=False,
     rsrp_threshold=-110,
+    sinr_threshold=-5,
     output_suffix="",
     zone_mode="zones",
     segment_meta=None,
@@ -701,9 +702,13 @@ def save_stats(
     operator_columns = ['mcc', 'mnc']
     operators = zone_stats[operator_columns].drop_duplicates()
 
-    # Vytvoríme dynamické názvy stĺpcov na základe RSRP hranice
-    rsrp_good_column = f"RSRP >= {rsrp_threshold}"
-    rsrp_bad_column = f"RSRP < {rsrp_threshold}"
+    has_sinr = 'sinr_avg' in zone_stats.columns
+    if has_sinr:
+        good_column = f"RSRP >= {rsrp_threshold} a SINR >= {sinr_threshold}"
+        bad_column = f"RSRP < {rsrp_threshold} alebo SINR < {sinr_threshold}"
+    else:
+        good_column = f"RSRP >= {rsrp_threshold}"
+        bad_column = f"RSRP < {rsrp_threshold}"
 
     print("Vytváram štatistiky...")
     for _, op in tqdm(list(operators.iterrows()), desc="Štatistiky operátorov", disable=not progress_enabled):
@@ -713,8 +718,8 @@ def save_stats(
         op_zones = zone_stats[(zone_stats['mcc'] == mcc) & (zone_stats['mnc'] == mnc)]
 
         # Počítame RSRP kategórie
-        rsrp_good = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_GOOD'])
-        rsrp_bad = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_BAD'])
+        good_count = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_GOOD'])
+        bad_count = len(op_zones[op_zones['rsrp_kategoria'] == 'RSRP_BAD'])
 
         # Počet chýbajúcich zón a ich započítanie iba ak používateľ zvolil generovanie prázdnych zón
         if include_empty_zones:
@@ -722,7 +727,7 @@ def save_stats(
             missing_zones = total_unique_zones - len(existing_zones)
 
             # Všetky chýbajúce zóny pridáme ako zlý signál
-            rsrp_bad += missing_zones
+            bad_count += missing_zones
 
         # Konvertujeme MCC a MNC na celé čísla
         try:
@@ -739,8 +744,8 @@ def save_stats(
             'MNC': mnc_int,
             'MCC': mcc_int,
         }
-        stats_row[rsrp_good_column] = rsrp_good
-        stats_row[rsrp_bad_column] = rsrp_bad
+        stats_row[good_column] = good_count
+        stats_row[bad_column] = bad_count
         stats_data.append(stats_row)
 
     # Vytvoríme dataframe a uložíme
@@ -748,3 +753,5 @@ def save_stats(
     stats_df.to_csv(stats_file, sep=';', index=False, encoding='utf-8')
     print(f"Štatistiky uložené do súboru: {stats_file}")
     print(f"Použitá RSRP hranica: {rsrp_threshold} dBm")
+    if has_sinr:
+        print(f"Použitá SINR hranica: {sinr_threshold} dB")

@@ -179,6 +179,7 @@ def calculate_zone_stats(
     column_mapping,
     column_names,
     rsrp_threshold=-110,
+    sinr_threshold=-5,
     zone_mode="zones",
     zone_size_m=ZONE_SIZE_METERS,
     progress_enabled=True
@@ -278,7 +279,16 @@ def calculate_zone_stats(
         zone_stats.loc[zone_stats.index[i], 'longitude'] = lon
         zone_stats.loc[zone_stats.index[i], 'latitude'] = lat
 
-    # Klasifikácia RSRP s použitím zadanej hranice
-    zone_stats['rsrp_kategoria'] = np.where(zone_stats['rsrp_avg'] >= rsrp_threshold, 'RSRP_GOOD', 'RSRP_BAD')
+    # Klasifikácia pokrytia podľa prahov RSRP + SINR.
+    if 'sinr_avg' in zone_stats.columns:
+        coverage_good = (
+            (zone_stats['rsrp_avg'] >= rsrp_threshold)
+            & (zone_stats['sinr_avg'] >= sinr_threshold)
+        )
+    else:
+        print("Upozornenie: SINR stĺpec nie je dostupný, klasifikácia použije iba RSRP.")
+        coverage_good = zone_stats['rsrp_avg'] >= rsrp_threshold
+
+    zone_stats['rsrp_kategoria'] = np.where(coverage_good, 'RSRP_GOOD', 'RSRP_BAD')
 
     return zone_stats
