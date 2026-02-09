@@ -245,8 +245,36 @@ class DesktopApp:
         body.grid_columnconfigure(1, weight=2, minsize=380)
         body.grid_rowconfigure(0, weight=1)
 
-        left = tk.Frame(body, bg=self.colors["bg"])
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left_wrap = tk.Frame(body, bg=self.colors["bg"])
+        left_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left_wrap.grid_rowconfigure(0, weight=1)
+        left_wrap.grid_columnconfigure(0, weight=1)
+
+        left_canvas = tk.Canvas(
+            left_wrap,
+            bg=self.colors["bg"],
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+        )
+        left_scrollbar = ttk.Scrollbar(left_wrap, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+
+        left_canvas.grid(row=0, column=0, sticky="nsew")
+        left_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        left = tk.Frame(left_canvas, bg=self.colors["bg"])
+        left_window = left_canvas.create_window((0, 0), window=left, anchor="nw")
+
+        left.bind(
+            "<Configure>",
+            lambda _e: left_canvas.configure(scrollregion=left_canvas.bbox("all")),
+        )
+        left_canvas.bind(
+            "<Configure>",
+            lambda e: left_canvas.itemconfigure(left_window, width=e.width),
+        )
+
         right = tk.Frame(body, bg=self.colors["bg"])
         right.grid(row=0, column=1, sticky="nsew")
 
