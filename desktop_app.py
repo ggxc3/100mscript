@@ -274,6 +274,11 @@ class DesktopApp:
             "<Configure>",
             lambda e: left_canvas.itemconfigure(left_window, width=e.width),
         )
+        self.left_scroll_container = left_wrap
+        self.left_scroll_canvas = left_canvas
+        self.root.bind_all("<MouseWheel>", self._on_left_panel_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_left_panel_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", self._on_left_panel_mousewheel, add="+")
 
         right = tk.Frame(body, bg=self.colors["bg"])
         right.grid(row=0, column=1, sticky="nsew")
@@ -281,6 +286,36 @@ class DesktopApp:
         self._build_input_card(left)
         self._build_options_card(left)
         self._build_activity_card(right)
+
+    def _is_descendant_of(self, widget: tk.Widget | None, ancestor: tk.Widget | None) -> bool:
+        while widget is not None:
+            if widget == ancestor:
+                return True
+            widget = widget.master
+        return False
+
+    def _on_left_panel_mousewheel(self, event):
+        container = getattr(self, "left_scroll_container", None)
+        canvas = getattr(self, "left_scroll_canvas", None)
+        if container is None or canvas is None:
+            return
+
+        pointer_widget = self.root.winfo_containing(event.x_root, event.y_root)
+        if not self._is_descendant_of(pointer_widget, container):
+            return
+
+        if getattr(event, "num", None) == 4:
+            step = -1
+        elif getattr(event, "num", None) == 5:
+            step = 1
+        else:
+            delta = int(getattr(event, "delta", 0))
+            if delta == 0:
+                return
+            step = -1 if delta > 0 else 1
+
+        canvas.yview_scroll(step, "units")
+        return "break"
 
     def _build_header(self, parent):
         header = tk.Frame(parent, bg=self.colors["header"], padx=20, pady=16)
