@@ -405,6 +405,8 @@ def add_custom_operators(
     processed_zones,
     unique_zones,
     zone_size_m=ZONE_SIZE_METERS,
+    zone_mode="zones",
+    segment_meta=None,
     add_operators=None,
     custom_operators=None,
     progress_enabled=True
@@ -532,16 +534,14 @@ def add_custom_operators(
     # Vypočítame expected_columns z počtu stĺpcov v column_names
     expected_columns = len(column_names)
 
-    # Pridáme nové riadky do súboru - prázdne zóny pre nových operátorov
+    # Pridáme nové riadky do súboru - prázdne zóny/úseky pre nových operátorov
     new_zones_added = 0
 
-    # Ak máme nejaké zóny, môžeme pridať nových operátorov
+    # Ak máme nejaké zóny/úseky, môžeme pridať nových operátorov
     if len(unique_zones) > 0:
-        # Vzorový riadok - vezmeme prvý riadok z dataframe
         if len(df) > 0:
             sample_row = df.iloc[0].copy()
 
-            # Vytvoríme riadky pre nových operátorov
             rsrp_col = column_names[column_mapping['rsrp']]
             lat_col = column_names[column_mapping['latitude']]
             lon_col = column_names[column_mapping['longitude']]
@@ -549,115 +549,153 @@ def add_custom_operators(
             mnc_col = column_names[column_mapping['mnc']]
             pci_col = column_names[column_mapping['pci']] if 'pci' in column_mapping else None
 
-            # Premenná pre sledovanie, či sme už pridali prvý riadok
             first_custom_operator_line = True
+            zone_transformer = None
 
-            # Pre každú kombináciu zóny a nového operátora vytvoríme záznam
-            print("Generujem zóny pre nových operátorov...")
+            zone_latlon = {}
+            if zone_mode == "segments":
+                if segment_meta:
+                    segment_transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                    for segment_id, (segment_x, segment_y) in segment_meta.items():
+                        lon, lat = segment_transformer.transform(segment_x, segment_y)
+                        zone_latlon[f"segment_{segment_id}"] = (lat, lon)
+
+                fallback_segment_coords = zone_stats.groupby('zona_key')[['latitude', 'longitude']].first()
+                for zona_key, coords in fallback_segment_coords.iterrows():
+                    if pd.notna(coords['latitude']) and pd.notna(coords['longitude']):
+                        zone_latlon.setdefault(zona_key, (coords['latitude'], coords['longitude']))
+            else:
+                zone_transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                for zona_key in unique_zones:
+                    zona_coords = zona_key.split('_')
+                    if len(zona_coords) != 2:
+                        continue
+                    try:
+                        zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                    except ValueError:
+                        continue
+                    zona_center_x = zona_x + zone_size_m / 2
+                    zona_center_y = zona_y + zone_size_m / 2
+                    lon, lat = zone_transformer.transform(zona_center_x, zona_center_y)
+                    zone_latlon[zona_key] = (lat, lon)
+
+            item_label = "úseky" if zone_mode == "segments" else "zóny"
+            desc_label = "Generovanie úsekov pre nových operátorov" if zone_mode == "segments" else "Generovanie zón pre nových operátorov"
+            print(f"Generujem {item_label} pre nových operátorov...")
             for zona_key in tqdm(
                 unique_zones,
-                desc="Generovanie zón pre nových operátorov",
+                desc=desc_label,
                 disable=not progress_enabled
             ):
                 for mcc, mnc, pci in custom_operators:
                     operator_key = f"{mcc}_{mnc}"
                     zona_operator_key = f"{zona_key}_{operator_key}"
 
-                    # Ak táto kombinácia neexistuje, vytvoríme ju
                     if zona_operator_key not in processed_zones:
                         base_row = sample_row.copy()
 
-                        # Rozdelíme zona_key na súradnice
-                        zona_coords = zona_key.split('_')
-                        if len(zona_coords) == 2:
-                            zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                        coords = zone_latlon.get(zona_key)
+                        if coords is None and zone_mode != "segments" and zone_transformer is not None:
+                            zona_coords = zona_key.split('_')
+                            if len(zona_coords) == 2:
+                                try:
+                                    zona_x, zona_y = float(zona_coords[0]), float(zona_coords[1])
+                                    zona_center_x = zona_x + zone_size_m / 2
+                                    zona_center_y = zona_y + zone_size_m / 2
+                                    lon, lat = zone_transformer.transform(zona_center_x, zona_center_y)
+                                    coords = (lat, lon)
+                                    zone_latlon[zona_key] = coords
+                                except ValueError:
+                                    coords = None
+                        if coords is None:
+                            continue
 
-                            # Získame stred zóny
-                            zona_center_x = zona_x + zone_size_m / 2
-                            zona_center_y = zona_y + zone_size_m / 2
+                        lat, lon = coords
+                        base_row[lat_col] = f"{lat:.6f}"
+                        base_row[lon_col] = f"{lon:.6f}"
+                        base_row[rsrp_col] = "-174"
 
-                            # Pre prázdne zóny vždy používame stredové súradnice
-                            # Transformujeme späť na WGS84
-                            transformer = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+                        base_row[mcc_col] = mcc
+                        base_row[mnc_col] = mnc
+                        if pci_col is not None:
+                            base_row[pci_col] = pci
 
-                            # Vždy používame súradnice stredu zóny pre prázdne zóny
-                            lon, lat = transformer.transform(zona_center_x, zona_center_y)
-
-                            # Aktualizujeme hodnoty - používame bodku namiesto čiarky
-                            base_row[lat_col] = f"{lat:.6f}"
-                            base_row[lon_col] = f"{lon:.6f}"
-                            base_row[rsrp_col] = "-174"  # Extrémne nízka hodnota pre prázdne zóny
-
-                            # Nastavíme MCC a MNC
-                            base_row[mcc_col] = mcc
-                            base_row[mnc_col] = mnc
-                            if pci_col is not None:
-                                base_row[pci_col] = pci
-
-                            # Vytvoríme riadok pre CSV s ošetrením NaN hodnôt
-                            row_values = []
-                            for j, val in enumerate(base_row[column_names]):
-                                if pd.isna(val):
-                                    row_values.append("")
-                                else:
-                                    row_values.append(str(val))
-
-                            # Zabezpečíme, že máme presne toľko stĺpcov, koľko má hlavička
-                            while len(row_values) < expected_columns:
+                        row_values = []
+                        for _, val in enumerate(base_row[column_names]):
+                            if pd.isna(val):
                                 row_values.append("")
+                            else:
+                                row_values.append(str(val))
 
-                            # Ak máme viac stĺpcov, odrežeme nadbytočné
-                            if len(row_values) > expected_columns:
-                                row_values = row_values[:expected_columns]
+                        while len(row_values) < expected_columns:
+                            row_values.append("")
 
-                            # Vytvoríme základný CSV riadok
-                            csv_row = ';'.join(row_values)
+                        if len(row_values) > expected_columns:
+                            row_values = row_values[:expected_columns]
 
-                            # Pridáme prázdne stĺpce pre zoznam riadkov a frekvencií
-                            csv_row += ";;"
-
-                            # Pridáme informáciu o prázdnej zóne
+                        csv_row = ';'.join(row_values)
+                        csv_row += ";;"
+                        if zone_mode == "segments":
+                            csv_row += " # Prázdny úsek - vlastný operátor"
+                        else:
                             csv_row += " # Prázdna zóna - vlastný operátor"
 
-                            # Ak je to prvý riadok vlastného operátora, pridáme prázdny riadok pred ním
-                            if first_custom_operator_line:
-                                output_lines.append("\n" + csv_row + "\n")
-                                first_custom_operator_line = False
-                            else:
-                                output_lines.append(csv_row + "\n")
+                        if first_custom_operator_line:
+                            output_lines.append("\n" + csv_row + "\n")
+                            first_custom_operator_line = False
+                        else:
+                            output_lines.append(csv_row + "\n")
 
-                            new_zones_added += 1
-
-                            # Označíme túto zónu ako spracovanú
-                            processed_zones[zona_operator_key] = True
+                        new_zones_added += 1
+                        processed_zones[zona_operator_key] = True
 
     # Zapíšeme výsledky späť do súboru
     with open(output_file, 'w', encoding='utf-8') as f:
         f.writelines(output_lines)
 
     if new_zones_added > 0:
-        print(f"Pridaných {new_zones_added} prázdnych zón pre vlastných operátorov.")
+        if zone_mode == "segments":
+            print(f"Pridaných {new_zones_added} prázdnych úsekov pre vlastných operátorov.")
+        else:
+            print(f"Pridaných {new_zones_added} prázdnych zón pre vlastných operátorov.")
 
     # Pridáme vlastných operátorov do dataframe so štatistikami
+    if len(unique_zones) > 0:
+        default_zona_key = unique_zones[0]
+    elif zone_mode == "segments":
+        default_zona_key = "segment_0"
+    else:
+        default_zona_key = "0_0"
+
+    default_zona_x = 0
+    default_zona_y = 0
+    default_longitude = 0
+    default_latitude = 0
+    if not zone_stats.empty:
+        first_zone_row = zone_stats.iloc[0]
+        default_zona_x = first_zone_row.get('zona_x', 0)
+        default_zona_y = first_zone_row.get('zona_y', 0)
+        default_longitude = first_zone_row.get('longitude', 0)
+        default_latitude = first_zone_row.get('latitude', 0)
+
     for mcc, mnc, pci in custom_operators:
-        # Vytvoríme nový riadok pre tento operátor
         new_row = pd.DataFrame({
-            'zona_key': [unique_zones[0] if len(unique_zones) > 0 else '0_0'],
+            'zona_key': [default_zona_key],
             'operator_key': [f"{mcc}_{mnc}"],
-            'zona_x': [0],
-            'zona_y': [0],
+            'zona_x': [default_zona_x],
+            'zona_y': [default_zona_y],
             'mcc': [mcc],
             'mnc': [mnc],
             **({'pci': [pci]} if has_pci else {}),
             'rsrp_avg': [-174],
             'pocet_merani': [0],
             'najcastejsia_frekvencia': [''],
-            'vsetky_frekvencie': [[]],  # Prázdny zoznam pre všetky frekvencie
-            'original_excel_rows': [[]],  # Prázdny zoznam pre originálne excell riadky
-            'zona_stred_x': [0],
-            'zona_stred_y': [0],
-            'longitude': [0],
-            'latitude': [0],
+            'vsetky_frekvencie': [[]],
+            'original_excel_rows': [[]],
+            'zona_stred_x': [default_zona_x],
+            'zona_stred_y': [default_zona_y],
+            'longitude': [default_longitude],
+            'latitude': [default_latitude],
             'rsrp_kategoria': ['RSRP_BAD']
         })
 

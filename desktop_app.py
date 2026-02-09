@@ -544,8 +544,7 @@ class DesktopApp:
         self.filters_listbox.delete(0, tk.END)
 
     def _refresh_operator_fields(self):
-        zone_mode = ZONE_MODES.get(self.zone_mode_var.get(), "center")
-        allow_custom = self.include_empty_var.get() and zone_mode != "segments"
+        allow_custom = self.include_empty_var.get()
         state = "normal" if allow_custom else "disabled"
 
         self.custom_operators_entry.configure(state=state)

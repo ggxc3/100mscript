@@ -144,7 +144,7 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
         progress_enabled=config.progress_enabled,
     )
 
-    if include_empty_zones and config.zone_mode != "segments":
+    if include_empty_zones:
         _emit(status_callback, "Pridávam vlastných operátorov...")
         zone_stats, _ = add_custom_operators(
             zone_stats,
@@ -156,6 +156,8 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
             processed_zones,
             unique_zones,
             config.zone_size_m,
+            zone_mode=config.zone_mode,
+            segment_meta=segment_meta,
             add_operators=config.add_custom_operators,
             custom_operators=config.custom_operators,
             progress_enabled=config.progress_enabled,

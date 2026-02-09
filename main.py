@@ -54,7 +54,7 @@ def main():
 
     add_operators = False
     custom_operators = []
-    if include_empty_zones and zone_mode != "segments":
+    if include_empty_zones:
         add_operators, custom_operators = ask_for_custom_operators()
 
     config = ProcessingConfig(
