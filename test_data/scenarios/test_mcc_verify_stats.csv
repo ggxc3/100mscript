@@ -1,0 +1,4 @@
+MNC;MCC;RSRP >= -110 a SINR >= -5;RSRP < -110 alebo SINR < -5
+1;233;2;0
+1;231;2;0
+1;232;2;0
