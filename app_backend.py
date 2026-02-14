@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+import pandas as pd
+
 from filters import (
     apply_filters,
     load_filter_rules,
@@ -82,11 +84,93 @@ def _load_rules(filter_paths: Optional[Sequence[str]], filter_rules: Optional[Li
     return load_filter_rules_from_paths(filter_paths)
 
 
+def _column_index_to_letter(index: int) -> str:
+    """Prevedie 0-based index stĺpca na Excel písmeno (A, B, ..., AA...)."""
+    if index < 0:
+        return "?"
+    value = index + 1
+    letters = []
+    while value > 0:
+        value, remainder = divmod(value - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
+
+
+def _suggest_mapping_from_headers(columns: Sequence[str]) -> Dict[str, Tuple[int, str, str]]:
+    """Nájde odporúčané stĺpce podľa názvov hlavičky."""
+    candidates = {
+        "latitude": ["Latitude"],
+        "longitude": ["Longitude"],
+        "frequency": ["NR-ARFCN", "EARFCN", "Frequency"],
+        "pci": ["PCI"],
+        "mcc": ["MCC"],
+        "mnc": ["MNC"],
+        "rsrp": ["SSS-RSRP", "RSRP"],
+        "sinr": ["SSS-SINR", "SINR"],
+    }
+    lower_map = {str(name).strip().lower(): idx for idx, name in enumerate(columns)}
+    suggestions = {}
+    for key, names in candidates.items():
+        for candidate in names:
+            idx = lower_map.get(candidate.lower())
+            if idx is not None:
+                suggestions[key] = (idx, str(columns[idx]), _column_index_to_letter(idx))
+                break
+    return suggestions
+
+
+def _numeric_count(series: pd.Series) -> int:
+    normalized = series.astype(str).str.replace(",", ".", regex=False).str.strip()
+    normalized = normalized.where(series.notna(), None)
+    return int(pd.to_numeric(normalized, errors="coerce").notna().sum())
+
+
+def _validate_column_mapping(df: pd.DataFrame, column_mapping: Dict[str, int]) -> None:
+    required = ["latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp"]
+    optional = ["sinr"]
+    all_keys = required + [k for k in optional if k in column_mapping]
+
+    for key in all_keys:
+        idx = column_mapping.get(key)
+        if not isinstance(idx, int) or idx < 0 or idx >= len(df.columns):
+            raise ProcessingError(
+                f"Neplatné mapovanie stĺpca '{key}' (index={idx}). "
+                f"Súbor má {len(df.columns)} stĺpcov."
+            )
+
+    critical_numeric = ["latitude", "longitude", "frequency", "rsrp"]
+    bad_keys = []
+    for key in critical_numeric + ([k for k in optional if k in column_mapping]):
+        idx = column_mapping[key]
+        if _numeric_count(df.iloc[:, idx]) == 0:
+            bad_keys.append(key)
+
+    if bad_keys:
+        bad_desc = ", ".join(
+            f"{key}={_column_index_to_letter(column_mapping[key])}" for key in bad_keys
+        )
+        suggestions = _suggest_mapping_from_headers(list(df.columns))
+        suggestion_parts = []
+        for key in ["latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp", "sinr"]:
+            if key in suggestions:
+                idx, name, letter = suggestions[key]
+                suggestion_parts.append(f"{key}={letter} ({name})")
+        suggestion_text = ""
+        if suggestion_parts:
+            suggestion_text = " Odporúčané mapovanie podľa hlavičky: " + ", ".join(suggestion_parts) + "."
+
+        raise ProcessingError(
+            "Mapovanie stĺpcov pravdepodobne nesedí pre tento CSV súbor "
+            f"(bez číselných hodnôt v: {bad_desc}).{suggestion_text}"
+        )
+
+
 def run_processing(config: ProcessingConfig, status_callback: StatusCallback = None) -> ProcessingResult:
     _emit(status_callback, "Načítavam CSV súbor...")
     df, file_info = load_csv_file(config.file_path)
     if df is None:
         raise ProcessingError("Nepodarilo sa načítať CSV súbor.")
+    _validate_column_mapping(df, config.column_mapping)
 
     _emit(status_callback, "Načítavam filtre...")
     filter_rules = _load_rules(config.filter_paths, config.filter_rules)
