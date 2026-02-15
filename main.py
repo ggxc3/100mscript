@@ -13,7 +13,7 @@ from prompts import (
     ask_for_sinr_threshold,
     ask_for_zone_mode,
     ask_for_zone_size,
-    get_column_mapping,
+    get_column_mapping_for_file,
     parse_arguments,
 )
 
@@ -32,7 +32,7 @@ def main():
     if not file_path:
         file_path = input("Zadajte cestu k CSV súboru: ")
 
-    column_mapping = get_column_mapping()
+    column_mapping = get_column_mapping_for_file(file_path)
 
     filter_rules = load_filter_rules()
     keep_original_rows = False

@@ -4,6 +4,30 @@ import argparse
 import re
 
 from constants import ZONE_SIZE_METERS
+from io_utils import load_csv_file
+
+
+DEFAULT_COLUMN_LETTERS = {
+    "latitude": "D",
+    "longitude": "E",
+    "frequency": "K",
+    "pci": "L",
+    "mcc": "M",
+    "mnc": "N",
+    "rsrp": "W",
+    "sinr": "V",
+}
+
+_COLUMN_HEADER_CANDIDATES = {
+    "latitude": ["Latitude", "Lat"],
+    "longitude": ["Longitude", "Lon", "Lng"],
+    "frequency": ["SSRef", "Frequency"],
+    "pci": ["PCI", "NPCI", "Physical Cell ID"],
+    "mcc": ["MCC"],
+    "mnc": ["MNC"],
+    "rsrp": ["SSS-RSRP", "RSRP", "NR-SS-RSRP"],
+    "sinr": ["SSS-SINR", "SINR", "NR-SS-SINR"],
+}
 
 
 def parse_arguments():
@@ -185,45 +209,123 @@ def ask_for_custom_operators():
 
 def get_column_mapping():
     """Získa mapovanie stĺpcov podľa predvolených hodnôt alebo od používateľa."""
-    default_columns = {
-        'latitude': 'D',
-        'longitude': 'E',
-        'frequency': 'K',
-        'pci': 'L',
-        'mnc': 'N',
-        'mcc': 'M',
-        'rsrp': 'W',
-        'sinr': 'V'
+    return get_column_mapping_for_file(None)
+
+
+def _normalize_header_name(name):
+    value = str(name).strip().lower()
+    return re.sub(r"[^a-z0-9]+", "", value)
+
+
+def col_index_to_letter(col_index):
+    """Konvertuje 0-based index stĺpca na Excel písmeno (A, B, ..., AA, AB...)."""
+    if col_index is None or col_index < 0:
+        return "A"
+    value = int(col_index) + 1
+    letters = []
+    while value > 0:
+        value, remainder = divmod(value - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters))
+
+
+def suggest_column_letters_from_headers(column_names, base_columns=None):
+    """Podľa názvov hlavičky navrhne písmená stĺpcov."""
+    suggested = dict(base_columns or DEFAULT_COLUMN_LETTERS)
+    if not column_names:
+        return suggested, {}
+
+    detected = {}
+    normalized_candidates = {
+        mapping_key: {_normalize_header_name(candidate) for candidate in candidates}
+        for mapping_key, candidates in _COLUMN_HEADER_CANDIDATES.items()
     }
 
-    print("Predvolené hodnoty stĺpcov:")
-    for name, col in default_columns.items():
-        print(f"  {name}: {col}")
+    # Pre každý typ stĺpca berieme prvý match podľa poradia v CSV (zľava doprava).
+    for idx, raw_name in enumerate(column_names):
+        normalized_name = _normalize_header_name(raw_name)
+        if not normalized_name:
+            continue
 
-    use_default = input("Chcete použiť predvolené hodnoty stĺpcov? (a/n): ").lower() == 'a'
+        for mapping_key, candidates in normalized_candidates.items():
+            if mapping_key in detected:
+                continue
+            if normalized_name in candidates:
+                letter = col_index_to_letter(idx)
+                suggested[mapping_key] = letter
+                detected[mapping_key] = {"letter": letter, "header": str(raw_name)}
+
+    return suggested, detected
+
+
+def suggest_column_letters_from_file(file_path, base_columns=None):
+    """Načíta hlavičku CSV a navrhne mapovanie stĺpcov podľa názvov."""
+    suggested = dict(base_columns or DEFAULT_COLUMN_LETTERS)
+    if not file_path:
+        return suggested, {}
+
+    df, _ = load_csv_file(file_path)
+    if df is None:
+        return suggested, {}
+
+    return suggest_column_letters_from_headers(list(df.columns), suggested)
+
+
+def _letters_to_mapping(columns_by_letter):
+    mapping = {}
+    for key, letter in columns_by_letter.items():
+        mapping[key] = col_letter_to_name(letter)
+    return mapping
+
+
+def get_column_mapping_for_file(file_path=None):
+    """Získa mapovanie stĺpcov, pri zadanom súbore skúsi auto-detekciu podľa hlavičky."""
+    suggested_columns, detected_columns = suggest_column_letters_from_file(
+        file_path,
+        DEFAULT_COLUMN_LETTERS,
+    )
+
+    if detected_columns:
+        print("Nájdené stĺpce podľa hlavičky CSV:")
+    else:
+        print("Predvolené hodnoty stĺpcov:")
+
+    for name in DEFAULT_COLUMN_LETTERS:
+        letter = suggested_columns[name]
+        if name in detected_columns:
+            header_name = detected_columns[name]["header"]
+            print(f"  {name}: {letter} ({header_name})")
+        else:
+            print(f"  {name}: {letter}")
+
+    use_default = input("Chcete použiť tieto predvyplnené hodnoty stĺpcov? (a/n): ").strip().lower() == "a"
 
     if use_default:
-        # Použijeme predvolené stĺpce
-        columns = {}
-        for name, col in default_columns.items():
-            columns[name] = col_letter_to_name(col)
-        return columns
-    else:
-        # Používateľ zadá vlastné hodnoty
-        columns = {}
-        for name, default in default_columns.items():
-            col = input(f"Zadajte písmeno stĺpca pre {name} [{default}]: ") or default
-            columns[name] = col_letter_to_name(col)
-        return columns
+        return _letters_to_mapping(suggested_columns)
+
+    columns = {}
+    for name in DEFAULT_COLUMN_LETTERS:
+        default_letter = suggested_columns[name]
+        col = input(f"Zadajte písmeno stĺpca pre {name} [{default_letter}]: ").strip() or default_letter
+        columns[name] = col
+    return _letters_to_mapping(columns)
 
 
 def col_letter_to_name(letter):
     """Konvertuje písmeno stĺpca (napr. 'A', 'B'...) na názov stĺpca v pandas DataFrame."""
-    letter = letter.upper()
-    col_index = ord(letter) - ord('A')
+    if letter is None:
+        return 0
 
-    if col_index < 0 or col_index > 25:
-        return 0  # Vrátime index 0 (prvý stĺpec)
+    text = str(letter).strip().upper()
+    if not text:
+        return 0
 
-    # Vrátime index stĺpca (napr. 'A' -> 0, 'B' -> 1)
-    return col_index
+    letters_only = "".join(ch for ch in text if "A" <= ch <= "Z")
+    if not letters_only:
+        return 0
+
+    col_index = 0
+    for ch in letters_only:
+        col_index = col_index * 26 + (ord(ch) - ord("A") + 1)
+
+    return col_index - 1

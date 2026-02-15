@@ -13,7 +13,12 @@ from tkinter import filedialog, messagebox, ttk
 
 from app_backend import ProcessingConfig, run_processing
 from filters import discover_filter_paths
-from prompts import col_letter_to_name, parse_custom_operators_text
+from prompts import (
+    DEFAULT_COLUMN_LETTERS,
+    col_letter_to_name,
+    parse_custom_operators_text,
+    suggest_column_letters_from_file,
+)
 
 
 ZONE_MODES = {
@@ -22,16 +27,7 @@ ZONE_MODES = {
     "Úseky po trase": "segments",
 }
 
-DEFAULT_COLUMNS = {
-    "latitude": "D",
-    "longitude": "E",
-    "frequency": "K",
-    "pci": "L",
-    "mnc": "N",
-    "mcc": "M",
-    "rsrp": "W",
-    "sinr": "V",
-}
+DEFAULT_COLUMNS = dict(DEFAULT_COLUMN_LETTERS)
 
 
 class DesktopApp:
@@ -584,6 +580,22 @@ class DesktopApp:
         )
         if path:
             self.csv_path_var.set(path)
+            self._autofill_columns_from_csv(path)
+
+    def _autofill_columns_from_csv(self, file_path: str):
+        suggested, detected = suggest_column_letters_from_file(file_path, DEFAULT_COLUMNS)
+        for key, var in self.column_vars.items():
+            var.set(suggested.get(key, DEFAULT_COLUMNS[key]))
+
+        if detected:
+            ordered = ["latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp", "sinr"]
+            parts = []
+            for key in ordered:
+                if key in detected:
+                    parts.append(f"{key}={detected[key]['letter']} ({detected[key]['header']})")
+            self._append_log("Auto-detekované stĺpce: " + ", ".join(parts))
+        else:
+            self._append_log("Auto-detekcia stĺpcov nenašla známe názvy, ostávajú predvolené hodnoty.")
 
     def _add_filter_files(self):
         files = filedialog.askopenfilenames(
@@ -622,7 +634,7 @@ class DesktopApp:
             raw_value = var.get().strip()
             if not raw_value:
                 raise ValueError(f"Chýba písmeno stĺpca pre '{key}'.")
-            mapping[key] = col_letter_to_name(raw_value[0])
+            mapping[key] = col_letter_to_name(raw_value)
         return mapping
 
     def _resolve_filter_paths(self):
