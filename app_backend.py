@@ -39,6 +39,7 @@ class ProcessingConfig:
     output_suffix: Optional[str] = None
     mobile_mode_enabled: bool = False
     mobile_lte_file_path: Optional[str] = None
+    mobile_time_tolerance_ms: int = 100
     mobile_require_nr_yes: bool = True
     mobile_nr_column_name: str = "5G NR"
     progress_enabled: bool = True
@@ -196,24 +197,87 @@ def _normalize_key_series(series: pd.Series) -> pd.Series:
 
 def _normalize_nr_series(series: pd.Series) -> pd.Series:
     normalized = series.astype("string").fillna("").str.strip().str.lower()
+    yes_tokens = {"yes", "true", "1", "y", "t", "a", "ano", "áno"}
+    no_tokens = {"no", "false", "0", "n", "f"}
     return pd.Series(
-        np.where(normalized == "yes", "yes", np.where(normalized == "no", "no", "")),
+        np.where(
+            normalized.isin(yes_tokens),
+            "yes",
+            np.where(normalized.isin(no_tokens), "no", ""),
+        ),
         index=series.index,
         dtype="string",
     )
 
 
-def _build_time_key(df: pd.DataFrame, utc_col: Optional[str], date_col: Optional[str], time_col: Optional[str]) -> Tuple[pd.Series, str]:
+def _build_column_mapping_from_headers(columns: Sequence[str]) -> Dict[str, int]:
+    suggestions = _suggest_mapping_from_headers(columns)
+    return {key: value[0] for key, value in suggestions.items()}
+
+
+def _build_time_ms_series(
+    df: pd.DataFrame,
+    utc_col: Optional[str],
+    date_col: Optional[str],
+    time_col: Optional[str],
+) -> Tuple[pd.Series, str]:
+    time_ms = pd.Series(np.nan, index=df.index, dtype="float64")
+
     if utc_col and utc_col in df.columns:
-        return _normalize_key_series(df[utc_col]), "utc"
+        utc_text = df[utc_col].astype("string").fillna("").str.strip()
+        utc_numeric = pd.to_numeric(
+            utc_text.str.replace(",", ".", regex=False),
+            errors="coerce",
+        )
+        if utc_numeric.notna().any():
+            median_abs = float(utc_numeric.dropna().abs().median())
+            factor = 1.0 if median_abs >= 1e11 else 1000.0
+            time_ms.loc[utc_numeric.notna()] = utc_numeric.loc[utc_numeric.notna()] * factor
+            return time_ms, "utc_numeric"
+
+        utc_datetime = pd.to_datetime(
+            utc_text.where(utc_text != "", pd.NA),
+            errors="coerce",
+            dayfirst=True,
+        )
+        valid_utc_datetime = utc_datetime.notna()
+        if valid_utc_datetime.any():
+            time_ms.loc[valid_utc_datetime] = (
+                utc_datetime.loc[valid_utc_datetime].astype("int64") // 1_000_000
+            ).astype("float64")
+            return time_ms, "utc_datetime"
+
     if date_col and time_col and date_col in df.columns and time_col in df.columns:
-        date_key = _normalize_key_series(df[date_col])
-        time_key = _normalize_key_series(df[time_col])
-        valid = (date_key != "") & (time_key != "")
-        datetime_key = pd.Series("", index=df.index, dtype="string")
-        datetime_key.loc[valid] = date_key.loc[valid].str.cat(time_key.loc[valid], sep=" ")
-        return datetime_key, "datetime"
-    return pd.Series("", index=df.index, dtype="string"), "operator_pci"
+        date_text = df[date_col].astype("string").fillna("").str.strip()
+        time_text = df[time_col].astype("string").fillna("").str.strip()
+        datetime_text = date_text.str.cat(time_text, sep=" ")
+        valid_datetime_text = (date_text != "") & (time_text != "")
+        datetime_series = pd.to_datetime(
+            datetime_text.where(valid_datetime_text, pd.NA),
+            errors="coerce",
+            dayfirst=True,
+        )
+        valid_datetime = datetime_series.notna()
+        if valid_datetime.any():
+            time_ms.loc[valid_datetime] = (
+                datetime_series.loc[valid_datetime].astype("int64") // 1_000_000
+            ).astype("float64")
+            return time_ms, "date_time"
+
+    return time_ms, "missing"
+
+
+def _build_lte_time_lookup(lte_work: pd.DataFrame):
+    lookup = {}
+    for group_key, group_df in lte_work.groupby(["_mcc_key", "_mnc_key"], sort=False):
+        times = group_df["_time_ms"].to_numpy(dtype=np.int64)
+        order = np.argsort(times, kind="mergesort")
+        times_sorted = times[order]
+        scores_sorted = group_df["_nr_score"].to_numpy(dtype=np.int8)[order]
+        yes_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 2, dtype=np.int64)))
+        no_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 1, dtype=np.int64)))
+        lookup[group_key] = (times_sorted, yes_prefix, no_prefix)
+    return lookup
 
 
 def _sync_mobile_nr_from_lte(
@@ -221,19 +285,31 @@ def _sync_mobile_nr_from_lte(
     column_mapping: Dict[str, int],
     lte_file_path: str,
     nr_column_name: str,
+    time_tolerance_ms: int,
+    filter_rules: Optional[List[dict]],
+    keep_original_rows: bool,
 ) -> Tuple[pd.DataFrame, Dict[str, object]]:
-    df_lte, _ = load_csv_file(lte_file_path)
+    df_lte, lte_file_info = load_csv_file(lte_file_path)
     if df_lte is None:
         raise ProcessingError("Mobile režim: Nepodarilo sa načítať LTE CSV súbor.")
+
+    if filter_rules:
+        lte_mapping = _build_column_mapping_from_headers(list(df_lte.columns))
+        df_lte = apply_filters(
+            df_lte,
+            lte_file_info,
+            filter_rules,
+            keep_original_rows,
+            lte_mapping,
+        )
 
     lte_columns = list(df_lte.columns)
     lte_mcc_col = _find_column_name(lte_columns, ["MCC"])
     lte_mnc_col = _find_column_name(lte_columns, ["MNC"])
-    lte_pci_col = _find_column_name(lte_columns, ["PCI"])
     lte_nr_col = _find_column_name(lte_columns, ["5G NR", "5GNR", "NR"])
-    if not lte_mcc_col or not lte_mnc_col or not lte_pci_col or not lte_nr_col:
+    if not lte_mcc_col or not lte_mnc_col or not lte_nr_col:
         raise ProcessingError(
-            "Mobile režim: LTE súbor musí obsahovať stĺpce MCC, MNC, PCI a 5G NR."
+            "Mobile režim: LTE súbor musí obsahovať stĺpce MCC, MNC a 5G NR."
         )
 
     lte_utc_col = _find_column_name(lte_columns, ["UTC"])
@@ -244,7 +320,6 @@ def _sync_mobile_nr_from_lte(
     try:
         fiveg_mcc_col = fiveg_columns[column_mapping["mcc"]]
         fiveg_mnc_col = fiveg_columns[column_mapping["mnc"]]
-        fiveg_pci_col = fiveg_columns[column_mapping["pci"]]
     except Exception as exc:
         raise ProcessingError(f"Mobile režim: Neplatné mapovanie stĺpcov pre 5G súbor ({exc}).")
 
@@ -255,77 +330,98 @@ def _sync_mobile_nr_from_lte(
     lte_work = pd.DataFrame({
         "_mcc_key": _normalize_key_series(df_lte[lte_mcc_col]),
         "_mnc_key": _normalize_key_series(df_lte[lte_mnc_col]),
-        "_pci_key": _normalize_key_series(df_lte[lte_pci_col]),
         "_nr_raw": _normalize_nr_series(df_lte[lte_nr_col]),
     })
-    lte_work["_time_key"], lte_time_strategy = _build_time_key(df_lte, lte_utc_col, lte_date_col, lte_time_col)
-    lte_work = lte_work[lte_work[["_mcc_key", "_mnc_key", "_pci_key"]].ne("").all(axis=1)].copy()
-    if lte_work.empty:
-        raise ProcessingError("Mobile režim: LTE súbor neobsahuje použiteľné MCC/MNC/PCI hodnoty.")
-
-    lte_work["_nr_score"] = np.where(lte_work["_nr_raw"] == "yes", 2, np.where(lte_work["_nr_raw"] == "no", 1, 0))
-    group_columns = ["_mcc_key", "_mnc_key", "_pci_key"]
-    lte_work["_group_score"] = lte_work.groupby(group_columns)["_nr_score"].transform("max")
-    lte_work["_nr_resolved"] = np.where(
-        lte_work["_group_score"] == 2,
-        "yes",
-        np.where(lte_work["_group_score"] == 1, "no", ""),
+    lte_work["_time_ms"], lte_time_strategy = _build_time_ms_series(
+        df_lte,
+        lte_utc_col,
+        lte_date_col,
+        lte_time_col,
     )
+    lte_work = lte_work[lte_work[["_mcc_key", "_mnc_key"]].ne("").all(axis=1)].copy()
+    if lte_work.empty:
+        raise ProcessingError("Mobile režim: LTE súbor neobsahuje použiteľné MCC/MNC hodnoty.")
 
-    lte_yes_operator_keys = lte_work[lte_work["_nr_resolved"] == "yes"][group_columns].drop_duplicates()
-    if lte_yes_operator_keys.empty:
+    lte_work["_nr_score"] = np.where(
+        lte_work["_nr_raw"] == "yes",
+        2,
+        np.where(lte_work["_nr_raw"] == "no", 1, 0),
+    )
+    if (lte_work["_nr_score"] == 2).sum() == 0:
         raise ProcessingError("Mobile režim: V LTE súbore sa nenašli žiadne riadky s 5G NR = yes.")
 
     fiveg_work = pd.DataFrame({
         "_mcc_key": _normalize_key_series(df_5g[fiveg_mcc_col]),
         "_mnc_key": _normalize_key_series(df_5g[fiveg_mnc_col]),
-        "_pci_key": _normalize_key_series(df_5g[fiveg_pci_col]),
     })
-    fiveg_work["_time_key"], fiveg_time_strategy = _build_time_key(df_5g, fiveg_utc_col, fiveg_date_col, fiveg_time_col)
-
-    exact_yes_mask = pd.Series(False, index=df_5g.index)
-    selected_sync_strategy = "operator_pci"
-    if lte_time_strategy in ("utc", "datetime") and fiveg_time_strategy == lte_time_strategy:
-        selected_sync_strategy = lte_time_strategy
-        exact_keys = group_columns + ["_time_key"]
-        lte_yes_exact_keys = lte_work[
-            (lte_work["_nr_resolved"] == "yes") & (lte_work["_time_key"] != "")
-        ][exact_keys].drop_duplicates()
-        if not lte_yes_exact_keys.empty:
-            exact_match = fiveg_work.merge(
-                lte_yes_exact_keys.assign(_exact_yes=True),
-                on=exact_keys,
-                how="left",
-            )
-            exact_yes_mask = pd.Series(
-                exact_match["_exact_yes"].fillna(False).astype(bool).to_numpy(),
-                index=df_5g.index,
-            )
-
-    operator_yes_match = fiveg_work[group_columns].merge(
-        lte_yes_operator_keys.assign(_operator_yes=True),
-        on=group_columns,
-        how="left",
-    )
-    operator_yes_mask = pd.Series(
-        operator_yes_match["_operator_yes"].fillna(False).astype(bool).to_numpy(),
-        index=df_5g.index,
+    fiveg_work["_time_ms"], fiveg_time_strategy = _build_time_ms_series(
+        df_5g,
+        fiveg_utc_col,
+        fiveg_date_col,
+        fiveg_time_col,
     )
 
-    existing_yes_mask = pd.Series(False, index=df_5g.index)
-    if nr_column_name in df_5g.columns:
-        existing_yes_mask = _normalize_nr_series(df_5g[nr_column_name]).eq("yes")
+    valid_lte_time = lte_work["_time_ms"].notna()
+    valid_5g_time = fiveg_work["_time_ms"].notna()
+    if not valid_lte_time.any() or not valid_5g_time.any():
+        raise ProcessingError(
+            "Mobile režim: Nepodarilo sa načítať čas pre porovnanie (UTC alebo Date+Time) "
+            "v jednom zo súborov."
+        )
 
-    final_yes_mask = exact_yes_mask | operator_yes_mask | existing_yes_mask
+    lte_work = lte_work.loc[valid_lte_time].copy()
+    lte_work["_time_ms"] = np.rint(lte_work["_time_ms"]).astype(np.int64)
+
+    fiveg_candidates = fiveg_work.loc[
+        valid_5g_time & fiveg_work[["_mcc_key", "_mnc_key"]].ne("").all(axis=1)
+    ].copy()
+    fiveg_candidates["_time_ms"] = np.rint(fiveg_candidates["_time_ms"]).astype(np.int64)
+
+    tolerance = int(max(0, round(float(time_tolerance_ms))))
+    lte_time_lookup = _build_lte_time_lookup(lte_work)
+
+    window_scores = pd.Series(0, index=df_5g.index, dtype="int64")
+    matched_rows = 0
+    conflicting_windows = 0
+
+    for group_key, group_df in fiveg_candidates.groupby(["_mcc_key", "_mnc_key"], sort=False):
+        lte_data = lte_time_lookup.get(group_key)
+        if lte_data is None:
+            continue
+        lte_times, yes_prefix, no_prefix = lte_data
+
+        fiveg_times = group_df["_time_ms"].to_numpy(dtype=np.int64)
+        left = np.searchsorted(lte_times, fiveg_times - tolerance, side="left")
+        right = np.searchsorted(lte_times, fiveg_times + tolerance, side="right")
+        has_match = right > left
+        if not has_match.any():
+            continue
+
+        yes_counts = yes_prefix[right] - yes_prefix[left]
+        no_counts = no_prefix[right] - no_prefix[left]
+        conflicting_windows += int(np.sum((yes_counts > 0) & (no_counts > 0)))
+        matched_rows += int(np.sum(has_match))
+
+        resolved_scores = np.where(yes_counts > 0, 2, np.where(no_counts > 0, 1, 0))
+        resolved_scores = np.where(has_match, resolved_scores, 0)
+        window_scores.loc[group_df.index] = resolved_scores
+
     result_df = df_5g.copy()
-    result_df[nr_column_name] = np.where(final_yes_mask, "yes", "no")
+    result_df[nr_column_name] = np.where(
+        window_scores == 2,
+        "yes",
+        np.where(window_scores == 1, "no", ""),
+    )
 
     return result_df, {
-        "sync_strategy": selected_sync_strategy,
+        "sync_strategy": f"{fiveg_time_strategy}->{lte_time_strategy}",
         "rows_total": int(len(result_df)),
-        "rows_yes": int(final_yes_mask.sum()),
-        "rows_exact_yes": int(exact_yes_mask.sum()),
-        "rows_operator_yes": int(operator_yes_mask.sum()),
+        "rows_yes": int((window_scores == 2).sum()),
+        "rows_no": int((window_scores == 1).sum()),
+        "rows_blank": int((window_scores == 0).sum()),
+        "rows_with_match": int(matched_rows),
+        "conflicting_windows": int(conflicting_windows),
+        "window_ms": tolerance,
     }
 
 
@@ -358,14 +454,19 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
             config.column_mapping,
             config.mobile_lte_file_path,
             config.mobile_nr_column_name,
+            config.mobile_time_tolerance_ms,
+            filter_rules,
+            config.keep_original_rows,
         )
         _emit(
             status_callback,
             (
                 "Mobile režim: synchronizácia hotová "
                 f"(strategy={mobile_sync_stats['sync_strategy']}, "
-                f"yes={mobile_sync_stats['rows_yes']}/{mobile_sync_stats['rows_total']}, "
-                f"exact={mobile_sync_stats['rows_exact_yes']})."
+                f"window={mobile_sync_stats['window_ms']}ms, "
+                f"matched={mobile_sync_stats['rows_with_match']}, "
+                f"yes={mobile_sync_stats['rows_yes']}, "
+                f"conflicts={mobile_sync_stats['conflicting_windows']})."
             ),
         )
         if config.mobile_require_nr_yes:

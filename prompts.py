@@ -65,6 +65,24 @@ def ask_for_lte_file_path():
         return lte_file_path
 
 
+def ask_for_mobile_time_tolerance_ms(default_tolerance_ms=100):
+    """Opýta sa na toleranciu porovnania času pre Mobile režim (v milisekundách)."""
+    print("\nMobile režim - tolerancia času:")
+    print(f"Predvolená hodnota: {default_tolerance_ms} ms")
+
+    while True:
+        raw_value = input(f"Zadajte toleranciu času v ms [{default_tolerance_ms}]: ").strip()
+        if not raw_value:
+            return int(default_tolerance_ms)
+        try:
+            tolerance_value = int(float(raw_value.replace(",", ".")))
+            if tolerance_value < 0:
+                raise ValueError
+            return tolerance_value
+        except ValueError:
+            print("Neplatná hodnota. Zadajte číslo >= 0 (napr. 0, 100, 500).")
+
+
 def ask_for_rsrp_threshold():
     """Opýta sa používateľa na hranicu RSRP pre štatistiky."""
     print("\nNastavenie hranice RSRP pre štatistiky:")

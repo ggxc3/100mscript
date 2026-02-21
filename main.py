@@ -11,6 +11,7 @@ from prompts import (
     ask_for_keep_original_rows,
     ask_for_lte_file_path,
     ask_for_mobile_mode,
+    ask_for_mobile_time_tolerance_ms,
     ask_for_rsrp_threshold,
     ask_for_sinr_threshold,
     ask_for_zone_mode,
@@ -40,8 +41,10 @@ def main():
             file_path = input("Zadajte cestu k CSV súboru: ")
 
     mobile_lte_file_path = None
+    mobile_time_tolerance_ms = 100
     if mobile_mode_enabled:
         mobile_lte_file_path = ask_for_lte_file_path()
+        mobile_time_tolerance_ms = ask_for_mobile_time_tolerance_ms()
 
     column_mapping = get_column_mapping_for_file(file_path)
 
@@ -83,6 +86,7 @@ def main():
         output_suffix="mobile" if mobile_mode_enabled else None,
         mobile_mode_enabled=mobile_mode_enabled,
         mobile_lte_file_path=mobile_lte_file_path,
+        mobile_time_tolerance_ms=mobile_time_tolerance_ms,
         progress_enabled=True,
     )
 

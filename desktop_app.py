@@ -379,17 +379,24 @@ class DesktopApp:
         self.mobile_lte_button = self._make_button(card, "Vybrať LTE CSV", self._pick_mobile_lte_csv)
         self.mobile_lte_button.grid(row=5, column=2, padx=(8, 0), sticky="ew")
 
+        self._label(card, "Tolerancia času pre Mobile (ms)", kind="muted").grid(
+            row=6, column=0, sticky="w", pady=(8, 4)
+        )
+        self.mobile_time_tolerance_var = tk.StringVar(value="100")
+        self.mobile_time_tolerance_entry = self._make_entry(card, self.mobile_time_tolerance_var, width=14)
+        self.mobile_time_tolerance_entry.grid(row=6, column=1, sticky="w")
+
         self.use_auto_filters_var = tk.BooleanVar(value=True)
         self._make_checkbutton(
             card,
             "Použiť automatické filtre z priečinkov filters/ a filtre_5G/",
             self.use_auto_filters_var,
-        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 4))
+        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(10, 4))
 
-        self._label(card, "Dodatočné filtre (.txt)", kind="muted").grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 4))
+        self._label(card, "Dodatočné filtre (.txt)", kind="muted").grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 4))
 
         filters_wrap = tk.Frame(card, bg=card["bg"])
-        filters_wrap.grid(row=8, column=0, columnspan=3, sticky="ew")
+        filters_wrap.grid(row=9, column=0, columnspan=3, sticky="ew")
         filters_wrap.grid_columnconfigure(0, weight=1)
 
         self.filters_listbox = tk.Listbox(
@@ -650,6 +657,7 @@ class DesktopApp:
         button_state = "normal" if is_mobile else "disabled"
         self.mobile_lte_entry.configure(state=state)
         self.mobile_lte_button.configure(state=button_state)
+        self.mobile_time_tolerance_entry.configure(state=state)
 
     def _refresh_operator_fields(self):
         allow_custom = self.include_empty_var.get()
@@ -700,11 +708,20 @@ class DesktopApp:
 
         mobile_mode_enabled = self.mobile_mode_var.get()
         mobile_lte_file_path = self.mobile_lte_path_var.get().strip()
+        mobile_time_tolerance_ms = 100
         if mobile_mode_enabled:
             if not mobile_lte_file_path:
                 raise ValueError("Pre Mobile režim vyber LTE CSV súbor.")
             if not Path(mobile_lte_file_path).is_file():
                 raise ValueError("LTE CSV súbor pre Mobile režim neexistuje.")
+            try:
+                mobile_time_tolerance_ms = int(
+                    float(self.mobile_time_tolerance_var.get().replace(",", ".").strip())
+                )
+            except ValueError as exc:
+                raise ValueError("Tolerancia času pre Mobile musí byť číslo >= 0.") from exc
+            if mobile_time_tolerance_ms < 0:
+                raise ValueError("Tolerancia času pre Mobile musí byť číslo >= 0.")
         else:
             mobile_lte_file_path = None
 
@@ -734,6 +751,7 @@ class DesktopApp:
             filter_paths=self._resolve_filter_paths(),
             mobile_mode_enabled=mobile_mode_enabled,
             mobile_lte_file_path=mobile_lte_file_path,
+            mobile_time_tolerance_ms=mobile_time_tolerance_ms,
             progress_enabled=False,
         )
 
