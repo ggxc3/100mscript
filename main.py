@@ -9,6 +9,8 @@ from prompts import (
     ask_for_custom_operators,
     ask_for_include_empty_zones,
     ask_for_keep_original_rows,
+    ask_for_lte_file_path,
+    ask_for_mobile_mode,
     ask_for_rsrp_threshold,
     ask_for_sinr_threshold,
     ask_for_zone_mode,
@@ -28,9 +30,18 @@ def _wait_for_exit():
 def main():
     args = parse_arguments()
 
+    mobile_mode_enabled = ask_for_mobile_mode()
+
     file_path = args.file
     if not file_path:
-        file_path = input("Zadajte cestu k CSV súboru: ")
+        if mobile_mode_enabled:
+            file_path = input("Zadajte cestu k 5G CSV súboru: ")
+        else:
+            file_path = input("Zadajte cestu k CSV súboru: ")
+
+    mobile_lte_file_path = None
+    if mobile_mode_enabled:
+        mobile_lte_file_path = ask_for_lte_file_path()
 
     column_mapping = get_column_mapping_for_file(file_path)
 
@@ -69,6 +80,9 @@ def main():
         add_custom_operators=add_operators,
         custom_operators=custom_operators,
         filter_rules=filter_rules,
+        output_suffix="mobile" if mobile_mode_enabled else None,
+        mobile_mode_enabled=mobile_mode_enabled,
+        mobile_lte_file_path=mobile_lte_file_path,
         progress_enabled=True,
     )
 

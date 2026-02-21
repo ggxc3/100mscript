@@ -362,17 +362,34 @@ class DesktopApp:
         self._make_entry(card, self.csv_path_var).grid(row=2, column=0, columnspan=2, sticky="ew")
         self._make_button(card, "Vybrať CSV", self._pick_csv).grid(row=2, column=2, padx=(8, 0), sticky="ew")
 
+        self.mobile_mode_var = tk.BooleanVar(value=False)
+        self._make_checkbutton(
+            card,
+            "Mobile režim (synchronizácia 5G NR cez LTE súbor)",
+            self.mobile_mode_var,
+            command=self._refresh_mobile_fields,
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 2))
+
+        self._label(card, "LTE CSV súbor (iba pre Mobile režim)", kind="muted").grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(2, 4)
+        )
+        self.mobile_lte_path_var = tk.StringVar()
+        self.mobile_lte_entry = self._make_entry(card, self.mobile_lte_path_var)
+        self.mobile_lte_entry.grid(row=5, column=0, columnspan=2, sticky="ew")
+        self.mobile_lte_button = self._make_button(card, "Vybrať LTE CSV", self._pick_mobile_lte_csv)
+        self.mobile_lte_button.grid(row=5, column=2, padx=(8, 0), sticky="ew")
+
         self.use_auto_filters_var = tk.BooleanVar(value=True)
         self._make_checkbutton(
             card,
             "Použiť automatické filtre z priečinkov filters/ a filtre_5G/",
             self.use_auto_filters_var,
-        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 4))
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 4))
 
-        self._label(card, "Dodatočné filtre (.txt)", kind="muted").grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 4))
+        self._label(card, "Dodatočné filtre (.txt)", kind="muted").grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 4))
 
         filters_wrap = tk.Frame(card, bg=card["bg"])
-        filters_wrap.grid(row=5, column=0, columnspan=3, sticky="ew")
+        filters_wrap.grid(row=8, column=0, columnspan=3, sticky="ew")
         filters_wrap.grid_columnconfigure(0, weight=1)
 
         self.filters_listbox = tk.Listbox(
@@ -398,6 +415,7 @@ class DesktopApp:
 
         card.grid_columnconfigure(0, weight=1)
         card.grid_columnconfigure(1, weight=1)
+        self._refresh_mobile_fields()
 
     def _build_options_card(self, parent):
         card = self._make_card(parent)
@@ -582,6 +600,14 @@ class DesktopApp:
             self.csv_path_var.set(path)
             self._autofill_columns_from_csv(path)
 
+    def _pick_mobile_lte_csv(self):
+        path = filedialog.askopenfilename(
+            title="Vyber LTE CSV súbor",
+            filetypes=[("CSV súbory", "*.csv"), ("Všetky súbory", "*.*")],
+        )
+        if path:
+            self.mobile_lte_path_var.set(path)
+
     def _autofill_columns_from_csv(self, file_path: str):
         suggested, detected = suggest_column_letters_from_file(file_path, DEFAULT_COLUMNS)
         for key, var in self.column_vars.items():
@@ -617,6 +643,13 @@ class DesktopApp:
 
     def _clear_filter_files(self):
         self.filters_listbox.delete(0, tk.END)
+
+    def _refresh_mobile_fields(self):
+        is_mobile = self.mobile_mode_var.get()
+        state = "normal" if is_mobile else "disabled"
+        button_state = "normal" if is_mobile else "disabled"
+        self.mobile_lte_entry.configure(state=state)
+        self.mobile_lte_button.configure(state=button_state)
 
     def _refresh_operator_fields(self):
         allow_custom = self.include_empty_var.get()
@@ -662,6 +695,18 @@ class DesktopApp:
         csv_path = self.csv_path_var.get().strip()
         if not csv_path:
             raise ValueError("Vyber vstupný CSV súbor.")
+        if not Path(csv_path).is_file():
+            raise ValueError("Vstupný CSV súbor neexistuje.")
+
+        mobile_mode_enabled = self.mobile_mode_var.get()
+        mobile_lte_file_path = self.mobile_lte_path_var.get().strip()
+        if mobile_mode_enabled:
+            if not mobile_lte_file_path:
+                raise ValueError("Pre Mobile režim vyber LTE CSV súbor.")
+            if not Path(mobile_lte_file_path).is_file():
+                raise ValueError("LTE CSV súbor pre Mobile režim neexistuje.")
+        else:
+            mobile_lte_file_path = None
 
         zone_mode = ZONE_MODES.get(self.zone_mode_var.get(), "center")
         zone_size = float(self.zone_size_var.get().replace(",", ".").strip())
@@ -687,6 +732,8 @@ class DesktopApp:
             add_custom_operators=self.add_custom_operators_var.get(),
             custom_operators=custom_operators,
             filter_paths=self._resolve_filter_paths(),
+            mobile_mode_enabled=mobile_mode_enabled,
+            mobile_lte_file_path=mobile_lte_file_path,
             progress_enabled=False,
         )
 

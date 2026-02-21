@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import os
 import re
 
 from constants import ZONE_SIZE_METERS
@@ -35,6 +36,33 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Spracovanie CSV súboru s meraniami do zón.')
     parser.add_argument('file', nargs='?', help='Cesta k CSV súboru')
     return parser.parse_args()
+
+
+def ask_for_mobile_mode():
+    """Opýta sa používateľa, či chce zapnúť Mobile režim (5G + LTE synchronizácia)."""
+    print("\nVoliteľný Mobile režim:")
+    print("Ak je zapnutý, načíta sa aj LTE súbor a 5G dáta sa obohatia podľa stĺpca '5G NR'.")
+
+    while True:
+        choice = input("Chcete zapnúť Mobile režim? (a/n): ").strip().lower()
+        if choice == "a":
+            return True
+        if choice == "n":
+            return False
+        print("Neplatná voľba. Prosím zadajte 'a' alebo 'n'.")
+
+
+def ask_for_lte_file_path():
+    """Interaktívne načíta cestu k LTE CSV súboru pre Mobile režim."""
+    while True:
+        lte_file_path = input("Zadajte cestu k LTE CSV súboru pre Mobile režim: ").strip()
+        if not lte_file_path:
+            print("Cesta nemôže byť prázdna.")
+            continue
+        if not os.path.isfile(lte_file_path):
+            print("Súbor neexistuje. Skontrolujte cestu a skúste znova.")
+            continue
+        return lte_file_path
 
 
 def ask_for_rsrp_threshold():

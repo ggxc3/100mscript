@@ -1,0 +1,4 @@
+
+Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz);Riadky_v_zone;Frekvencie_v_zone
+2025-01-01;12:00:01;1001;48.150294;17.149812;100;0;0;8;1;3600;100;231;1;1;1;1;1;1;1;1;5.00;-70.00;1;1;1;1;1;1;yes;1;1;1;2;3600 # Meraní: 1
+2025-01-01;12:00:02;1002;48.150294;17.149812;100;0;0;8;1;3700;200;231;2;1;1;1;1;1;1;1;5.00;-80.00;1;1;1;1;1;1;yes;1;1;1;3;3700 # Meraní: 1

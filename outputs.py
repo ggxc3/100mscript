@@ -55,10 +55,15 @@ def save_zone_results(
 
     # Pridáme nové stĺpce pre zoznam riadkov a frekvencií do hlavičky
     orig_header_cols = header_line.split(';')
-    header_line = ';'.join(orig_header_cols) + ";Riadky_v_zone;Frekvencie_v_zone"
+    extra_output_cols = []
+    if "5G NR" in column_names and "5G NR" not in orig_header_cols:
+        extra_output_cols.append("5G NR")
+
+    export_header_cols = orig_header_cols + extra_output_cols
+    header_line = ';'.join(export_header_cols) + ";Riadky_v_zone;Frekvencie_v_zone"
 
     # Spočítame očakávaný počet stĺpcov
-    expected_columns = len(orig_header_cols)
+    expected_columns = len(export_header_cols)
     print(f"Počet stĺpcov v pôvodnej hlavičke: {expected_columns}")
     mcc_col = column_names[column_mapping['mcc']]
     mnc_col = column_names[column_mapping['mnc']]
