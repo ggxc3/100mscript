@@ -97,8 +97,27 @@ jobs:
           '@ | python -
 
       - name: Zig tests
-        run: zig build test
+        shell: pwsh
         working-directory: zig_backend
+        run: |
+          $projLib = (Resolve-Path "vendor/proj/lib").Path
+          $projData = (Resolve-Path "vendor/proj/share/proj").Path
+          $projDll = Get-ChildItem $projLib -Filter *.dll | Where-Object {
+            $_.Name -match '^(proj|libproj).*\.dll$'
+          } | Select-Object -First 1
+
+          if (-not $projDll) {
+            throw "PROJ DLL not found in $projLib"
+          }
+
+          $env:PATH = "$projLib;$env:PATH"
+          $env:ZIG_PROJ_DYLIB = $projDll.FullName
+          $env:ZIG_PROJ_DATA_DIR = $projData
+
+          Write-Host "Using PROJ DLL: $($env:ZIG_PROJ_DYLIB)"
+          Write-Host "Using PROJ data: $($env:ZIG_PROJ_DATA_DIR)"
+
+          zig build test
 
       - name: Electron checks
         run: npm --prefix electron_app run check
