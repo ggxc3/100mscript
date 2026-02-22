@@ -5,27 +5,22 @@ Tento priečinok obsahuje testovacie scenáre (CSV) pre overenie spracovania zó
 ## Štruktúra
 
 - `scenarios/` – testovacie CSV súbory
-- `test_script.sh` – jednoduchý skript s predvolenými odpoveďami na interaktívne otázky
 
 ## Ako spúšťať testy
 
-Program je interaktívny, preto je najspoľahlivejšie spúšťať testy manuálne:
+Testovacie CSV scenáre slúžia ako fixture dáta pre overovanie Zig backendu a desktop appky.
 
 ```bash
-python3 main.py test_data/scenarios/test_scenarios.csv
+cd /Users/jakubvysocan/Documents/Personal/Jakub/ostatne/100mscript/zig_backend
+zig build test
 ```
 
-Počas behu odpovedajte na otázky (režim zón/úsekov, RSRP/SINR hranica, mapovanie stĺpcov, prípadne filtre).
-
-### Automatizované spustenie (voliteľné)
-
-Ak potrebujete neinteraktívny beh, môžete do procesu poslať odpovede cez `printf`/`echo`, napríklad:
+Desktop smoke / UI test (manuálne):
 
 ```bash
-printf "n\n1\na\na\na\nn\n" | python3 main.py test_data/scenarios/test_scenarios.csv
+cd /Users/jakubvysocan/Documents/Personal/Jakub/ostatne/100mscript
+npm --prefix electron_app run dev
 ```
-
-Vzor vyššie je len príklad – počet a poradie otázok závisí od toho, či existujú filtre a či zvolíte generovanie prázdnych zón.
 
 ## Testovacie scenáre
 
@@ -46,7 +41,7 @@ Overuje výber frekvencie s najvyšším priemerom RSRP v rámci zóny+operátor
 
 ## Overenie výsledkov
 
-Po spustení testu skontrolujte vytvorené súbory:
+Po spustení spracovania skontrolujte vytvorené súbory:
 - `<nazov>_zones.csv`
 - `<nazov>_stats.csv`
 
@@ -54,8 +49,3 @@ Zamerajte sa na:
 - správne zoskupovanie podľa MCC/MNC,
 - správny výber frekvencie (najvyšší priemer RSRP),
 - konzistentnosť súradníc zón/úsekov podľa zvoleného režimu.
-
-## Poznámka k `test_script.sh`
-
-Skript posiela predvolené odpovede (bez generovania prázdnych zón). Ak potrebujete iné
-správanie, upravte vstupy v `printf` podľa poradia otázok.

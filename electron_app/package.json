@@ -1,0 +1,47 @@
+{
+  "name": "100mscript-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "100mscript desktop frontend (Electron) for Zig backend",
+  "main": "src/main.cjs",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/backend/zigClient.cjs && node --check src/backend/uiTools.cjs && node --check src/renderer/app.js && node --check scripts/prepare-runtime.cjs",
+    "build:zig": "cd ../zig_backend && zig build",
+    "prepare:runtime": "node ./scripts/prepare-runtime.cjs",
+    "dist:win": "npm run build:zig && npm run prepare:runtime && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "sk.jvysocan.100mscript",
+    "productName": "100mscript",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build_runtime",
+        "to": "100mscript_runtime"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

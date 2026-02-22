@@ -1,76 +1,118 @@
-name: Build Desktop + Console EXE
+name: Build Windows Portable Electron App (Zig Backend)
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-    # Umožňuje manuálne spustenie workflow cez GitHub rozhranie
 
-# Definujeme oprávnenia pre workflow
 permissions:
   contents: write
 
 jobs:
-  build:
-    # Pin runner na konkrétnu Windows verziu, aby build nebol ovplyvnený zmenami v windows-latest
+  build-windows:
     runs-on: windows-2022
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.10'
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: electron_app/package.json
 
-      - name: Install dependencies
+      - name: Setup Python (CI helper for Windows PROJ runtime assets)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Install Electron dependencies
+        run: npm --prefix electron_app install
+
+      - name: Prepare Windows PROJ runtime assets
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install pyproj
+          @'
+          import shutil
+          from pathlib import Path
+          import pyproj
 
-      - name: Prepare version number
+          pkg = Path(pyproj.__file__).resolve().parent
+          proj_data = pkg / "proj_dir" / "share" / "proj"
+          lib_candidates = [pkg / ".libs", pkg / ".dylibs", pkg]
+          lib_dir = next((p for p in lib_candidates if p.exists()), None)
+          if lib_dir is None:
+              raise SystemExit("PROJ library directory not found in pyproj package")
+
+          target_root = Path("zig_backend/vendor/proj")
+          target_lib = target_root / "lib"
+          target_data = target_root / "share" / "proj"
+          if target_root.exists():
+              shutil.rmtree(target_root)
+          target_lib.mkdir(parents=True, exist_ok=True)
+          target_data.parent.mkdir(parents=True, exist_ok=True)
+
+          copied = 0
+          for child in lib_dir.iterdir():
+              if child.is_file() and child.suffix.lower() == ".dll":
+                  shutil.copy2(child, target_lib / child.name)
+                  copied += 1
+          if copied == 0:
+              raise SystemExit(f"No DLLs copied from {lib_dir}")
+
+          shutil.copytree(proj_data, target_data, dirs_exist_ok=True)
+          print("Prepared Windows PROJ assets:", target_root)
+          '@ | python -
+
+      - name: Zig tests
+        run: zig build test
+        working-directory: zig_backend
+
+      - name: Electron checks
+        run: npm --prefix electron_app run check
+
+      - name: Build Zig backend
+        run: zig build
+        working-directory: zig_backend
+
+      - name: Prepare Electron runtime bundle
+        run: npm --prefix electron_app run prepare:runtime
+
+      - name: Build Windows portable EXE
+        run: npm --prefix electron_app run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare release version
         id: version
+        shell: pwsh
         run: |
-          # Vytvoríme verziu založenú na časovej značke a skrátenom SHA kóde commitu
           $timestamp = Get-Date -Format "yyyyMMdd.HHmm"
           $shortSha = "${{ github.sha }}".Substring(0, 7)
           $version = "v$timestamp-$shortSha"
-          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-        shell: pwsh
-      
-      - name: Build console EXE
-        run: |
-          pyinstaller --clean --onefile ^
-            --add-data "filters;filters" ^
-            --add-data "filtre_5G;filtre_5G" ^
-            --name="100mscript-console-${{ env.VERSION }}" main.py
-        shell: cmd
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Build desktop EXE
-        run: |
-          pyinstaller --clean --onefile --noconsole ^
-            --add-data "filters;filters" ^
-            --add-data "filtre_5G;filtre_5G" ^
-            --name="100mscript-desktop-${{ env.VERSION }}" desktop_app.py
-        shell: cmd
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-electron-build
+          path: electron_app/release/**
 
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: Release ${{ env.VERSION }}
           body: |
-            Automaticky vygenerovaný release pre vetvu main
-            
-            Tento release obsahuje EXE súbory:
-            - 100mscript-console-${{ env.VERSION }}.exe - konzolová interaktívna verzia
-            - 100mscript-desktop-${{ env.VERSION }}.exe - desktop GUI verzia
-            
-            Dátum vytvorenia: ${{ env.VERSION }}
+            Windows portable EXE (Electron frontend) + Zig backend runtime bundle.
           files: |
-            dist/100mscript-console-${{ env.VERSION }}.exe
-            dist/100mscript-desktop-${{ env.VERSION }}.exe
-          draft: false
-          prerelease: false 
+            electron_app/release/**/*.exe

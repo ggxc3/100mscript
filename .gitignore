@@ -1,23 +1,40 @@
-# Python cache
+# OS / editor
+.DS_Store
+.vscode/
+
+# Python (legacy / local tools only)
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environments
 .venv/
 venv/
-
-# Tool caches
 .pytest_cache/
 .mypy_cache/
 
-# Build artifacts
+# Node / Electron
+node_modules/
+electron_app/node_modules/
+electron_app/dist/
+electron_app/release/
+electron_app/out/
+electron_app/.electron-builder/
+electron_app/build_runtime/
+
+# Zig
+.zig-cache/
+.zig-global-cache/
+zig_backend/.zig-cache/
+zig_backend/.zig-global-cache/
+zig_backend/zig-out/
+
+# Generic build artifacts
 build/
 dist/
+*.log
 
-# macOS
-.DS_Store
+# Generated CSV outputs (keep tracked examples if already committed)
+*_electron_smoke_*.csv
 
-# Local test data
+# Local data / scratch
 test_february/
 yes_test/
