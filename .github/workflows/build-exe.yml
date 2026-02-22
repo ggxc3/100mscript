@@ -31,7 +31,9 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: 0.15.2
+          # Keep CI on a version that setup-zig reliably resolves on Windows.
+          # Local development can still use a newer patch version.
+          version: 0.15.1
 
       - name: Install Electron dependencies
         run: npm --prefix electron_app install
