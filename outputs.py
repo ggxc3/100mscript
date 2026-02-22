@@ -104,6 +104,7 @@ def save_zone_results(
     lat_index = export_header_to_index.get(lat_col, column_mapping['latitude'])
     lon_index = export_header_to_index.get(lon_col, column_mapping['longitude'])
     rsrp_index = export_header_to_index.get(rsrp_col, column_mapping['rsrp'])
+    nr_export_index = export_header_to_index.get("5G NR")
 
     # Predpočítame prvý riadok pre každú kombináciu zóna+operátor+frekvencia+PCI
     # (stráca sa O(n^2) filtrovanie v hlavnej slučke)
@@ -344,6 +345,8 @@ def save_zone_results(
                                 row_values[lon_index] = lon_str
                         if rsrp_index < expected_columns:
                             row_values[rsrp_index] = "-174"
+                        if nr_export_index is not None and nr_export_index < expected_columns:
+                            row_values[nr_export_index] = "no"
 
                         csv_row = ';'.join(row_values)
                         csv_row += ";;"
@@ -384,6 +387,8 @@ def save_zone_results(
                             row_values[lon_index] = lon_str
                         if rsrp_index < expected_columns:
                             row_values[rsrp_index] = "-174"
+                        if nr_export_index is not None and nr_export_index < expected_columns:
+                            row_values[nr_export_index] = "no"
 
                         csv_row = ';'.join(row_values)
                         csv_row += ";;"
@@ -556,6 +561,7 @@ def add_custom_operators(
 
     # Vypočítame expected_columns podľa reálnej hlavičky zones súboru (môže obsahovať extra 5G NR)
     expected_columns = len(export_header_cols)
+    nr_export_index = export_header_cols.index("5G NR") if "5G NR" in export_header_cols else None
 
     # Pridáme nové riadky do súboru - prázdne zóny/úseky pre nových operátorov
     new_zones_added = 0
@@ -656,6 +662,9 @@ def add_custom_operators(
 
                         if len(row_values) > expected_columns:
                             row_values = row_values[:expected_columns]
+
+                        if nr_export_index is not None and nr_export_index < expected_columns:
+                            row_values[nr_export_index] = "no"
 
                         csv_row = ';'.join(row_values)
                         csv_row += ";;"

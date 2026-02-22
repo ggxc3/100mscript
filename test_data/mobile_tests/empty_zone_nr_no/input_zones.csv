@@ -1,0 +1,8 @@
+
+Date;Time;UTC;Latitude;Longitude;EARFCN;Frequency;PCI;MCC;MNC;SINR;RSRP;5G NR;Riadky_v_zone;Frekvencie_v_zone
+2025-01-01;12:00:00;1000;48.099875;17.099377;1;800;10;231;1;0.00;-80.00;yes;1;800 # Meraní: 1
+2025-01-01;12:00:01;1001;48.101846;17.101778;1;800;20;231;2;0.00;-85.00;no;2;800 # Meraní: 1
+2025-01-01;12:00:01;1001;48.099875;17.099377;1;800;20;231;2;0.0;-174;no;; # Prázdna zóna - automaticky vygenerovaná
+2025-01-01;12:00:00;1000;48.101846;17.101778;1;800;10;231;1;0.0;-174;no;; # Prázdna zóna - automaticky vygenerovaná
+2025-01-01;12:00:00;1000;48.099875;17.099377;1;800;;231;99;0.0;-174;no;; # Prázdna zóna - vlastný operátor
+2025-01-01;12:00:00;1000;48.101846;17.101778;1;800;;231;99;0.0;-174;no;; # Prázdna zóna - vlastný operátor
