@@ -71,6 +71,9 @@ def save_zone_results(
     mcc_col = column_names[column_mapping['mcc']]
     mnc_col = column_names[column_mapping['mnc']]
     pci_col = column_names[column_mapping['pci']] if 'pci' in column_mapping else None
+    mcc_export_index = export_header_to_index.get(mcc_col)
+    mnc_export_index = export_header_to_index.get(mnc_col)
+    pci_export_index = export_header_to_index.get(pci_col) if pci_col is not None else None
 
     # Vytvoríme nový obsah pre výstupný súbor - začíname prázdnym riadkom
     output_lines = ['']  # Prázdny riadok na začiatku
@@ -198,7 +201,7 @@ def save_zone_results(
             if pd.isna(val):
                 row_values.append("")
             # Ak je to MCC alebo MNC, zaokrúhlime na celé číslo
-            elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
+            elif j == mcc_export_index or j == mnc_export_index or (pci_export_index is not None and j == pci_export_index):
                 try:
                     row_values.append(str(int(float(val))))
                 except:
@@ -288,7 +291,7 @@ def save_zone_results(
                 val = base_row.get(header_col, "")
                 if pd.isna(val):
                     row_values.append("")
-                elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
+                elif j == mcc_export_index or j == mnc_export_index or (pci_export_index is not None and j == pci_export_index):
                     try:
                         row_values.append(str(int(float(val))))
                     except:
@@ -539,8 +542,20 @@ def add_custom_operators(
         # Ak súbor ešte neexistuje, vytvoríme prázdny zoznam
         output_lines = []
 
-    # Vypočítame expected_columns z počtu stĺpcov v column_names
-    expected_columns = len(column_names)
+    export_header_cols = list(column_names)
+    for raw_line in output_lines:
+        line = raw_line.strip()
+        if not line or ';' not in line:
+            continue
+        header_parts = line.split(';')
+        if len(header_parts) >= 2 and header_parts[-2:] == ["Riadky_v_zone", "Frekvencie_v_zone"]:
+            export_header_cols = header_parts[:-2]
+            while export_header_cols and export_header_cols[-1] == "":
+                export_header_cols.pop()
+            break
+
+    # Vypočítame expected_columns podľa reálnej hlavičky zones súboru (môže obsahovať extra 5G NR)
+    expected_columns = len(export_header_cols)
 
     # Pridáme nové riadky do súboru - prázdne zóny/úseky pre nových operátorov
     new_zones_added = 0
@@ -629,7 +644,8 @@ def add_custom_operators(
                             base_row[pci_col] = pci
 
                         row_values = []
-                        for _, val in enumerate(base_row[column_names]):
+                        for header_col in export_header_cols:
+                            val = base_row.get(header_col, "")
                             if pd.isna(val):
                                 row_values.append("")
                             else:
