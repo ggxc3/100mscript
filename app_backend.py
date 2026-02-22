@@ -267,16 +267,22 @@ def _build_time_ms_series(
     return time_ms, "missing"
 
 
+def _build_time_lookup_for_scores(time_ms_series: np.ndarray, score_series: np.ndarray):
+    order = np.argsort(time_ms_series, kind="mergesort")
+    times_sorted = time_ms_series[order]
+    scores_sorted = score_series[order]
+    yes_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 2, dtype=np.int64)))
+    no_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 1, dtype=np.int64)))
+    return times_sorted, yes_prefix, no_prefix
+
+
 def _build_lte_time_lookup(lte_work: pd.DataFrame):
     lookup = {}
     for group_key, group_df in lte_work.groupby(["_mcc_key", "_mnc_key"], sort=False):
-        times = group_df["_time_ms"].to_numpy(dtype=np.int64)
-        order = np.argsort(times, kind="mergesort")
-        times_sorted = times[order]
-        scores_sorted = group_df["_nr_score"].to_numpy(dtype=np.int8)[order]
-        yes_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 2, dtype=np.int64)))
-        no_prefix = np.concatenate(([0], np.cumsum(scores_sorted == 1, dtype=np.int64)))
-        lookup[group_key] = (times_sorted, yes_prefix, no_prefix)
+        lookup[group_key] = _build_time_lookup_for_scores(
+            group_df["_time_ms"].to_numpy(dtype=np.int64),
+            group_df["_nr_score"].to_numpy(dtype=np.int8),
+        )
     return lookup
 
 
@@ -372,19 +378,26 @@ def _sync_mobile_nr_from_lte(
     lte_work = lte_work.loc[valid_lte_time].copy()
     lte_work["_time_ms"] = np.rint(lte_work["_time_ms"]).astype(np.int64)
 
-    fiveg_candidates = fiveg_work.loc[
-        valid_5g_time & fiveg_work[["_mcc_key", "_mnc_key"]].ne("").all(axis=1)
-    ].copy()
+    fiveg_candidates = fiveg_work.loc[valid_5g_time].copy()
     fiveg_candidates["_time_ms"] = np.rint(fiveg_candidates["_time_ms"]).astype(np.int64)
 
     tolerance = int(max(0, round(float(time_tolerance_ms))))
     lte_time_lookup = _build_lte_time_lookup(lte_work)
+    global_time_lookup = _build_time_lookup_for_scores(
+        lte_work["_time_ms"].to_numpy(dtype=np.int64),
+        lte_work["_nr_score"].to_numpy(dtype=np.int8),
+    )
 
     window_scores = pd.Series(0, index=df_5g.index, dtype="int64")
     matched_rows = 0
     conflicting_windows = 0
+    fallback_time_only_rows = 0
 
-    for group_key, group_df in fiveg_candidates.groupby(["_mcc_key", "_mnc_key"], sort=False):
+    has_group_keys_mask = fiveg_candidates[["_mcc_key", "_mnc_key"]].ne("").all(axis=1)
+    fiveg_grouped = fiveg_candidates.loc[has_group_keys_mask]
+    fiveg_time_only = fiveg_candidates.loc[~has_group_keys_mask]
+
+    for group_key, group_df in fiveg_grouped.groupby(["_mcc_key", "_mnc_key"], sort=False):
         lte_data = lte_time_lookup.get(group_key)
         if lte_data is None:
             continue
@@ -406,6 +419,23 @@ def _sync_mobile_nr_from_lte(
         resolved_scores = np.where(has_match, resolved_scores, 0)
         window_scores.loc[group_df.index] = resolved_scores
 
+    if not fiveg_time_only.empty:
+        lte_times, yes_prefix, no_prefix = global_time_lookup
+        fiveg_times = fiveg_time_only["_time_ms"].to_numpy(dtype=np.int64)
+        left = np.searchsorted(lte_times, fiveg_times - tolerance, side="left")
+        right = np.searchsorted(lte_times, fiveg_times + tolerance, side="right")
+        has_match = right > left
+        if has_match.any():
+            yes_counts = yes_prefix[right] - yes_prefix[left]
+            no_counts = no_prefix[right] - no_prefix[left]
+            conflicting_windows += int(np.sum((yes_counts > 0) & (no_counts > 0)))
+            matched_rows += int(np.sum(has_match))
+            fallback_time_only_rows = int(np.sum(has_match))
+
+            resolved_scores = np.where(yes_counts > 0, 2, np.where(no_counts > 0, 1, 0))
+            resolved_scores = np.where(has_match, resolved_scores, 0)
+            window_scores.loc[fiveg_time_only.index] = resolved_scores
+
     result_df = df_5g.copy()
     result_df[nr_column_name] = np.where(
         window_scores == 2,
@@ -421,6 +451,7 @@ def _sync_mobile_nr_from_lte(
         "rows_blank": int((window_scores == 0).sum()),
         "rows_with_match": int(matched_rows),
         "conflicting_windows": int(conflicting_windows),
+        "fallback_time_only_rows": int(fallback_time_only_rows),
         "window_ms": tolerance,
     }
 
@@ -466,9 +497,19 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
                 f"window={mobile_sync_stats['window_ms']}ms, "
                 f"matched={mobile_sync_stats['rows_with_match']}, "
                 f"yes={mobile_sync_stats['rows_yes']}, "
+                f"time-only-fallback={mobile_sync_stats['fallback_time_only_rows']}, "
                 f"conflicts={mobile_sync_stats['conflicting_windows']})."
             ),
         )
+        if mobile_sync_stats["fallback_time_only_rows"] > 0:
+            fallback_message = (
+                "Upozornenie (Mobile režim): "
+                f"{mobile_sync_stats['fallback_time_only_rows']} riadkov 5G bolo spárovaných iba podľa času "
+                "(bez MCC/MNC), lebo MCC/MNC v 5G dátach chýbali."
+            )
+            _emit(status_callback, fallback_message)
+            if status_callback is None:
+                print(fallback_message)
         if mobile_sync_stats["conflicting_windows"] > 0:
             conflict_message = (
                 "Upozornenie (Mobile režim): "
