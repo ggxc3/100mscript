@@ -50,10 +50,20 @@ jobs:
 
           pkg = Path(pyproj.__file__).resolve().parent
           proj_data = pkg / "proj_dir" / "share" / "proj"
-          lib_candidates = [pkg / ".libs", pkg / ".dylibs", pkg]
-          lib_dir = next((p for p in lib_candidates if p.exists()), None)
-          if lib_dir is None:
-              raise SystemExit("PROJ library directory not found in pyproj package")
+          # pyproj wheel layouts vary by platform/version. On Windows pip wheels
+          # often ship native DLLs in a sibling directory like `pyproj.libs`.
+          lib_candidates = [
+              pkg.parent / "pyproj.libs",
+              pkg / ".libs",
+              pkg / ".dylibs",
+              pkg,
+          ]
+          existing_lib_dirs = [p for p in lib_candidates if p.exists()]
+          if not existing_lib_dirs:
+              raise SystemExit(
+                  "PROJ library directory not found in pyproj package; checked: "
+                  + ", ".join(str(p) for p in lib_candidates)
+              )
 
           target_root = Path("zig_backend/vendor/proj")
           target_lib = target_root / "lib"
@@ -64,15 +74,26 @@ jobs:
           target_data.parent.mkdir(parents=True, exist_ok=True)
 
           copied = 0
-          for child in lib_dir.iterdir():
-              if child.is_file() and child.suffix.lower() == ".dll":
+          seen_names = set()
+          for lib_dir in existing_lib_dirs:
+              for child in lib_dir.rglob("*"):
+                  if not child.is_file():
+                      continue
+                  if child.suffix.lower() != ".dll":
+                      continue
+                  if child.name in seen_names:
+                      continue
                   shutil.copy2(child, target_lib / child.name)
+                  seen_names.add(child.name)
                   copied += 1
           if copied == 0:
-              raise SystemExit(f"No DLLs copied from {lib_dir}")
+              raise SystemExit(
+                  "No DLLs copied from candidates: "
+                  + ", ".join(str(p) for p in existing_lib_dirs)
+              )
 
           shutil.copytree(proj_data, target_data, dirs_exist_ok=True)
-          print("Prepared Windows PROJ assets:", target_root)
+          print("Prepared Windows PROJ assets:", target_root, f"(DLLs copied: {copied})")
           '@ | python -
 
       - name: Zig tests
