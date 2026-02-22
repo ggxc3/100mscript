@@ -41,7 +41,7 @@ def main():
             file_path = input("Zadajte cestu k CSV súboru: ")
 
     mobile_lte_file_path = None
-    mobile_time_tolerance_ms = 100
+    mobile_time_tolerance_ms = 1000
     if mobile_mode_enabled:
         mobile_lte_file_path = ask_for_lte_file_path()
         mobile_time_tolerance_ms = ask_for_mobile_time_tolerance_ms()

@@ -382,7 +382,7 @@ class DesktopApp:
         self._label(card, "Tolerancia času pre Mobile (ms)", kind="muted").grid(
             row=6, column=0, sticky="w", pady=(8, 4)
         )
-        self.mobile_time_tolerance_var = tk.StringVar(value="100")
+        self.mobile_time_tolerance_var = tk.StringVar(value="1000")
         self.mobile_time_tolerance_entry = self._make_entry(card, self.mobile_time_tolerance_var, width=14)
         self.mobile_time_tolerance_entry.grid(row=6, column=1, sticky="w")
 
@@ -708,7 +708,7 @@ class DesktopApp:
 
         mobile_mode_enabled = self.mobile_mode_var.get()
         mobile_lte_file_path = self.mobile_lte_path_var.get().strip()
-        mobile_time_tolerance_ms = 100
+        mobile_time_tolerance_ms = 1000
         if mobile_mode_enabled:
             if not mobile_lte_file_path:
                 raise ValueError("Pre Mobile režim vyber LTE CSV súbor.")

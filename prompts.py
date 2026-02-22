@@ -65,7 +65,7 @@ def ask_for_lte_file_path():
         return lte_file_path
 
 
-def ask_for_mobile_time_tolerance_ms(default_tolerance_ms=100):
+def ask_for_mobile_time_tolerance_ms(default_tolerance_ms=1000):
     """Opýta sa na toleranciu porovnania času pre Mobile režim (v milisekundách)."""
     print("\nMobile režim - tolerancia času:")
     print(f"Predvolená hodnota: {default_tolerance_ms} ms")

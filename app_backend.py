@@ -39,7 +39,7 @@ class ProcessingConfig:
     output_suffix: Optional[str] = None
     mobile_mode_enabled: bool = False
     mobile_lte_file_path: Optional[str] = None
-    mobile_time_tolerance_ms: int = 100
+    mobile_time_tolerance_ms: int = 1000
     mobile_require_nr_yes: bool = True
     mobile_nr_column_name: str = "5G NR"
     progress_enabled: bool = True
@@ -469,6 +469,15 @@ def run_processing(config: ProcessingConfig, status_callback: StatusCallback = N
                 f"conflicts={mobile_sync_stats['conflicting_windows']})."
             ),
         )
+        if mobile_sync_stats["conflicting_windows"] > 0:
+            conflict_message = (
+                "Upozornenie (Mobile režim): "
+                f"nájdených {mobile_sync_stats['conflicting_windows']} časových okien s mixom "
+                "hodnôt 5G NR (yes/no). V takom okne sa uprednostní 'yes'."
+            )
+            _emit(status_callback, conflict_message)
+            if status_callback is None:
+                print(conflict_message)
         if config.mobile_require_nr_yes:
             nr_yes_mask = _normalize_nr_series(df[config.mobile_nr_column_name]).eq("yes")
             if not nr_yes_mask.any():

@@ -55,6 +55,8 @@ def save_zone_results(
 
     # Pridáme nové stĺpce pre zoznam riadkov a frekvencií do hlavičky
     orig_header_cols = header_line.split(';')
+    while orig_header_cols and orig_header_cols[-1] == "":
+        orig_header_cols.pop()
     extra_output_cols = []
     if "5G NR" in column_names and "5G NR" not in orig_header_cols:
         extra_output_cols.append("5G NR")
