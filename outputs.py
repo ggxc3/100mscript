@@ -63,6 +63,7 @@ def save_zone_results(
 
     export_header_cols = orig_header_cols + extra_output_cols
     header_line = ';'.join(export_header_cols) + ";Riadky_v_zone;Frekvencie_v_zone"
+    export_header_to_index = {name: idx for idx, name in enumerate(export_header_cols)}
 
     # Spočítame očakávaný počet stĺpcov
     expected_columns = len(export_header_cols)
@@ -97,6 +98,9 @@ def save_zone_results(
     freq_col = column_names[column_mapping['frequency']]
     lat_col = column_names[column_mapping['latitude']]
     lon_col = column_names[column_mapping['longitude']]
+    lat_index = export_header_to_index.get(lat_col, column_mapping['latitude'])
+    lon_index = export_header_to_index.get(lon_col, column_mapping['longitude'])
+    rsrp_index = export_header_to_index.get(rsrp_col, column_mapping['rsrp'])
 
     # Predpočítame prvý riadok pre každú kombináciu zóna+operátor+frekvencia+PCI
     # (stráca sa O(n^2) filtrovanie v hlavnej slučke)
@@ -188,7 +192,8 @@ def save_zone_results(
 
         # Vytvoríme riadok pre CSV
         row_values = []
-        for j, val in enumerate(base_row[column_names]):
+        for j, header_col in enumerate(export_header_cols):
+            val = base_row.get(header_col, "")
             # Ak je hodnota NaN, nahraďme ju prázdnym reťazcom
             if pd.isna(val):
                 row_values.append("")
@@ -251,11 +256,6 @@ def save_zone_results(
                 operator_first_row[key] = row_index
 
         rsrp_col = column_names[column_mapping['rsrp']]
-        lat_col = column_names[column_mapping['latitude']]
-        lon_col = column_names[column_mapping['longitude']]
-        rsrp_index = column_mapping['rsrp']
-        lat_index = column_mapping['latitude']
-        lon_index = column_mapping['longitude']
 
         operator_row_templates = {}
         for operator_values in unique_operators:
@@ -284,7 +284,8 @@ def save_zone_results(
             base_row[rsrp_col] = "-174"
 
             row_values = []
-            for j, val in enumerate(base_row[column_names]):
+            for j, header_col in enumerate(export_header_cols):
+                val = base_row.get(header_col, "")
                 if pd.isna(val):
                     row_values.append("")
                 elif j == column_mapping['mcc'] or j == column_mapping['mnc'] or (pci_index is not None and j == pci_index):
