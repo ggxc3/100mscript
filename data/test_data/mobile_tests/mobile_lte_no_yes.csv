@@ -1,3 +1,0 @@
-Date;Time;UTC;Latitude;Longitude;Altitude;Speed;Heading;#Sat;EARFCN;Frequency;PCI;MCC;MNC;TAC;CI;eNodeB-ID;cellID;BW;SymPerSlot;Power;SINR;RSRP;RSRQ;4G-Drift;Sigma-4G-Drift;TimeOfArrival;TimeOfArrivalFN;LTE-M;5G NR;eNodeB Tx Ports;SIB2 eMBMS/DSS;MIB dl_Bandwidth(MHz)
-2025-01-01;12:00:00;1000;48.150000;17.150000;100;0;0;8;1;1800;100;231;1;1;1;1;1;1;1;1;1;-80;1;1;1;1;1;1;no;1;1;1
-2025-01-01;12:00:01;1001;48.150010;17.150000;100;0;0;8;1;1800;200;231;2;1;1;1;1;1;1;1;1;-82;1;1;1;1;1;1;;1;1;1

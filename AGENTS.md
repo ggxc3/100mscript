@@ -1,26 +1,27 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Core logic lives in `main.py` with supporting modules (`filters.py`, `processing.py`, `outputs.py`, `io_utils.py`, `prompts.py`). Supporting docs are in `README.md`, `DOKUMENTACIA.md`, and `zony_dokumentacia.txt`.
+- Core logic lives in Go under `internal/backend/`, with Wails desktop integration in `main.go` and `app.go`. Frontend sources are in `frontend/`. Supporting docs are in `README.md`, `DOKUMENTACIA.md`, and `zony_dokumentacia.txt`.
 - Input/output examples are in `data/` (`data/data.csv`, `data/data_zones.csv`, `data/data_stats.csv`).
 - Pre-filters are loaded from `filters/` and `filtre_5G/` (one `.txt` file per operator/filter set).
-- Test fixtures live in `data/test_data/scenarios/`; the legacy test runner is `data/test_data/test_script.sh`.
 
 ## Build, Test, and Development Commands
-- Install dependencies (Python): `pip install -r requirements.txt`.
-- Run locally: `python3 main.py path/to/input.csv` (interactive prompts for column mapping and options).
+- Install frontend dependencies: `cd frontend && npm install`.
+- Run desktop app (dev): `go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 dev`.
+- Build desktop app (Windows target): `go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -platform windows/amd64 -clean`.
+- Compile-check / tests: `go test ./...`.
 - Outputs are written next to the input file as `<input>_zones.csv` and `<input>_stats.csv`.
-- Optional debug: `FILTERS_DEBUG_OUTPUT=1 python3 main.py …` to emit `<input>_filters.csv`; `OUTPUT_SUFFIX=_dev` appends a suffix to output filenames.
+- Optional debug/runtime env vars (if still supported by backend): `FILTERS_DEBUG_OUTPUT=1`, `OUTPUT_SUFFIX=_dev`.
 
 ## Coding Style & Naming Conventions
-- Python uses 4-space indentation, `snake_case` functions/variables, and UPPER_SNAKE_CASE constants.
-- Keep Slovak user prompts consistent with existing strings in `main.py` and `prompts.py`.
+- Go code follows `gofmt`; prefer small focused helpers and explicit error returns.
+- Frontend TypeScript should stay simple and consistent with existing Wails frontend patterns.
+- Keep Slovak user-facing strings consistent across the desktop UI.
 - Prefer explicit helper functions for parsing and filtering logic; avoid hidden side effects.
 
 ## Testing Guidelines
-- Tests are scenario-driven CSVs in `data/test_data/scenarios/` (name files like `test_*.csv`).
-- `data/test_data/test_script.sh` používa `python3 main.py` s predvolenými odpoveďami; upravte vstupy podľa poradia otázok, ak meníte správanie.
-- Validate both `_zones.csv` and `_stats.csv` outputs when changing aggregation or filtering.
+- Run `go test ./...` before commits.
+- Validate both `_zones.csv` and `_stats.csv` outputs when changing aggregation or filtering logic.
 
 ## Commit & Pull Request Guidelines
 - Recent commits use descriptive, sentence-style messages (e.g., “Update data processing…”). Follow that pattern; no strict prefixes observed.

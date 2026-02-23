@@ -1,4 +1,4 @@
-# Dokumentácia CSV Zónového Analyzátora (Python)
+# Dokumentácia CSV Zónového Analyzátora (Go + Wails)
 
 ## Obsah
 1. [Úvod](#úvod)
@@ -12,7 +12,7 @@
 
 ## Úvod
 
-CSV Zónový Analyzátor je Python skript, ktorý spracováva CSV merania mobilného signálu. Merania agreguje do štvorcových zón alebo do presných úsekov po trase s voliteľnou veľkosťou (predvolene 100 m) a vypočíta štatistiky pokrytia podľa operátorov (MCC+MNC).
+CSV Zónový Analyzátor je desktop aplikácia s natívnym Go backendom (Wails frontend), ktorá spracováva CSV merania mobilného signálu. Merania agreguje do štvorcových zón alebo do presných úsekov po trase s voliteľnou veľkosťou (predvolene 100 m) a vypočíta štatistiky pokrytia podľa operátorov (MCC+MNC).
 
 ## Základné koncepty
 

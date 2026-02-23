@@ -5,18 +5,44 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv*/
 venv/
 
 # Tool caches
 .pytest_cache/
 .mypy_cache/
 
-# Build artifacts
-build/
-dist/
-
 # macOS
 .DS_Store
 
-# Local test data
+# IDE
+.vscode/
+
+# Python / packaging outputs
+dist/
+*.egg-info/
+
+# Go
+bin/
+*.test
+coverage.out
+
+# Wails / frontend
+frontend/node_modules/
+frontend/dist/*
+!frontend/dist/gitkeep
+frontend/.vite/
+/wailsjs/
+.wails/
+
+# Wails build outputs (keep build templates/icons tracked)
+build/bin/
+build/*.exe
+
+# Local runtime outputs from manual runs
+*_zones.csv
+*_stats.csv
+*_filters.csv
+
+# Local test/sample datasets (do not version large data folders)
 data/
