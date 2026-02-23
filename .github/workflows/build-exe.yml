@@ -29,7 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v1
         with:
           # Keep CI on a version that setup-zig reliably resolves on Windows.
           # Local development can still use a newer patch version.
