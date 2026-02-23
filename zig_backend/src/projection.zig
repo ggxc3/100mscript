@@ -107,14 +107,11 @@ fn findLibprojInPyprojVenv(allocator: std.mem.Allocator, base_lib_dir: []const u
         var dit = dd.iterate();
         while (try dit.next()) |de| {
             if (de.kind != .file) continue;
-            const is_dll = std.mem.endsWith(u8, de.name, ".dll");
-            const is_proj =
-                std.mem.startsWith(u8, de.name, "libproj") or
-                (is_dll and std.mem.startsWith(u8, de.name, "proj"));
+            const is_proj = std.mem.startsWith(u8, de.name, "libproj");
             const ext_ok =
                 std.mem.endsWith(u8, de.name, ".dylib") or
                 std.mem.endsWith(u8, de.name, ".so") or
-                is_dll;
+                std.mem.endsWith(u8, de.name, ".dll");
             if (!is_proj or !ext_ok) continue;
             return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dylib_dir, de.name });
         }
@@ -128,12 +125,8 @@ fn findLibprojInDir(allocator: std.mem.Allocator, dir_path: []const u8) !?[]u8 {
     var it = d.iterate();
     while (try it.next()) |entry| {
         if (entry.kind != .file) continue;
-        const is_dll = std.mem.endsWith(u8, entry.name, ".dll");
-        const is_proj =
-            std.mem.startsWith(u8, entry.name, "libproj") or
-            (is_dll and std.mem.startsWith(u8, entry.name, "proj"));
-        if (!is_proj) continue;
-        if (!(std.mem.endsWith(u8, entry.name, ".dylib") or std.mem.endsWith(u8, entry.name, ".so") or is_dll)) continue;
+        if (!std.mem.startsWith(u8, entry.name, "libproj")) continue;
+        if (!(std.mem.endsWith(u8, entry.name, ".dylib") or std.mem.endsWith(u8, entry.name, ".so") or std.mem.endsWith(u8, entry.name, ".dll"))) continue;
         return try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
     }
     return null;
@@ -190,7 +183,6 @@ fn detectLibprojPath(allocator: std.mem.Allocator) !?[]u8 {
         "libproj.so",
         "libproj.so.25",
         "proj.dll",
-        "libproj.dll",
     };
     for (loader_candidates) |c| {
         return try allocator.dupe(u8, c);

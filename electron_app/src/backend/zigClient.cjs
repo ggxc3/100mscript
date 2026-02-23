@@ -55,17 +55,6 @@ function maybeRuntimeProjEnv(projectRoot) {
         break;
       }
     }
-    if (process.platform === "win32" && !env.ZIG_PROJ_DYLIB) {
-      try {
-        const files = fs.readdirSync(projLibDir);
-        const versioned = files.find((name) => /^proj.*\.dll$/i.test(name) || /^libproj.*\.dll$/i.test(name));
-        if (versioned) {
-          env.ZIG_PROJ_DYLIB = path.join(projLibDir, versioned);
-        }
-      } catch {
-        // ignore
-      }
-    }
     if (process.platform === "win32") {
       env.PATH = `${projLibDir}${path.delimiter}${process.env.PATH || ""}`;
     } else {
