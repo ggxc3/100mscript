@@ -38,9 +38,6 @@
           ]
         }
       ]
-    },
-    "portable": {
-      "artifactName": "100mscript-portable-${version}-${arch}.${ext}"
     }
   },
   "devDependencies": {

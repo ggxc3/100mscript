@@ -144,8 +144,8 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-portable-exe
-          path: electron_app/release/100mscript-portable-*.exe
+          name: windows-electron-build
+          path: electron_app/release/**
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -155,4 +155,4 @@ jobs:
           body: |
             Windows portable EXE (Electron frontend) + Zig backend runtime bundle.
           files: |
-            electron_app/release/100mscript-portable-*.exe
+            electron_app/release/**/*.exe
