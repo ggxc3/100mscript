@@ -7,7 +7,7 @@ echo "=== Spúšťam testy pre 100mscript ==="
 echo ""
 
 # Cesta k priečinku so scenármi
-SCENARIOS_DIR="./test_data/scenarios"
+SCENARIOS_DIR="./data/test_data/scenarios"
 
 # Zoznam testovacích súborov
 TEST_FILES=(

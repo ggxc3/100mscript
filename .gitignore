@@ -19,5 +19,5 @@ dist/
 .DS_Store
 
 # Local test data
-test_february/
-yes_test/
+data/test_february/
+data/yes_test/

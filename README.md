@@ -85,10 +85,10 @@ Build job beží výhradne na Windows runneri (`windows-2022`).
 
 ## Testovanie
 
-Testovacie scenáre sú v `test_data/scenarios/`. Manuálne spustenie:
+Testovacie scenáre sú v `data/test_data/scenarios/`. Manuálne spustenie:
 
 ```bash
-python3 main.py test_data/scenarios/test_scenarios.csv
+python3 main.py data/test_data/scenarios/test_scenarios.csv
 ```
 
-Súbor `test_data/test_script.sh` používa `python3 main.py` s predvolenými odpoveďami; upravte vstupy podľa poradia otázok, ak meníte správanie.
+Súbor `data/test_data/test_script.sh` používa `python3 main.py` s predvolenými odpoveďami; upravte vstupy podľa poradia otázok, ak meníte správanie.

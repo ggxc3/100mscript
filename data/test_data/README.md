@@ -12,7 +12,7 @@ Tento priečinok obsahuje testovacie scenáre (CSV) pre overenie spracovania zó
 Program je interaktívny, preto je najspoľahlivejšie spúšťať testy manuálne:
 
 ```bash
-python3 main.py test_data/scenarios/test_scenarios.csv
+python3 main.py data/test_data/scenarios/test_scenarios.csv
 ```
 
 Počas behu odpovedajte na otázky (režim zón/úsekov, RSRP/SINR hranica, mapovanie stĺpcov, prípadne filtre).
@@ -22,7 +22,7 @@ Počas behu odpovedajte na otázky (režim zón/úsekov, RSRP/SINR hranica, mapo
 Ak potrebujete neinteraktívny beh, môžete do procesu poslať odpovede cez `printf`/`echo`, napríklad:
 
 ```bash
-printf "n\n1\na\na\na\nn\n" | python3 main.py test_data/scenarios/test_scenarios.csv
+printf "n\n1\na\na\na\nn\n" | python3 main.py data/test_data/scenarios/test_scenarios.csv
 ```
 
 Vzor vyššie je len príklad – počet a poradie otázok závisí od toho, či existujú filtre a či zvolíte generovanie prázdnych zón.
