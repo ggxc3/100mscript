@@ -46,12 +46,12 @@ type ProcessingResult struct {
 
 func DefaultProcessingConfig() ProcessingConfig {
 	return ProcessingConfig{
-		ZoneMode:              "center",
+		ZoneMode:              "segments",
 		ZoneSizeM:             100,
 		RSRPThreshold:         -110,
 		SINRThreshold:         -5,
 		MobileTimeToleranceMS: 1000,
-		MobileRequireNRYES:    true,
+		MobileRequireNRYES:    false,
 		MobileNRColumnName:    "5G NR",
 		ProgressEnabled:       true,
 	}

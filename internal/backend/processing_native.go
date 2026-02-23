@@ -23,6 +23,7 @@ type ProcessedRow struct {
 	MNC              string
 	PCI              string
 	Frequency        string
+	NRValue          string
 	RSRP             float64
 	SINR             float64
 	HasSINR          bool
@@ -46,6 +47,7 @@ type ZoneStat struct {
 	RSRPAvg                float64
 	PocetMerani            int
 	NajcastejsiaFrekvencia string
+	NRValue                string
 	VsetkyFrekvencie       []string
 	OriginalExcelRows      []int
 	SINRAvg                float64
@@ -77,6 +79,11 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	mncIdx := cfg.ColumnMapping["mnc"]
 	rsrpIdx := cfg.ColumnMapping["rsrp"]
 	sinrIdx, hasSINRCol := cfg.ColumnMapping["sinr"]
+	nrCandidates := []string{"5G NR", "5GNR", "NR"}
+	if v := strings.TrimSpace(cfg.MobileNRColumnName); v != "" {
+		nrCandidates = append([]string{v}, nrCandidates...)
+	}
+	nrIdx := data.columnIndexByName(findColumnNameNative(cols, nrCandidates))
 
 	origExcelIdx := indexOf(cols, "original_excel_row")
 
@@ -225,6 +232,7 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 			MNC:              mnc,
 			PCI:              pci,
 			Frequency:        freq,
+			NRValue:          normalizeNRValueNative(cellAt(src.row, nrIdx)),
 			RSRP:             src.rsrp,
 			SINR:             src.sinr,
 			HasSINR:          src.hasSINR,
@@ -265,6 +273,8 @@ func CalculateZoneStatsNative(
 		OriginalRows []int
 		SINRSum      float64
 		SINRCount    int
+		NRYesCount   int
+		NRNoCount    int
 	}
 
 	agg := make(map[aggKey]*aggVal)
@@ -291,6 +301,12 @@ func CalculateZoneStatsNative(
 		v.RSRPSum += r.RSRP
 		v.Count++
 		v.OriginalRows = append(v.OriginalRows, r.OriginalExcelRow)
+		switch r.NRValue {
+		case "yes":
+			v.NRYesCount++
+		case "no":
+			v.NRNoCount++
+		}
 		if r.HasSINR {
 			v.SINRSum += r.SINR
 			v.SINRCount++
@@ -302,6 +318,7 @@ func CalculateZoneStatsNative(
 		RSRPAvg float64
 		Count   int
 		Rows    []int
+		NRValue string
 		SINRAvg float64
 		HasSINR bool
 	}
@@ -313,6 +330,11 @@ func CalculateZoneStatsNative(
 			RSRPAvg: v.RSRPSum / float64(v.Count),
 			Count:   v.Count,
 			Rows:    append([]int(nil), v.OriginalRows...),
+		}
+		if v.NRYesCount > 0 {
+			z.NRValue = "yes"
+		} else if v.NRNoCount > 0 {
+			z.NRValue = "no"
 		}
 		if v.SINRCount > 0 {
 			z.SINRAvg = v.SINRSum / float64(v.SINRCount)
@@ -399,6 +421,7 @@ func CalculateZoneStatsNative(
 			RSRPAvg:                z.RSRPAvg,
 			PocetMerani:            z.Count,
 			NajcastejsiaFrekvencia: z.Key.Freq,
+			NRValue:                z.NRValue,
 			VsetkyFrekvencie:       []string{z.Key.Freq},
 			OriginalExcelRows:      append([]int(nil), z.Rows...),
 			ZonaStredX:             zoneCenters[i].A,

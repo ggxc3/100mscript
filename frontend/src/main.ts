@@ -46,9 +46,9 @@ const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
 ];
 
 const ZONE_MODES = [
+  { value: "segments", label: "Úseky po trase" },
   { value: "center", label: "Štvorcové zóny (stred)" },
   { value: "original", label: "Štvorcové zóny (prvý bod v zóne)" },
-  { value: "segments", label: "Úseky po trase" },
 ];
 
 const state: UIState = {
@@ -71,9 +71,7 @@ app.innerHTML = `
   <main class="desktop-shell">
     <header class="topbar card">
       <div>
-        <p class="eyebrow">100mscript Desktop</p>
-        <h1>CSV spracovanie, filtre a štatistiky</h1>
-        <p class="lede">Natívny Go backend cez Wails. Žiadny Python bridge, žiadna konzolová medzivrstva.</p>
+        <h1>100mscript</h1>
       </div>
       <div class="status-stack">
         <div id="statusChip" class="status-chip idle">READY</div>
@@ -92,7 +90,7 @@ app.innerHTML = `
           <label class="field">
             <span>CSV súbor</span>
             <div class="inline-row">
-              <input id="csvPath" type="text" placeholder="/cesta/k/suboru.csv" />
+              <input id="csvPath" type="text" placeholder="C:\\cesta\\k\\suboru.csv" />
               <button id="pickCsvBtn" class="btn secondary" type="button">Vybrať CSV</button>
               <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
             </div>
@@ -115,25 +113,15 @@ app.innerHTML = `
             <label class="field">
               <span>LTE CSV súbor (iba pre Mobile režim)</span>
               <div class="inline-row">
-                <input id="mobileLtePath" type="text" placeholder="/cesta/k/lte.csv" />
+                <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
                 <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
               </div>
             </label>
 
-            <div class="triple-grid">
-              <label class="field">
-                <span>Tolerancia času (ms)</span>
-                <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
-              </label>
-              <label class="field">
-                <span>Názov NR stĺpca</span>
-                <input id="mobileNrColumnName" type="text" value="5G NR" />
-              </label>
-              <label class="check-row compact-check">
-                <input id="mobileRequireNrYes" type="checkbox" checked />
-                <span>Vyžadovať hodnotu NR = YES</span>
-              </label>
-            </div>
+            <label class="field">
+              <span>Tolerancia času (ms)</span>
+              <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
+            </label>
           </div>
 
           <label class="check-row">
@@ -266,8 +254,6 @@ const mobileFields = qs<HTMLDivElement>("#mobileFields");
 const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
 const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
 const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
-const mobileNrColumnNameInput = qs<HTMLInputElement>("#mobileNrColumnName");
-const mobileRequireNrYesCheckbox = qs<HTMLInputElement>("#mobileRequireNrYes");
 const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
 const addFiltersBtn = qs<HTMLButtonElement>("#addFiltersBtn");
 const removeFilterBtn = qs<HTMLButtonElement>("#removeFilterBtn");
@@ -298,7 +284,7 @@ ZONE_MODES.forEach((mode) => {
   opt.textContent = mode.label;
   zoneModeSelect.appendChild(opt);
 });
-zoneModeSelect.value = "center";
+zoneModeSelect.value = "segments";
 
 function escapeHtml(value: string): string {
   return value
@@ -437,10 +423,6 @@ function updateDependentUI(): void {
   const mobileEnabled = mobileModeCheckbox.checked;
   mobileFields.classList.toggle("disabled-panel", !mobileEnabled);
   mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((el) => {
-    if (el === mobileRequireNrYesCheckbox) {
-      el.disabled = !mobileEnabled;
-      return;
-    }
     el.disabled = !mobileEnabled || state.running;
   });
 
@@ -593,7 +575,7 @@ async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
     file_path: filePath,
     column_mapping,
     keep_original_rows: keepOriginalRowsCheckbox.checked,
-    zone_mode: zoneModeSelect.value || "center",
+    zone_mode: zoneModeSelect.value || "segments",
     zone_size_m,
     rsrp_threshold,
     sinr_threshold,
@@ -605,8 +587,8 @@ async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
     mobile_mode_enabled,
     mobile_lte_file_path: mobile_mode_enabled ? mobile_lte_file_path : "",
     mobile_time_tolerance_ms,
-    mobile_require_nr_yes: mobileRequireNrYesCheckbox.checked,
-    mobile_nr_column_name: mobileNrColumnNameInput.value.trim() || "5G NR",
+    mobile_require_nr_yes: false,
+    mobile_nr_column_name: "5G NR",
     progress_enabled: false,
   } as backend.ProcessingConfig;
 

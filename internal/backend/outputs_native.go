@@ -27,6 +27,7 @@ type zoneExportLayout struct {
 	latCol            string
 	lonCol            string
 	sinrCol           string
+	nrCol             string
 	hasSINRCol        bool
 	nrExportIndex     int
 	mccExportIndex    int
@@ -215,6 +216,9 @@ func SaveZoneResultsNative(
 		baseRowMap[layout.rsrpCol] = fmt.Sprintf("%.2f", zs.RSRPAvg)
 		baseRowMap[layout.freqCol] = zs.NajcastejsiaFrekvencia
 		baseRowMap[layout.pciCol] = zs.PCI
+		if layout.nrCol != "" {
+			baseRowMap[layout.nrCol] = zs.NRValue
+		}
 		if layout.hasSINRCol && zs.HasSINRAvg {
 			baseRowMap[layout.sinrCol] = fmt.Sprintf("%.2f", zs.SINRAvg)
 		}
@@ -272,9 +276,14 @@ func buildZoneExportLayout(ds *ProcessedDataset, cfg ProcessingConfig) zoneExpor
 	for len(origHeaderCols) > 0 && origHeaderCols[len(origHeaderCols)-1] == "" {
 		origHeaderCols = origHeaderCols[:len(origHeaderCols)-1]
 	}
+	nrCandidates := []string{"5G NR", "5GNR", "NR"}
+	if v := strings.TrimSpace(cfg.MobileNRColumnName); v != "" {
+		nrCandidates = append([]string{v}, nrCandidates...)
+	}
+	nrColName := findColumnNameNative(ds.Columns, nrCandidates)
 	extraOutputCols := []string{}
-	if containsString(ds.Columns, "5G NR") && !containsString(origHeaderCols, "5G NR") {
-		extraOutputCols = append(extraOutputCols, "5G NR")
+	if nrColName != "" && !containsString(origHeaderCols, nrColName) {
+		extraOutputCols = append(extraOutputCols, nrColName)
 	}
 	exportHeaderCols := append(append([]string{}, origHeaderCols...), extraOutputCols...)
 	exportHeaderToIdx := make(map[string]int, len(exportHeaderCols))
@@ -294,6 +303,7 @@ func buildZoneExportLayout(ds *ProcessedDataset, cfg ProcessingConfig) zoneExpor
 		mccCol:            colNames[cfg.ColumnMapping["mcc"]],
 		mncCol:            colNames[cfg.ColumnMapping["mnc"]],
 		pciCol:            colNames[cfg.ColumnMapping["pci"]],
+		nrCol:             nrColName,
 		nrExportIndex:     -1,
 		mccExportIndex:    -1,
 		mncExportIndex:    -1,
@@ -303,8 +313,10 @@ func buildZoneExportLayout(ds *ProcessedDataset, cfg ProcessingConfig) zoneExpor
 		layout.sinrCol = colNames[idx]
 		layout.hasSINRCol = true
 	}
-	if idx, ok := exportHeaderToIdx["5G NR"]; ok {
-		layout.nrExportIndex = idx
+	if layout.nrCol != "" {
+		if idx, ok := exportHeaderToIdx[layout.nrCol]; ok {
+			layout.nrExportIndex = idx
+		}
 	}
 	if idx, ok := exportHeaderToIdx[layout.mccCol]; ok {
 		layout.mccExportIndex = idx
@@ -574,6 +586,7 @@ func appendCustomOperatorsNative(
 			RSRPAvg:                -174,
 			PocetMerani:            0,
 			NajcastejsiaFrekvencia: "",
+			NRValue:                "no",
 			VsetkyFrekvencie:       []string{},
 			OriginalExcelRows:      []int{},
 			ZonaStredX:             defaultZonaX,

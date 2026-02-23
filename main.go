@@ -15,7 +15,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "100mscript Desktop",
+		Title:  "100mscript",
 		Width:  1280,
 		Height: 840,
 		MinWidth:  1100,

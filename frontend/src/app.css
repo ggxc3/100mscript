@@ -102,6 +102,17 @@
   padding: 14px;
 }
 
+.section-card > .check-row + .stack,
+.section-card > .stack + .check-row,
+.section-card > .check-row + .filters-panel,
+.section-card > .field + .preview-box,
+.section-card > .preview-box + .check-row,
+.section-card > .quad-grid + .double-grid,
+.section-card > .double-grid + .stack,
+.section-card > .section-note + .mapping-grid {
+  margin-top: 8px;
+}
+
 .sticky-panel {
   position: sticky;
   top: 12px;
