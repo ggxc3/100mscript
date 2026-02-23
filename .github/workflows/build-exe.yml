@@ -131,6 +131,8 @@ jobs:
 
       - name: Build Windows portable EXE
         run: npm --prefix electron_app run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare release version
         id: version

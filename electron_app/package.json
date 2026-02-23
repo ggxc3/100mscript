@@ -11,7 +11,7 @@
     "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/backend/zigClient.cjs && node --check src/backend/uiTools.cjs && node --check src/renderer/app.js && node --check scripts/prepare-runtime.cjs",
     "build:zig": "cd ../zig_backend && zig build",
     "prepare:runtime": "node ./scripts/prepare-runtime.cjs",
-    "dist:win": "npm run build:zig && npm run prepare:runtime && electron-builder --win portable --publish never"
+    "dist:win": "npm run build:zig && npm run prepare:runtime && electron-builder --win portable"
   },
   "build": {
     "appId": "sk.jvysocan.100mscript",
