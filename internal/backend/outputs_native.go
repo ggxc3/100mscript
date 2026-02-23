@@ -76,6 +76,10 @@ func SaveStatsNative(zoneStats []ZoneStat, cfg ProcessingConfig, statsFile strin
 		goodColumn = fmt.Sprintf("RSRP >= %v a SINR >= %v", numberLabel(cfg.RSRPThreshold), numberLabel(cfg.SINRThreshold))
 		badColumn = fmt.Sprintf("RSRP < %v alebo SINR < %v", numberLabel(cfg.RSRPThreshold), numberLabel(cfg.SINRThreshold))
 	}
+	if cfg.MobileModeEnabled {
+		goodColumn += " a 5G NR = yes"
+		badColumn += " alebo 5G NR != yes"
+	}
 
 	type key struct{ MCC, MNC string }
 	type statsBucket struct {
@@ -94,7 +98,7 @@ func SaveStatsNative(zoneStats []ZoneStat, cfg ProcessingConfig, statsFile strin
 			group[k] = b
 			order = append(order, k)
 		}
-		if z.RSRPKategoria == "RSRP_GOOD" {
+		if isZoneStatGoodForStats(z, cfg) {
 			b.good++
 		} else {
 			b.bad++
@@ -141,6 +145,17 @@ func SaveStatsNative(zoneStats []ZoneStat, cfg ProcessingConfig, statsFile strin
 	}
 
 	return os.WriteFile(statsFile, []byte(sb.String()), 0o644)
+}
+
+func isZoneStatGoodForStats(z ZoneStat, cfg ProcessingConfig) bool {
+	good := z.RSRPAvg >= cfg.RSRPThreshold
+	if z.HasSINRAvg {
+		good = good && z.SINRAvg >= cfg.SINRThreshold
+	}
+	if cfg.MobileModeEnabled {
+		good = good && normalizeNRValueNative(z.NRValue) == "yes"
+	}
+	return good
 }
 
 func SaveZoneResultsNative(
