@@ -74,15 +74,13 @@ fn runWorker(gpa: std.mem.Allocator, stdout_io: *std.Io.Writer) !void {
     var stdin_buffer: [4096]u8 = undefined;
     var stdin = std.fs.File.stdin().reader(&stdin_buffer);
     while (true) {
-        const line_raw = stdin.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| {
-                try emitter.err("WORKER_STDIN_READ_FAILED", @errorName(e));
-                return e;
-            },
+        const line_opt = stdin.interface.takeDelimiter('\n') catch |err| {
+            try emitter.err("WORKER_STDIN_READ_FAILED", @errorName(err));
+            return err;
         };
+        if (line_opt == null) break;
 
-        const line = std.mem.trim(u8, line_raw, " \t\r\n");
+        const line = std.mem.trim(u8, line_opt.?, " \t\r\n");
         if (line.len == 0) continue;
 
         var parsed = std.json.parseFromSlice(WorkerCommand, gpa, line, .{}) catch |err| {
