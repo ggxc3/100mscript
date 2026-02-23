@@ -31,9 +31,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Compile-check Go packages
-        run: go test ./...
-
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
@@ -41,6 +38,9 @@ jobs:
       - name: Build frontend
         run: npm run build
         working-directory: frontend
+
+      - name: Compile-check Go packages
+        run: go test ./...
 
       - name: Build Wails desktop app (Windows)
         run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -platform windows/amd64 -clean
