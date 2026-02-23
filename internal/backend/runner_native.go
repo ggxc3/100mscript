@@ -43,12 +43,8 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		if err != nil {
 			return ProcessingResult{}, err
 		}
-		if cfg.MobileRequireNRYES {
-			data, err = filterRowsByNRYesNative(data, cfg.MobileNRColumnName)
-			if err != nil {
-				return ProcessingResult{}, err
-			}
-		}
+		// Legacy flag kept in config for backward compatibility, but the NR=YES-only
+		// filtering is intentionally disabled because it can silently drop operators.
 	}
 
 	transformer, err := NewPyProjTransformer()
