@@ -79,6 +79,14 @@ func resolveColumnName(field string, columns []string, columnMapping map[string]
 			return c
 		}
 	}
+	// 5G CSV exports often expose RF frequency under "SSRef" (Hz) instead of "Frequency".
+	// Auto filter files use "Frequency" ranges in Hz for 5G shared-operator duplication, so
+	// prefer SSRef before falling back to the user-mapped "frequency" column (which may be NR-ARFCN).
+	if fieldLower == "frequency" {
+		if ssref := findColumnNameNative(columns, []string{"SSRef"}); ssref != "" {
+			return ssref
+		}
+	}
 	mappingKey := filterFieldAliases[fieldLower]
 	if mappingKey != "" && columnMapping != nil {
 		if idx, ok := columnMapping[mappingKey]; ok && idx >= 0 && idx < len(columns) {
