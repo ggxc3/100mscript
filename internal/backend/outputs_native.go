@@ -508,7 +508,7 @@ func appendEmptyZonesNative(
 				rowValues[layout.exportHeaderToIdx[layout.rsrpCol]] = "-174"
 			}
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
-				rowValues[layout.nrExportIndex] = "no"
+				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
 			}
 			lines = append(lines, strings.Join(rowValues, ";")+";;"+comment)
 		}
@@ -574,7 +574,7 @@ func appendCustomOperatorsNative(
 			rowMap[layout.pciCol] = op.PCI
 			rowValues := buildExportRowValues(layout, rowMap)
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
-				rowValues[layout.nrExportIndex] = "no"
+				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
 			}
 			comment := " # Prázdna zóna - vlastný operátor"
 			if cfg.ZoneMode == "segments" {
