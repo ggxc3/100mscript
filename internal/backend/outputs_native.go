@@ -349,13 +349,26 @@ func buildExportRowValues(layout zoneExportLayout, baseRowMap map[string]string)
 	rowValues := make([]string, layout.expectedColumns)
 	for i, headerCol := range layout.exportHeaderCols {
 		val := strings.TrimSpace(baseRowMap[headerCol])
-		if i == layout.mccExportIndex || i == layout.mncExportIndex || (layout.pciExportIndex >= 0 && i == layout.pciExportIndex) {
+		if layout.nrExportIndex >= 0 && i == layout.nrExportIndex {
+			rowValues[i] = normalizeNRExportValue(val)
+		} else if i == layout.mccExportIndex || i == layout.mncExportIndex || (layout.pciExportIndex >= 0 && i == layout.pciExportIndex) {
 			rowValues[i] = formatIntLikeString(val)
 		} else {
 			rowValues[i] = val
 		}
 	}
 	return rowValues
+}
+
+func normalizeNRExportValue(val string) string {
+	switch normalizeNRValueNative(val) {
+	case "yes":
+		return "1"
+	case "no":
+		return "0"
+	default:
+		return strings.TrimSpace(val)
+	}
 }
 
 func normalizePandasCoordinateString(s string) string {
