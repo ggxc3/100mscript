@@ -425,19 +425,10 @@ func normalizeOperatorPair(mcc, mnc string) string {
 	return formatIntLikeString(mcc) + "_" + formatIntLikeString(mnc)
 }
 
-func buildAllSegmentZoneKeys(ds *ProcessedDataset, sortedStats []ZoneStat) ([]string, error) {
-	if len(ds.SegmentMeta) > 0 {
-		ids := make([]int, 0, len(ds.SegmentMeta))
-		for id := range ds.SegmentMeta {
-			ids = append(ids, id)
-		}
-		sort.Ints(ids)
-		out := make([]string, len(ids))
-		for i, id := range ids {
-			out[i] = fmt.Sprintf("segment_%d", id)
-		}
-		return out, nil
-	}
+func buildAllSegmentZoneKeys(_ *ProcessedDataset, sortedStats []ZoneStat) ([]string, error) {
+	// Restrict placeholder rows to segments that have at least one real measurement.
+	// Otherwise long no-GPS gaps (for example tunnels) get reintroduced as synthetic
+	// empty segments just because the path can be interpolated between two distant points.
 	out := []string{}
 	seen := map[string]bool{}
 	for _, zs := range sortedStats {
