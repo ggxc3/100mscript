@@ -10,6 +10,7 @@ type ProcessingConfig struct {
 	FilePath              string           `json:"file_path"`
 	ColumnMapping         map[string]int   `json:"column_mapping"`
 	KeepOriginalRows      bool             `json:"keep_original_rows"`
+	SkipRowsWithoutGPS    bool             `json:"skip_rows_without_gps"`
 	ZoneMode              string           `json:"zone_mode"` // center | original | segments
 	ZoneSizeM             float64          `json:"zone_size_m"`
 	RSRPThreshold         float64          `json:"rsrp_threshold"`

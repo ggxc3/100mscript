@@ -20,6 +20,7 @@ export namespace backend {
 	    file_path: string;
 	    column_mapping: Record<string, number>;
 	    keep_original_rows: boolean;
+	    skip_rows_without_gps: boolean;
 	    zone_mode: string;
 	    zone_size_m: number;
 	    rsrp_threshold: number;
@@ -45,6 +46,7 @@ export namespace backend {
 	        this.file_path = source["file_path"];
 	        this.column_mapping = source["column_mapping"];
 	        this.keep_original_rows = source["keep_original_rows"];
+	        this.skip_rows_without_gps = source["skip_rows_without_gps"];
 	        this.zone_mode = source["zone_mode"];
 	        this.zone_size_m = source["zone_size_m"];
 	        this.rsrp_threshold = source["rsrp_threshold"];
@@ -147,4 +149,3 @@ export namespace main {
 	}
 
 }
-

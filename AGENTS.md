@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Core logic lives in Go under `internal/backend/`, with Wails desktop integration in `main.go` and `app.go`. Frontend sources are in `frontend/`. Supporting docs are in `README.md`, `DOKUMENTACIA.md`, and `zony_dokumentacia.txt`.
+- Core logic lives in Go under `internal/backend/`, with Wails desktop integration in `main.go` and `app.go`. Frontend sources are in `frontend/`. Supporting docs are in `README.md` and `docs/TECHNICKA_DOKUMENTACIA_AUDIT_VYPOCTOV.md`.
 - Input/output examples are in `data/` (`data/data.csv`, `data/data_zones.csv`, `data/data_stats.csv`).
 - Pre-filters are loaded from `filters/` and `filtre_5G/` (one `.txt` file per operator/filter set).
 

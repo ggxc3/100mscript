@@ -349,13 +349,26 @@ func buildExportRowValues(layout zoneExportLayout, baseRowMap map[string]string)
 	rowValues := make([]string, layout.expectedColumns)
 	for i, headerCol := range layout.exportHeaderCols {
 		val := strings.TrimSpace(baseRowMap[headerCol])
-		if i == layout.mccExportIndex || i == layout.mncExportIndex || (layout.pciExportIndex >= 0 && i == layout.pciExportIndex) {
+		if layout.nrExportIndex >= 0 && i == layout.nrExportIndex {
+			rowValues[i] = normalizeNRExportValue(val)
+		} else if i == layout.mccExportIndex || i == layout.mncExportIndex || (layout.pciExportIndex >= 0 && i == layout.pciExportIndex) {
 			rowValues[i] = formatIntLikeString(val)
 		} else {
 			rowValues[i] = val
 		}
 	}
 	return rowValues
+}
+
+func normalizeNRExportValue(val string) string {
+	switch normalizeNRValueNative(val) {
+	case "yes":
+		return "1"
+	case "no":
+		return "0"
+	default:
+		return strings.TrimSpace(val)
+	}
 }
 
 func normalizePandasCoordinateString(s string) string {
@@ -426,9 +439,9 @@ func normalizeOperatorPair(mcc, mnc string) string {
 }
 
 func buildAllSegmentZoneKeys(_ *ProcessedDataset, sortedStats []ZoneStat) ([]string, error) {
-	// Restrict placeholder rows to segments that have at least one real measurement.
-	// Otherwise long no-GPS gaps (for example tunnels) get reintroduced as synthetic
-	// empty segments just because the path can be interpolated between two distant points.
+	// Placeholder rows should only be created for segments that have at least one
+	// real measurement. Otherwise long no-GPS gaps are reintroduced as synthetic
+	// empty segments just because the path between two distant points is interpolated.
 	out := []string{}
 	seen := map[string]bool{}
 	for _, zs := range sortedStats {
@@ -486,7 +499,7 @@ func appendEmptyZonesNative(
 				rowValues[layout.exportHeaderToIdx[layout.rsrpCol]] = "-174"
 			}
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
-				rowValues[layout.nrExportIndex] = "no"
+				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
 			}
 			lines = append(lines, strings.Join(rowValues, ";")+";;"+comment)
 		}
@@ -552,7 +565,7 @@ func appendCustomOperatorsNative(
 			rowMap[layout.pciCol] = op.PCI
 			rowValues := buildExportRowValues(layout, rowMap)
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
-				rowValues[layout.nrExportIndex] = "no"
+				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
 			}
 			comment := " # Prázdna zóna - vlastný operátor"
 			if cfg.ZoneMode == "segments" {

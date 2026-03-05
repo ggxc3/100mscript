@@ -40,6 +40,12 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -platform windows/am
 - Filtre sa načítavajú z `filters/` a `filtre_5G/` (`.txt` súbory).
 - Výstupy sa zapisujú vedľa vstupného súboru ako `<input>_zones.csv` a `<input>_stats.csv`.
 
+## Detailná technická dokumentácia
+
+Kompletný audit výpočtov, dátových tokov, vzorcov a manuálneho overovania:
+
+- `docs/TECHNICKA_DOKUMENTACIA_AUDIT_VYPOCTOV.md`
+
 ## Poznámka
 
 Historické Python implementácie, parity testy a migration pomocné skripty boli z repozitára odstránené po dokončení natívneho Go portu.

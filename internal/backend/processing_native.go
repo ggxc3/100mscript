@@ -113,10 +113,16 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		}
 		lat, ok := parseNumberString(cellAt(rowCopy, latIdx))
 		if !ok {
+			if cfg.SkipRowsWithoutGPS {
+				continue
+			}
 			return nil, fmt.Errorf("invalid latitude at row %d", originalExcelRow)
 		}
 		lon, ok := parseNumberString(cellAt(rowCopy, lonIdx))
 		if !ok {
+			if cfg.SkipRowsWithoutGPS {
+				continue
+			}
 			return nil, fmt.Errorf("invalid longitude at row %d", originalExcelRow)
 		}
 
