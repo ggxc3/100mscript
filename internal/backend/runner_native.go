@@ -16,6 +16,12 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("load csv: %w", err)
 	}
+	if cfg.SkipRowsWithoutGPS {
+		data, _, err = filterRowsWithoutGPS(data, cfg.ColumnMapping)
+		if err != nil {
+			return ProcessingResult{}, fmt.Errorf("skip rows without gps: %w", err)
+		}
+	}
 
 	rules, err := loadRulesForConfig(cfg)
 	if err != nil {
@@ -25,6 +31,12 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		data, err = ApplyFiltersCSV(data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
 		if err != nil {
 			return ProcessingResult{}, fmt.Errorf("apply filters: %w", err)
+		}
+		if cfg.SkipRowsWithoutGPS {
+			data, _, err = filterRowsWithoutGPS(data, cfg.ColumnMapping)
+			if err != nil {
+				return ProcessingResult{}, fmt.Errorf("skip rows without gps: %w", err)
+			}
 		}
 	}
 	if cfg.MobileModeEnabled {
@@ -42,6 +54,12 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		)
 		if err != nil {
 			return ProcessingResult{}, err
+		}
+		if cfg.SkipRowsWithoutGPS {
+			data, _, err = filterRowsWithoutGPS(data, cfg.ColumnMapping)
+			if err != nil {
+				return ProcessingResult{}, fmt.Errorf("skip rows without gps: %w", err)
+			}
 		}
 		// Legacy flag kept in config for backward compatibility, but the NR=YES-only
 		// filtering is intentionally disabled because it can silently drop operators.

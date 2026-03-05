@@ -176,6 +176,10 @@ app.innerHTML = `
               <input id="includeEmptyZones" type="checkbox" />
               <span>Generovať prázdne zóny/úseky</span>
             </label>
+            <label class="check-row">
+              <input id="skipRowsWithoutGPS" type="checkbox" />
+              <span>Vynechať zo spracovania tunely (riadky bez GPS súradníc)</span>
+            </label>
           </div>
 
           <div id="customOperatorsPanel" class="stack disabled-panel">
@@ -265,6 +269,7 @@ const rsrpThresholdInput = qs<HTMLInputElement>("#rsrpThreshold");
 const sinrThresholdInput = qs<HTMLInputElement>("#sinrThreshold");
 const keepOriginalRowsCheckbox = qs<HTMLInputElement>("#keepOriginalRows");
 const includeEmptyZonesCheckbox = qs<HTMLInputElement>("#includeEmptyZones");
+const skipRowsWithoutGPSCheckbox = qs<HTMLInputElement>("#skipRowsWithoutGPS");
 const customOperatorsPanel = qs<HTMLDivElement>("#customOperatorsPanel");
 const addCustomOperatorsCheckbox = qs<HTMLInputElement>("#addCustomOperators");
 const customOperatorsTextInput = qs<HTMLInputElement>("#customOperatorsText");
@@ -575,6 +580,7 @@ async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
     file_path: filePath,
     column_mapping,
     keep_original_rows: keepOriginalRowsCheckbox.checked,
+    skip_rows_without_gps: skipRowsWithoutGPSCheckbox.checked,
     zone_mode: zoneModeSelect.value || "segments",
     zone_size_m,
     rsrp_threshold,
@@ -614,7 +620,7 @@ async function runProcessing(): Promise<void> {
 
     const cfg = await buildProcessingConfig();
     appendLog(
-      `Konfigurácia: mode=${cfg.zone_mode}, zone=${cfg.zone_size_m}m, filters=${cfg.filter_paths === undefined ? "auto" : cfg.filter_paths.length}, mobile=${cfg.mobile_mode_enabled}`
+      `Konfigurácia: mode=${cfg.zone_mode}, zone=${cfg.zone_size_m}m, filters=${cfg.filter_paths === undefined ? "auto" : cfg.filter_paths.length}, mobile=${cfg.mobile_mode_enabled}, skipNoGPS=${cfg.skip_rows_without_gps}`
     );
 
     setStatus("Spracovanie prebieha...", "running");

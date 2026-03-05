@@ -92,3 +92,68 @@ func TestRunProcessingExportsNRAsBinaryValues(t *testing.T) {
 		t.Fatalf("zones export still contains textual NR values: %q", content)
 	}
 }
+
+func TestRunProcessingSkipRowsWithoutGPSToggle(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input_missing_gps.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+		";17.120000;3600;20;231;01;-105",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	baseCfg := DefaultProcessingConfig()
+	baseCfg.FilePath = inputPath
+	baseCfg.ZoneMode = "center"
+	baseCfg.ZoneSizeM = 100
+	baseCfg.FilterPaths = []string{}
+	baseCfg.ColumnMapping = map[string]int{
+		"latitude":  0,
+		"longitude": 1,
+		"frequency": 2,
+		"pci":       3,
+		"mcc":       4,
+		"mnc":       5,
+		"rsrp":      6,
+	}
+
+	t.Run("default_false_keeps_previous_behavior", func(t *testing.T) {
+		cfg := baseCfg
+		cfg.SkipRowsWithoutGPS = false
+
+		_, err := RunProcessing(context.Background(), cfg)
+		if err == nil {
+			t.Fatalf("expected error for missing latitude when skip flag is false")
+		}
+		if !strings.Contains(err.Error(), "invalid latitude") {
+			t.Fatalf("expected invalid latitude error, got: %v", err)
+		}
+	})
+
+	t.Run("true_skips_rows_without_gps", func(t *testing.T) {
+		cfg := baseCfg
+		cfg.SkipRowsWithoutGPS = true
+
+		result, err := RunProcessing(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("run processing with skip flag: %v", err)
+		}
+		if result.TotalZoneRows != 1 {
+			t.Fatalf("expected exactly one processed zone row, got %d", result.TotalZoneRows)
+		}
+
+		contentBytes, err := os.ReadFile(result.ZonesFile)
+		if err != nil {
+			t.Fatalf("read zones file: %v", err)
+		}
+		content := string(contentBytes)
+		if strings.Contains(content, ";20;") {
+			t.Fatalf("zones output still contains row without GPS coordinates: %q", content)
+		}
+	})
+}
