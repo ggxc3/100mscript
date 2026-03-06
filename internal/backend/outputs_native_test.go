@@ -205,6 +205,74 @@ func TestRunProcessingSkipRowsWithoutGPSDoesNotGenerateSyntheticGapSegments(t *t
 	}
 }
 
+func TestRunProcessingSkipRowsWithoutGPSAndIncludeEmptyZonesDoesNotReAddTunnelSegments(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input_tunnel_multi_operator.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+		"48.148600;17.107700;3600;20;231;02;-101",
+		";17.110700;3500;10;231;01;-102",
+		";17.110700;3600;20;231;02;-103",
+		"48.148600;17.114700;3500;10;231;01;-104",
+		"48.148600;17.114700;3600;20;231;02;-105",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = inputPath
+	cfg.ZoneMode = "segments"
+	cfg.ZoneSizeM = 100
+	cfg.FilterPaths = []string{}
+	cfg.IncludeEmptyZones = true
+	cfg.SkipRowsWithoutGPS = true
+	cfg.ColumnMapping = map[string]int{
+		"latitude":  0,
+		"longitude": 1,
+		"frequency": 2,
+		"pci":       3,
+		"mcc":       4,
+		"mnc":       5,
+		"rsrp":      6,
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing with skip+empty-zones flags: %v", err)
+	}
+
+	lines := readZoneDataLines(t, result.ZonesFile)
+	if len(lines) != 4 {
+		t.Fatalf("expected only 4 measured rows (2 segments x 2 operators), got %d:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if got := countLinesContaining(lines, "# Prázdny úsek - automaticky vygenerovaný"); got != 0 {
+		t.Fatalf("expected no generated tunnel rows when skip rows without GPS is enabled, got %d:\n%s", got, strings.Join(lines, "\n"))
+	}
+
+	statsBytes, err := os.ReadFile(result.StatsFile)
+	if err != nil {
+		t.Fatalf("read stats file: %v", err)
+	}
+	statsLines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(statsBytes), "\r\n", "\n")), "\n")
+	if len(statsLines) != 3 {
+		t.Fatalf("expected stats header + 2 operator lines, got %d lines:\n%s", len(statsLines), strings.Join(statsLines, "\n"))
+	}
+	for _, line := range statsLines[1:] {
+		parts := strings.Split(line, ";")
+		if len(parts) < 4 {
+			t.Fatalf("unexpected stats line format: %q", line)
+		}
+		bad := strings.TrimSpace(parts[3])
+		if bad != "0" {
+			t.Fatalf("expected 0 bad zones for each operator (no synthetic tunnel zones), got bad=%q in line: %q", bad, line)
+		}
+	}
+}
+
 func TestRunProcessingSegmentsStillGeneratesMissingOperatorsForObservedSegments(t *testing.T) {
 	t.Parallel()
 

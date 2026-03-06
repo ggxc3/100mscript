@@ -210,8 +210,10 @@ func SaveZoneResultsNative(
 	processedZonaOperators := map[string]bool{}
 	uniqueZonesOrdered := make([]string, 0, len(sortedStats))
 	seenZones := map[string]bool{}
+	measuredZoneKeys := make(map[string]bool, len(sortedStats))
 	useZoneCenter := cfg.ZoneMode == "center"
 	for _, zs := range sortedStats {
+		measuredZoneKeys[zs.ZonaKey] = true
 		if !seenZones[zs.ZonaKey] {
 			seenZones[zs.ZonaKey] = true
 			uniqueZonesOrdered = append(uniqueZonesOrdered, zs.ZonaKey)
@@ -261,7 +263,7 @@ func SaveZoneResultsNative(
 				return ZoneExportOutcome{ZoneStats: append([]ZoneStat(nil), zoneStats...)}, err
 			}
 		}
-		lines, processedZonaOperators = appendEmptyZonesNative(ctx, lines, ds, layout, cfg, transformer, allZoneKeys, operatorOrder, operatorTemplateRows, processedZonaOperators)
+		lines, processedZonaOperators = appendEmptyZonesNative(ctx, lines, ds, layout, cfg, transformer, allZoneKeys, measuredZoneKeys, operatorOrder, operatorTemplateRows, processedZonaOperators)
 	}
 
 	finalZoneStats := append([]ZoneStat(nil), zoneStats...)
@@ -461,11 +463,12 @@ func appendEmptyZonesNative(
 	cfg ProcessingConfig,
 	transformer *PyProjTransformer,
 	allZoneKeys []string,
+	measuredZoneKeys map[string]bool,
 	operatorOrder [][2]string,
 	operatorTemplateRows map[string][]string,
 	processedZonaOperators map[string]bool,
 ) ([]string, map[string]bool) {
-	if len(allZoneKeys) == 0 || len(operatorOrder) == 0 {
+	if len(allZoneKeys) == 0 || len(operatorOrder) == 0 || len(measuredZoneKeys) == 0 {
 		return lines, processedZonaOperators
 	}
 
@@ -476,6 +479,12 @@ func appendEmptyZonesNative(
 	}
 
 	for _, zonaKey := range allZoneKeys {
+		if !measuredZoneKeys[zonaKey] {
+			// Include empty zones only for zones where at least one operator has
+			// a real measurement. Synthetic keys (for example from no-GPS gaps)
+			// must never produce generated rows.
+			continue
+		}
 		coords, ok := zoneLatLon[zonaKey]
 		if !ok {
 			continue
