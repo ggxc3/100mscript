@@ -283,8 +283,10 @@ func ApplyFiltersCSV(
 			for i, col := range outputColumns {
 				rowOut[i] = base[col]
 			}
-			if includeOriginalRow {
-				if idx := indexOf(outputColumns, "original_excel_row"); idx >= 0 {
+			if idx := indexOf(outputColumns, "original_excel_row"); idx >= 0 {
+				if existing := strings.TrimSpace(base["original_excel_row"]); existing != "" {
+					rowOut[idx] = existing
+				} else if includeOriginalRow {
 					rowOut[idx] = strconv.Itoa(rowNumber)
 				}
 			}

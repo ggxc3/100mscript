@@ -273,6 +273,104 @@ func TestRunProcessingSkipRowsWithoutGPSAndIncludeEmptyZonesDoesNotReAddTunnelSe
 	}
 }
 
+func TestRunProcessingSkipRowsWithoutGPSRestartsSegmentsAfterGap(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input_gap_coordinates.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+		";;3500;10;231;01;-101",
+		"48.148600;17.114321;3500;10;231;01;-103",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = inputPath
+	cfg.ZoneMode = "segments"
+	cfg.ZoneSizeM = 100
+	cfg.FilterPaths = []string{}
+	cfg.SkipRowsWithoutGPS = true
+	cfg.ColumnMapping = map[string]int{
+		"latitude":  0,
+		"longitude": 1,
+		"frequency": 2,
+		"pci":       3,
+		"mcc":       4,
+		"mnc":       5,
+		"rsrp":      6,
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing with skip flag: %v", err)
+	}
+
+	coords := readZoneCoordinates(t, result.ZonesFile)
+	if len(coords) != 2 {
+		t.Fatalf("expected 2 measured segment rows, got %d", len(coords))
+	}
+	if countCoordinate(coords, "48.148600", "17.107700") != 1 {
+		t.Fatalf("expected one exported point at the first measured coordinate, got: %#v", coords)
+	}
+	if countCoordinate(coords, "48.148600", "17.114321") != 1 {
+		t.Fatalf("expected post-gap point to keep the real measured coordinate instead of an interpolated tunnel point, got: %#v", coords)
+	}
+}
+
+func TestRunProcessingSkipRowsWithoutGPSPreservesGapsAcrossFilters(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input_gap_filters.csv")
+	filterPath := filepath.Join(tmpDir, "duplicate_operator.txt")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+		";;3500;10;231;01;-101",
+		"48.148600;17.114321;3500;10;231;01;-103",
+	}, "\n") + "\n"
+	filterRule := `<Query>("MCC" = 231 AND "MNC" = 1 AND "MNC" = 2);("Frequency" = 3500 AND "MCC" = 231 AND "MNC" = 1)</Query>`
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+	if err := os.WriteFile(filterPath, []byte(filterRule), 0o644); err != nil {
+		t.Fatalf("write filter rule: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = inputPath
+	cfg.ZoneMode = "segments"
+	cfg.ZoneSizeM = 100
+	cfg.FilterPaths = []string{filterPath}
+	cfg.SkipRowsWithoutGPS = true
+	cfg.ColumnMapping = map[string]int{
+		"latitude":  0,
+		"longitude": 1,
+		"frequency": 2,
+		"pci":       3,
+		"mcc":       4,
+		"mnc":       5,
+		"rsrp":      6,
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing with skip flag + filters: %v", err)
+	}
+
+	coords := readZoneCoordinates(t, result.ZonesFile)
+	if len(coords) != 4 {
+		t.Fatalf("expected 4 measured segment rows after duplicating operators, got %d", len(coords))
+	}
+	if countCoordinate(coords, "48.148600", "17.114321") != 2 {
+		t.Fatalf("expected both filtered operator rows after the gap to keep the real measured coordinate, got: %#v", coords)
+	}
+}
+
 func TestRunProcessingSegmentsStillGeneratesMissingOperatorsForObservedSegments(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +438,59 @@ func countLinesContaining(lines []string, needle string) int {
 	count := 0
 	for _, line := range lines {
 		if strings.Contains(line, needle) {
+			count++
+		}
+	}
+	return count
+}
+
+type zoneCoordinate struct {
+	Latitude  string
+	Longitude string
+}
+
+func readZoneCoordinates(t *testing.T, path string) []zoneCoordinate {
+	t.Helper()
+
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read zones file: %v", err)
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(contentBytes), "\r\n", "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("unexpected zones output: %q", string(contentBytes))
+	}
+
+	header := strings.Split(strings.TrimSpace(lines[1]), ";")
+	latIdx := indexOf(header, "latitude")
+	lonIdx := indexOf(header, "longitude")
+	if latIdx < 0 || lonIdx < 0 {
+		t.Fatalf("latitude/longitude columns not found in header: %q", lines[1])
+	}
+
+	coords := []zoneCoordinate{}
+	for _, line := range lines[2:] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ";")
+		if latIdx >= len(parts) || lonIdx >= len(parts) {
+			t.Fatalf("row missing latitude/longitude columns: %q", line)
+		}
+		coords = append(coords, zoneCoordinate{
+			Latitude:  strings.TrimSpace(parts[latIdx]),
+			Longitude: strings.TrimSpace(parts[lonIdx]),
+		})
+	}
+	return coords
+}
+
+func countCoordinate(coords []zoneCoordinate, latitude, longitude string) int {
+	count := 0
+	for _, coord := range coords {
+		if coord.Latitude == latitude && coord.Longitude == longitude {
 			count++
 		}
 	}

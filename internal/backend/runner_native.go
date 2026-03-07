@@ -16,6 +16,10 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("load csv: %w", err)
 	}
+	data, err = ensureOriginalExcelRowColumn(data)
+	if err != nil {
+		return ProcessingResult{}, fmt.Errorf("original excel row: %w", err)
+	}
 	if cfg.SkipRowsWithoutGPS {
 		data, _, err = filterRowsWithoutGPS(data, cfg.ColumnMapping)
 		if err != nil {
