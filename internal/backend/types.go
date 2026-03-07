@@ -10,7 +10,7 @@ type ProcessingConfig struct {
 	FilePath              string           `json:"file_path"`
 	ColumnMapping         map[string]int   `json:"column_mapping"`
 	KeepOriginalRows      bool             `json:"keep_original_rows"`
-	SkipRowsWithoutGPS    bool             `json:"skip_rows_without_gps"`
+	ExcludedOriginalRows  []int            `json:"excluded_original_rows"`
 	ZoneMode              string           `json:"zone_mode"` // center | original | segments
 	ZoneSizeM             float64          `json:"zone_size_m"`
 	RSRPThreshold         float64          `json:"rsrp_threshold"`
@@ -43,6 +43,20 @@ type ProcessingResult struct {
 	RangeYM               *float64 `json:"range_y_m"`
 	TheoreticalTotalZones *float64 `json:"theoretical_total_zones"`
 	CoveragePercent       *float64 `json:"coverage_percent"`
+}
+
+type TimeSelectorRow struct {
+	OriginalRow int   `json:"original_row"`
+	TimestampMS int64 `json:"timestamp_ms"`
+}
+
+type TimeSelectorData struct {
+	Rows      []TimeSelectorRow `json:"rows"`
+	TotalRows int               `json:"total_rows"`
+	TimedRows int               `json:"timed_rows"`
+	MinTimeMS int64             `json:"min_time_ms"`
+	MaxTimeMS int64             `json:"max_time_ms"`
+	Strategy  string            `json:"strategy"`
 }
 
 func DefaultProcessingConfig() ProcessingConfig {

@@ -20,7 +20,7 @@ export namespace backend {
 	    file_path: string;
 	    column_mapping: Record<string, number>;
 	    keep_original_rows: boolean;
-	    skip_rows_without_gps: boolean;
+	    excluded_original_rows: number[];
 	    zone_mode: string;
 	    zone_size_m: number;
 	    rsrp_threshold: number;
@@ -46,7 +46,7 @@ export namespace backend {
 	        this.file_path = source["file_path"];
 	        this.column_mapping = source["column_mapping"];
 	        this.keep_original_rows = source["keep_original_rows"];
-	        this.skip_rows_without_gps = source["skip_rows_without_gps"];
+	        this.excluded_original_rows = source["excluded_original_rows"];
 	        this.zone_mode = source["zone_mode"];
 	        this.zone_size_m = source["zone_size_m"];
 	        this.rsrp_threshold = source["rsrp_threshold"];
@@ -120,6 +120,60 @@ export namespace backend {
 	        this.coverage_percent = source["coverage_percent"];
 	    }
 	}
+	export class TimeSelectorRow {
+	    original_row: number;
+	    timestamp_ms: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimeSelectorRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.original_row = source["original_row"];
+	        this.timestamp_ms = source["timestamp_ms"];
+	    }
+	}
+	export class TimeSelectorData {
+	    rows: TimeSelectorRow[];
+	    total_rows: number;
+	    timed_rows: number;
+	    min_time_ms: number;
+	    max_time_ms: number;
+	    strategy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimeSelectorData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rows = this.convertValues(source["rows"], TimeSelectorRow);
+	        this.total_rows = source["total_rows"];
+	        this.timed_rows = source["timed_rows"];
+	        this.min_time_ms = source["min_time_ms"];
+	        this.max_time_ms = source["max_time_ms"];
+	        this.strategy = source["strategy"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -149,3 +203,4 @@ export namespace main {
 	}
 
 }
+

@@ -10,6 +10,10 @@ export function LoadCSVPreview(arg1) {
   return window['go']['main']['App']['LoadCSVPreview'](arg1);
 }
 
+export function LoadTimeSelectorData(arg1) {
+  return window['go']['main']['App']['LoadTimeSelectorData'](arg1);
+}
+
 export function PickFilterFiles() {
   return window['go']['main']['App']['PickFilterFiles']();
 }

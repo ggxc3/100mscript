@@ -82,6 +82,10 @@ func (a *App) LoadCSVPreview(filePath string) (CSVPreview, error) {
 	}, nil
 }
 
+func (a *App) LoadTimeSelectorData(filePath string) (backendpkg.TimeSelectorData, error) {
+	return backendpkg.LoadTimeSelectorData(filePath)
+}
+
 func (a *App) RunProcessingWithConfig(cfg backendpkg.ProcessingConfig) (backendpkg.ProcessingResult, error) {
 	if cfg.ProgressEnabled {
 		// Wails UI requests should not emit console progress bars.

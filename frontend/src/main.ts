@@ -4,6 +4,7 @@ import "./app.css";
 import {
   DiscoverAutoFilterPaths,
   LoadCSVPreview,
+  LoadTimeSelectorData,
   PickFilterFiles,
   PickInputCSVFile,
   PickMobileLTECSVFile,
@@ -22,6 +23,28 @@ type ColumnKey =
   | "sinr";
 
 type Tone = "idle" | "running" | "success" | "error";
+type DropdownField = "startDate" | "startTime" | "endDate" | "endTime";
+
+type TimeValueOption = {
+  timeLabel: string;
+  timestampMS: number;
+};
+
+type TimeDateOption = {
+  dateLabel: string;
+  times: TimeValueOption[];
+};
+
+type TimeWindowDraft = {
+  id: string;
+  startDateInput: string;
+  startTimeInput: string;
+  endDateInput: string;
+  endTimeInput: string;
+  startTimestampMS: number | null;
+  endTimestampMS: number | null;
+  excludedRows: number;
+};
 
 type UIState = {
   preview: main.CSVPreview | null;
@@ -32,6 +55,13 @@ type UIState = {
   statusTone: Tone;
   logs: string[];
   result: backend.ProcessingResult | null;
+  excludedOriginalRows: number[];
+  timeSelectorData: backend.TimeSelectorData | null;
+  timeDateOptions: TimeDateOption[];
+  timeWindows: TimeWindowDraft[];
+  timeSelectorLoading: boolean;
+  timeSelectorError: string;
+  activeDropdown: { windowId: string; field: DropdownField; query: string } | null;
 };
 
 const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
@@ -51,194 +81,1003 @@ const ZONE_MODES = [
   { value: "original", label: "Štvorcové zóny (prvý bod v zóne)" },
 ];
 
-const state: UIState = {
-  preview: null,
-  columnMapping: {},
-  customFilterPaths: [],
-  running: false,
-  statusText: "Pripravené",
-  statusTone: "idle",
-  logs: [],
-  result: null,
-};
-
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) {
   throw new Error("App root not found");
 }
 
-app.innerHTML = `
-  <main class="desktop-shell">
-    <header class="topbar card">
-      <div>
-        <h1>100mscript</h1>
-      </div>
-      <div class="status-stack">
-        <div id="statusChip" class="status-chip idle">READY</div>
-        <div id="statusText" class="status-text">Pripravené</div>
-      </div>
-    </header>
+mountMainView(app);
 
-    <section class="content-grid">
-      <section class="left-column">
-        <article class="card section-card">
-          <div class="section-head">
-            <h2>Vstupné dáta</h2>
-            <span class="tag">CSV</span>
-          </div>
+function mountMainView(root: HTMLDivElement): void {
+  const state: UIState = {
+    preview: null,
+    columnMapping: {},
+    customFilterPaths: [],
+    running: false,
+    statusText: "Pripravené",
+    statusTone: "idle",
+    logs: [],
+    result: null,
+    excludedOriginalRows: [],
+    timeSelectorData: null,
+    timeDateOptions: [],
+    timeWindows: [],
+    timeSelectorLoading: false,
+    timeSelectorError: "",
+    activeDropdown: null,
+  };
 
-          <label class="field">
-            <span>CSV súbor</span>
-            <div class="inline-row">
-              <input id="csvPath" type="text" placeholder="C:\\cesta\\k\\suboru.csv" />
-              <button id="pickCsvBtn" class="btn secondary" type="button">Vybrať CSV</button>
-              <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
+  root.innerHTML = `
+    <main class="desktop-shell">
+      <header class="topbar card">
+        <div>
+          <h1>100mscript</h1>
+          <p class="lede">Spracovanie meraní, export zón a jednoduché vylúčenie časových úsekov priamo v light-mode rozhraní.</p>
+        </div>
+        <div class="status-stack">
+          <div id="statusChip" class="status-chip idle">READY</div>
+          <div id="statusText" class="status-text">Pripravené</div>
+        </div>
+      </header>
+
+      <section class="content-grid">
+        <section class="left-column">
+          <article class="card section-card">
+            <div class="section-head">
+              <h2>Vstupné dáta</h2>
+              <span class="tag">CSV</span>
             </div>
-          </label>
 
-          <div class="preview-box">
-            <div class="preview-head">
-              <strong>Auto-detekcia stĺpcov</strong>
-              <span id="previewMeta" class="muted">Čaká na súbor</span>
-            </div>
-            <div id="previewColumns" class="columns-list muted">Zatiaľ nenačítané.</div>
-          </div>
-
-          <label class="check-row">
-            <input id="mobileMode" type="checkbox" />
-            <span>Mobile režim (synchronizácia 5G NR cez LTE súbor)</span>
-          </label>
-
-          <div id="mobileFields" class="stack disabled-panel">
             <label class="field">
-              <span>LTE CSV súbor (iba pre Mobile režim)</span>
+              <span>CSV súbor</span>
               <div class="inline-row">
-                <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
-                <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
+                <input id="csvPath" type="text" placeholder="C:\\cesta\\k\\suboru.csv" />
+                <button id="pickCsvBtn" class="btn secondary" type="button">Vybrať CSV</button>
+                <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
               </div>
             </label>
 
-            <label class="field">
-              <span>Tolerancia času (ms)</span>
-              <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
+            <div class="preview-box">
+              <div class="preview-head">
+                <strong>Auto-detekcia stĺpcov</strong>
+                <span id="previewMeta" class="muted">Čaká na súbor</span>
+              </div>
+              <div id="previewColumns" class="columns-list muted">Zatiaľ nenačítané.</div>
+            </div>
+
+            <label class="check-row">
+              <input id="mobileMode" type="checkbox" />
+              <span>Mobile režim (synchronizácia 5G NR cez LTE súbor)</span>
             </label>
-          </div>
 
-          <label class="check-row">
-            <input id="useAutoFilters" type="checkbox" checked />
-            <span>Použiť automatické filtre z priečinkov <code>filters/</code> a <code>filtre_5G/</code></span>
-          </label>
+            <div id="mobileFields" class="stack disabled-panel">
+              <label class="field">
+                <span>LTE CSV súbor (iba pre Mobile režim)</span>
+                <div class="inline-row">
+                  <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
+                  <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
+                </div>
+              </label>
 
-          <div class="filters-panel">
-            <div class="filters-head">
-              <strong>Dodatočné filtre (.txt)</strong>
-              <div class="inline-actions">
-                <button id="addFiltersBtn" class="btn secondary" type="button">Pridať</button>
-                <button id="removeFilterBtn" class="btn danger" type="button">Odstrániť</button>
-                <button id="clearFiltersBtn" class="btn ghost" type="button">Vyčistiť</button>
+              <label class="field">
+                <span>Tolerancia času (ms)</span>
+                <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
+              </label>
+            </div>
+
+            <label class="check-row">
+              <input id="useAutoFilters" type="checkbox" checked />
+              <span>Použiť automatické filtre z priečinkov <code>filters/</code> a <code>filtre_5G/</code></span>
+            </label>
+
+            <div class="filters-panel">
+              <div class="filters-head">
+                <strong>Dodatočné filtre (.txt)</strong>
+                <div class="inline-actions">
+                  <button id="addFiltersBtn" class="btn secondary" type="button">Pridať</button>
+                  <button id="removeFilterBtn" class="btn danger" type="button">Odstrániť</button>
+                  <button id="clearFiltersBtn" class="btn ghost" type="button">Vyčistiť</button>
+                </div>
+              </div>
+              <select id="filtersList" class="listbox" multiple size="5"></select>
+            </div>
+          </article>
+
+          <article class="card section-card">
+            <div class="section-head">
+              <h2>Nastavenia spracovania</h2>
+              <span class="tag">Backend</span>
+            </div>
+
+            <div class="quad-grid">
+              <label class="field">
+                <span>Režim</span>
+                <select id="zoneMode"></select>
+              </label>
+              <label class="field">
+                <span>Veľkosť zóny/úseku (m)</span>
+                <input id="zoneSize" type="number" min="0.1" step="0.1" value="100" />
+              </label>
+              <label class="field">
+                <span>RSRP hranica</span>
+                <input id="rsrpThreshold" type="number" step="0.1" value="-110" />
+              </label>
+              <label class="field">
+                <span>SINR hranica</span>
+                <input id="sinrThreshold" type="number" step="0.1" value="-5" />
+              </label>
+            </div>
+
+            <div class="double-grid checks-grid">
+              <label class="check-row">
+                <input id="keepOriginalRows" type="checkbox" />
+                <span>Pri filtroch ponechať aj originálny riadok</span>
+              </label>
+              <label class="check-row">
+                <input id="includeEmptyZones" type="checkbox" />
+                <span>Generovať prázdne zóny/úseky</span>
+              </label>
+            </div>
+
+            <div id="customOperatorsPanel" class="stack disabled-panel">
+              <label class="check-row">
+                <input id="addCustomOperators" type="checkbox" />
+                <span>Pridať vlastných operátorov</span>
+              </label>
+              <label class="field">
+                <span>Vlastní operátori</span>
+                <input id="customOperatorsText" type="text" placeholder="231:01 231:02:10" />
+                <small>Formát: <code>MCC:MNC</code> alebo <code>MCC:MNC:PCI</code>, viac hodnôt oddeľ medzerou.</small>
+              </label>
+            </div>
+          </article>
+
+          <article class="card section-card time-window-card">
+            <div class="section-head">
+              <h2>Časové Úseky</h2>
+            </div>
+            <p class="section-note">
+              Vyber časové okná, ktoré sa majú vylúčiť zo spracovania. Počet vylúčených bodov sa prepočíta pri každej zmene.
+            </p>
+            <div id="timeSelectorInfo" class="time-selector-info muted">Najprv načítaj CSV.</div>
+            <div id="timeSelectorSummary" class="time-selector-summary">
+              <div><span>Časové riadky</span><strong>0</strong></div>
+              <div><span>Aktívne okná</span><strong>0</strong></div>
+              <div><span>Vylúčené body</span><strong>0</strong></div>
+              <div><span>Pokrytie</span><strong>0 %</strong></div>
+            </div>
+            <div class="inline-actions time-window-actions">
+              <button id="addTimeWindowBtn" class="btn primary" type="button">Pridať časové okno</button>
+              <button id="clearTimeWindowsBtn" class="btn ghost" type="button">Vymazať všetky</button>
+            </div>
+            <div id="timeWindowList" class="time-window-list">
+              <div class="time-window-empty muted">Zatiaľ nie je definované žiadne časové okno.</div>
+            </div>
+          </article>
+
+          <article class="card section-card">
+            <div class="section-head">
+              <h2>Mapovanie stĺpcov</h2>
+              <span class="tag">Auto</span>
+            </div>
+            <p class="section-note">Po načítaní CSV sa ponúknu stĺpce a predvyplní sa detekované mapovanie.</p>
+            <div id="mappingGrid" class="mapping-grid"></div>
+          </article>
+        </section>
+
+        <section class="right-column">
+          <article class="card section-card sticky-panel">
+            <div class="section-head">
+              <h2>Spustenie a priebeh</h2>
+              <span id="runStateBadge" class="tag muted-tag">idle</span>
+            </div>
+
+            <div class="run-actions">
+              <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
+              <button id="clearLogBtn" class="btn ghost" type="button">Vyčistiť log</button>
+            </div>
+
+            <div id="progressBar" class="progress-bar" aria-hidden="true">
+              <div class="progress-fill"></div>
+            </div>
+
+            <div class="result-box">
+              <div class="preview-head">
+                <strong>Výsledok</strong>
+              </div>
+              <div id="resultContent" class="result-grid muted">Zatiaľ nebolo spustené spracovanie.</div>
+            </div>
+
+            <div class="log-box">
+              <div class="log-head">
+                <strong>Log</strong>
+              </div>
+              <pre id="logOutput" class="log-output">Pripravené.</pre>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+  `;
+
+  const csvPathInput = qs<HTMLInputElement>("#csvPath");
+  const pickCsvBtn = qs<HTMLButtonElement>("#pickCsvBtn");
+  const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
+  const previewMeta = qs<HTMLSpanElement>("#previewMeta");
+  const previewColumns = qs<HTMLDivElement>("#previewColumns");
+  const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
+  const mobileFields = qs<HTMLDivElement>("#mobileFields");
+  const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
+  const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
+  const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
+  const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
+  const addFiltersBtn = qs<HTMLButtonElement>("#addFiltersBtn");
+  const removeFilterBtn = qs<HTMLButtonElement>("#removeFilterBtn");
+  const clearFiltersBtn = qs<HTMLButtonElement>("#clearFiltersBtn");
+  const filtersList = qs<HTMLSelectElement>("#filtersList");
+  const zoneModeSelect = qs<HTMLSelectElement>("#zoneMode");
+  const zoneSizeInput = qs<HTMLInputElement>("#zoneSize");
+  const rsrpThresholdInput = qs<HTMLInputElement>("#rsrpThreshold");
+  const sinrThresholdInput = qs<HTMLInputElement>("#sinrThreshold");
+  const keepOriginalRowsCheckbox = qs<HTMLInputElement>("#keepOriginalRows");
+  const includeEmptyZonesCheckbox = qs<HTMLInputElement>("#includeEmptyZones");
+  const customOperatorsPanel = qs<HTMLDivElement>("#customOperatorsPanel");
+  const addCustomOperatorsCheckbox = qs<HTMLInputElement>("#addCustomOperators");
+  const customOperatorsTextInput = qs<HTMLInputElement>("#customOperatorsText");
+  const timeSelectorInfo = qs<HTMLDivElement>("#timeSelectorInfo");
+  const timeSelectorSummary = qs<HTMLDivElement>("#timeSelectorSummary");
+  const addTimeWindowBtn = qs<HTMLButtonElement>("#addTimeWindowBtn");
+  const clearTimeWindowsBtn = qs<HTMLButtonElement>("#clearTimeWindowsBtn");
+  const timeWindowList = qs<HTMLDivElement>("#timeWindowList");
+  const mappingGrid = qs<HTMLDivElement>("#mappingGrid");
+  const runBtn = qs<HTMLButtonElement>("#runBtn");
+  const clearLogBtn = qs<HTMLButtonElement>("#clearLogBtn");
+  const progressBar = qs<HTMLDivElement>("#progressBar");
+  const resultContent = qs<HTMLDivElement>("#resultContent");
+  const logOutput = qs<HTMLPreElement>("#logOutput");
+  const statusChip = qs<HTMLDivElement>("#statusChip");
+  const statusText = qs<HTMLDivElement>("#statusText");
+  const runStateBadge = qs<HTMLSpanElement>("#runStateBadge");
+
+  ZONE_MODES.forEach((mode) => {
+    const opt = document.createElement("option");
+    opt.value = mode.value;
+    opt.textContent = mode.label;
+    zoneModeSelect.appendChild(opt);
+  });
+  zoneModeSelect.value = "segments";
+
+  function appendLog(message: string): void {
+    state.logs.push(`[${timestamp()}] ${message}`);
+    if (state.logs.length > 250) {
+      state.logs = state.logs.slice(-250);
+    }
+    logOutput.textContent = state.logs.join("\n");
+    logOutput.scrollTop = logOutput.scrollHeight;
+  }
+
+  function setStatus(text: string, tone: Tone): void {
+    state.statusText = text;
+    state.statusTone = tone;
+    statusText.textContent = text;
+    statusChip.className = `status-chip ${tone}`;
+    statusChip.textContent =
+      tone === "running" ? "RUNNING" : tone === "success" ? "DONE" : tone === "error" ? "ERROR" : "READY";
+    runStateBadge.className = `tag ${tone === "idle" ? "muted-tag" : `${tone}-tag`}`;
+    runStateBadge.textContent = tone;
+  }
+
+  function setRunning(running: boolean): void {
+    state.running = running;
+    runBtn.disabled = running;
+    pickCsvBtn.disabled = running;
+    loadPreviewBtn.disabled = running;
+    pickMobileLteBtn.disabled = running || !mobileModeCheckbox.checked;
+    addFiltersBtn.disabled = running;
+    removeFilterBtn.disabled = running;
+    clearFiltersBtn.disabled = running;
+    addTimeWindowBtn.disabled = running || state.timeSelectorLoading || !state.timeSelectorData;
+    clearTimeWindowsBtn.disabled = running || state.timeWindows.length === 0;
+    progressBar.classList.toggle("is-running", running);
+  }
+
+  function renderPreview(): void {
+    if (!state.preview) {
+      previewMeta.textContent = "Čaká na súbor";
+      previewColumns.innerHTML = `<span class="muted">Zatiaľ nenačítané.</span>`;
+      return;
+    }
+    const preview = state.preview;
+    previewMeta.textContent = `Encoding: ${preview.encoding} | Hlavička: riadok ${preview.headerLine + 1}`;
+    previewColumns.innerHTML = preview.columns
+      .map((col, idx) => `<span class="col-pill">${idx}: ${escapeHtml(col)}</span>`)
+      .join("");
+  }
+
+  function renderFilterList(): void {
+    filtersList.innerHTML = "";
+    for (const path of state.customFilterPaths) {
+      const opt = document.createElement("option");
+      opt.value = path;
+      opt.textContent = path;
+      filtersList.appendChild(opt);
+    }
+  }
+
+  function renderResult(): void {
+    if (!state.result) {
+      resultContent.innerHTML = "Zatiaľ nebolo spustené spracovanie.";
+      resultContent.classList.add("muted");
+      return;
+    }
+    const result = state.result;
+    resultContent.classList.remove("muted");
+    resultContent.innerHTML = `
+      <div><span>Zóny CSV</span><strong>${escapeHtml(result.zones_file ?? "")}</strong></div>
+      <div><span>Štatistiky CSV</span><strong>${escapeHtml(result.stats_file ?? "")}</strong></div>
+      <div><span>Unikátne zóny</span><strong>${String(result.unique_zones ?? 0)}</strong></div>
+      <div><span>Unikátni operátori</span><strong>${String(result.unique_operators ?? 0)}</strong></div>
+      <div><span>Riadky zón</span><strong>${String(result.total_zone_rows ?? 0)}</strong></div>
+      <div><span>Vylúčené riadky</span><strong>${String(state.excludedOriginalRows.length)}</strong></div>
+      <div><span>Pokrytie</span><strong>${formatPercent(result.coverage_percent)}</strong></div>
+    `;
+  }
+
+  function recomputeTimeWindowSelection(): void {
+    const timedRows = state.timeSelectorData?.rows ?? [];
+    if (!state.timeSelectorData) {
+      state.excludedOriginalRows = [];
+      state.timeWindows = state.timeWindows.map((window) => ({ ...window, excludedRows: 0 }));
+      return;
+    }
+
+    const excludedRows = new Set<number>();
+    state.timeWindows = state.timeWindows.map((window) => {
+      const startMS = window.startTimestampMS;
+      const endMS = window.endTimestampMS;
+      let matchingRows = 0;
+
+      if (startMS !== null && endMS !== null && startMS <= endMS) {
+        for (const row of timedRows) {
+          if (row.timestamp_ms >= startMS && row.timestamp_ms <= endMS) {
+            matchingRows++;
+            excludedRows.add(row.original_row);
+          }
+        }
+      }
+
+      return {
+        ...window,
+        excludedRows: matchingRows,
+      };
+    });
+
+    state.excludedOriginalRows = sortUniqueNumbers(Array.from(excludedRows));
+  }
+
+  function renderTimeSelector(): void {
+    const data = state.timeSelectorData;
+    const timedRows = data?.timed_rows ?? 0;
+    const totalRows = data?.total_rows ?? 0;
+    const activeWindows = state.timeWindows.filter((window) => isCompleteTimeWindow(window)).length;
+    const excludedRows = state.excludedOriginalRows.length;
+    const coveredPercent = timedRows > 0 ? ((excludedRows / timedRows) * 100).toFixed(1) : "0.0";
+
+    timeSelectorSummary.innerHTML = `
+      <div><span>Časové riadky</span><strong>${String(timedRows)}</strong></div>
+      <div><span>Aktívne okná</span><strong>${String(activeWindows)}</strong></div>
+      <div><span>Vylúčené body</span><strong>${String(excludedRows)}</strong></div>
+      <div><span>Pokrytie</span><strong>${coveredPercent} %</strong></div>
+    `;
+
+    if (!state.preview) {
+      timeSelectorInfo.className = "time-selector-info muted";
+      timeSelectorInfo.textContent = "Najprv načítaj CSV.";
+    } else if (state.timeSelectorLoading) {
+      timeSelectorInfo.className = "time-selector-info muted";
+      timeSelectorInfo.textContent = "Načítavam časové údaje zo súboru...";
+    } else if (state.timeSelectorError) {
+      timeSelectorInfo.className = "time-selector-info warning";
+      timeSelectorInfo.textContent = state.timeSelectorError;
+    } else if (data) {
+      timeSelectorInfo.className = "time-selector-info";
+      timeSelectorInfo.textContent =
+        `${formatDateTimeLabel(data.min_time_ms)} – ${formatDateTimeLabel(data.max_time_ms)} ` +
+        `• ${timedRows}/${totalRows} riadkov s časom • zdroj: ${labelForTimeStrategy(data.strategy)}`;
+    } else {
+      timeSelectorInfo.className = "time-selector-info muted";
+      timeSelectorInfo.textContent = "Časové údaje zatiaľ nie sú načítané.";
+    }
+
+    addTimeWindowBtn.disabled = state.running || state.timeSelectorLoading || !data;
+    clearTimeWindowsBtn.disabled = state.running || state.timeWindows.length === 0;
+
+    if (!data) {
+      const message = state.timeSelectorError || "Časový selector bude dostupný po načítaní CSV.";
+      timeWindowList.innerHTML = `<div class="time-window-empty muted">${escapeHtml(message)}</div>`;
+      return;
+    }
+
+    if (state.timeWindows.length === 0) {
+      timeWindowList.innerHTML = `<div class="time-window-empty muted">Zatiaľ nie je definované žiadne časové okno. Klikni na „Pridať časové okno“.</div>`;
+      return;
+    }
+
+    timeWindowList.innerHTML = state.timeWindows
+      .map((window, index) => {
+        const statusText = describeTimeWindow(window);
+        const countTone = window.excludedRows > 0 ? "count-active" : "count-idle";
+        const startDateDropdown = renderDropdownField({
+          window,
+          field: "startDate",
+          label: "Dátum",
+          value: window.startDateInput,
+          placeholder: "Vyber dátum",
+          options: filterDropdownOptions(
+            state.timeDateOptions.map((option) => option.dateLabel),
+            state.activeDropdown?.windowId === window.id && state.activeDropdown.field === "startDate"
+              ? state.activeDropdown.query
+              : ""
+          ),
+          state,
+        });
+        const startTimeDropdown = renderDropdownField({
+          window,
+          field: "startTime",
+          label: "Čas",
+          value: window.startTimeInput,
+          placeholder: "Vyber čas",
+          options: filterDropdownOptions(
+            getTimeOptionsForDate(state.timeDateOptions, window.startDateInput).map((option) => option.timeLabel),
+            state.activeDropdown?.windowId === window.id && state.activeDropdown.field === "startTime"
+              ? state.activeDropdown.query
+              : ""
+          ),
+          state,
+          disabled: !window.startDateInput,
+        });
+        const endDateDropdown = renderDropdownField({
+          window,
+          field: "endDate",
+          label: "Dátum",
+          value: window.endDateInput,
+          placeholder: "Vyber dátum",
+          options: filterDropdownOptions(
+            state.timeDateOptions.map((option) => option.dateLabel),
+            state.activeDropdown?.windowId === window.id && state.activeDropdown.field === "endDate"
+              ? state.activeDropdown.query
+              : ""
+          ),
+          state,
+        });
+        const endTimeDropdown = renderDropdownField({
+          window,
+          field: "endTime",
+          label: "Čas",
+          value: window.endTimeInput,
+          placeholder: "Vyber čas",
+          options: filterDropdownOptions(
+            getTimeOptionsForDate(state.timeDateOptions, window.endDateInput).map((option) => option.timeLabel),
+            state.activeDropdown?.windowId === window.id && state.activeDropdown.field === "endTime"
+              ? state.activeDropdown.query
+              : ""
+          ),
+          state,
+          disabled: !window.endDateInput,
+        });
+        return `
+          <section class="time-window-item">
+            <div class="time-window-item-head">
+              <div>
+                <strong>Okno ${index + 1}</strong>
+                <div class="time-window-status">${escapeHtml(statusText)}</div>
+              </div>
+              <span class="time-window-count ${countTone}">${String(window.excludedRows)} bodov</span>
+            </div>
+            <div class="time-window-fields">
+              <div class="time-window-column">
+                <div class="time-window-column-title">Od</div>
+                <div class="time-window-subfields">
+                  ${startDateDropdown}
+                  ${startTimeDropdown}
+                </div>
+                <small class="time-window-hint">Najprv vyber dátum, potom čas.</small>
+              </div>
+              <div class="time-window-column">
+                <div class="time-window-column-title">Do</div>
+                <div class="time-window-subfields">
+                  ${endDateDropdown}
+                  ${endTimeDropdown}
+                </div>
+                <small class="time-window-hint">Dropdown času sa filtruje podľa dátumu.</small>
               </div>
             </div>
-            <select id="filtersList" class="listbox" multiple size="5"></select>
-          </div>
-        </article>
-
-        <article class="card section-card">
-          <div class="section-head">
-            <h2>Nastavenia spracovania</h2>
-            <span class="tag">Backend</span>
-          </div>
-
-          <div class="quad-grid">
-            <label class="field">
-              <span>Režim</span>
-              <select id="zoneMode"></select>
-            </label>
-            <label class="field">
-              <span>Veľkosť zóny/úseku (m)</span>
-              <input id="zoneSize" type="number" min="0.1" step="0.1" value="100" />
-            </label>
-            <label class="field">
-              <span>RSRP hranica</span>
-              <input id="rsrpThreshold" type="number" step="0.1" value="-110" />
-            </label>
-            <label class="field">
-              <span>SINR hranica</span>
-              <input id="sinrThreshold" type="number" step="0.1" value="-5" />
-            </label>
-          </div>
-
-          <div class="double-grid checks-grid">
-            <label class="check-row">
-              <input id="keepOriginalRows" type="checkbox" />
-              <span>Pri filtroch ponechať aj originálny riadok</span>
-            </label>
-            <label class="check-row">
-              <input id="includeEmptyZones" type="checkbox" />
-              <span>Generovať prázdne zóny/úseky</span>
-            </label>
-            <label class="check-row">
-              <input id="skipRowsWithoutGPS" type="checkbox" />
-              <span>Vynechať zo spracovania riadky bez GPS súradníc</span>
-            </label>
-          </div>
-
-          <div id="customOperatorsPanel" class="stack disabled-panel">
-            <label class="check-row">
-              <input id="addCustomOperators" type="checkbox" />
-              <span>Pridať vlastných operátorov</span>
-            </label>
-            <label class="field">
-              <span>Vlastní operátori</span>
-              <input id="customOperatorsText" type="text" placeholder="231:01 231:02:10" />
-              <small>Formát: <code>MCC:MNC</code> alebo <code>MCC:MNC:PCI</code>, viac hodnôt oddeľ medzerou.</small>
-            </label>
-          </div>
-        </article>
-
-        <article class="card section-card">
-          <div class="section-head">
-            <h2>Mapovanie stĺpcov</h2>
-            <span class="tag">Auto</span>
-          </div>
-          <p class="section-note">Po načítaní CSV sa ponúknu stĺpce a predvyplní sa detekované mapovanie.</p>
-          <div id="mappingGrid" class="mapping-grid"></div>
-        </article>
-      </section>
-
-      <section class="right-column">
-        <article class="card section-card sticky-panel">
-          <div class="section-head">
-            <h2>Spustenie a priebeh</h2>
-            <span id="runStateBadge" class="tag muted-tag">idle</span>
-          </div>
-
-          <div class="run-actions">
-            <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
-            <button id="clearLogBtn" class="btn ghost" type="button">Vyčistiť log</button>
-          </div>
-
-          <div id="progressBar" class="progress-bar" aria-hidden="true">
-            <div class="progress-fill"></div>
-          </div>
-
-          <div class="result-box">
-            <div class="preview-head">
-              <strong>Výsledok</strong>
+            <div class="time-window-foot">
+              <span class="muted">Rozsah súboru: ${escapeHtml(formatDateTimeLabel(data.min_time_ms))} – ${escapeHtml(formatDateTimeLabel(data.max_time_ms))}</span>
+              <button class="btn danger small-btn" type="button" data-remove-window="${escapeHtml(window.id)}">Odstrániť</button>
             </div>
-            <div id="resultContent" class="result-grid muted">Zatiaľ nebolo spustené spracovanie.</div>
-          </div>
+          </section>
+        `;
+      })
+      .join("");
+  }
 
-          <div class="log-box">
-            <div class="log-head">
-              <strong>Log</strong>
-            </div>
-            <pre id="logOutput" class="log-output">Pripravené.</pre>
-          </div>
-        </article>
-      </section>
-    </section>
-  </main>
-`;
+  function clearTimeSelectorState(): void {
+    state.timeSelectorData = null;
+    state.timeDateOptions = [];
+    state.timeWindows = [];
+    state.timeSelectorLoading = false;
+    state.timeSelectorError = "";
+    state.activeDropdown = null;
+    state.excludedOriginalRows = [];
+    renderTimeSelector();
+    renderResult();
+  }
+
+  async function loadTimeSelectorForCurrentCSV(filePath: string): Promise<void> {
+    state.timeSelectorLoading = true;
+    state.timeSelectorError = "";
+    state.timeSelectorData = null;
+    state.timeDateOptions = [];
+    state.timeWindows = [];
+    state.activeDropdown = null;
+    state.excludedOriginalRows = [];
+    renderTimeSelector();
+    renderResult();
+
+    appendLog("Načítavam časové údaje pre výber úsekov");
+    try {
+      const data = (await LoadTimeSelectorData(filePath)) as backend.TimeSelectorData;
+      state.timeSelectorData = data;
+      state.timeDateOptions = buildTimeDateOptions(data.rows ?? []);
+      appendLog(`Časové údaje pripravené (${data.timed_rows}/${data.total_rows} riadkov, ${labelForTimeStrategy(data.strategy)})`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      state.timeSelectorError = `Časové úseky nie sú dostupné: ${message}`;
+      appendLog(state.timeSelectorError);
+    } finally {
+      state.timeSelectorLoading = false;
+      recomputeTimeWindowSelection();
+      renderTimeSelector();
+      renderResult();
+    }
+  }
+
+  function renderMappingGrid(): void {
+    if (!state.preview) {
+      mappingGrid.innerHTML = COLUMN_FIELDS.map(
+        ({ key, label }) => `
+          <label class="field mapping-field">
+            <span>${label}</span>
+            <select data-column-key="${key}" disabled>
+              <option>Najprv načítaj CSV</option>
+            </select>
+          </label>`
+      ).join("");
+      return;
+    }
+
+    mappingGrid.innerHTML = COLUMN_FIELDS.map(({ key, label }) => {
+      const selected = state.columnMapping[key];
+      const options = state.preview!.columns
+        .map((col, idx) => {
+          const selectedAttr = selected === idx ? " selected" : "";
+          return `<option value="${idx}"${selectedAttr}>${idx}: ${escapeHtml(col)}</option>`;
+        })
+        .join("");
+      return `
+        <label class="field mapping-field">
+          <span>${label}</span>
+          <select data-column-key="${key}">
+            <option value="">-- vyber stĺpec --</option>
+            ${options}
+          </select>
+        </label>`;
+    }).join("");
+
+    mappingGrid.querySelectorAll<HTMLSelectElement>("select[data-column-key]").forEach((select) => {
+      select.addEventListener("change", () => {
+        const key = select.dataset.columnKey as ColumnKey;
+        const raw = select.value;
+        if (raw === "") {
+          delete state.columnMapping[key];
+        } else {
+          state.columnMapping[key] = Number(raw);
+        }
+      });
+    });
+  }
+
+  function updateDependentUI(): void {
+    const mobileEnabled = mobileModeCheckbox.checked;
+    mobileFields.classList.toggle("disabled-panel", !mobileEnabled);
+    mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((el) => {
+      el.disabled = !mobileEnabled || state.running;
+    });
+
+    const allowCustomOperators = includeEmptyZonesCheckbox.checked;
+    customOperatorsPanel.classList.toggle("disabled-panel", !allowCustomOperators);
+    addCustomOperatorsCheckbox.disabled = !allowCustomOperators || state.running;
+    customOperatorsTextInput.disabled = !allowCustomOperators || !addCustomOperatorsCheckbox.checked || state.running;
+    if (!allowCustomOperators) {
+      addCustomOperatorsCheckbox.checked = false;
+      customOperatorsTextInput.value = "";
+    }
+
+    setRunning(state.running);
+  }
+
+  function applySuggestedMapping(preview: main.CSVPreview): void {
+    const next: Partial<Record<ColumnKey, number>> = {};
+    for (const field of COLUMN_FIELDS) {
+      const suggested = preview.suggestedMapping?.[field.key];
+      if (typeof suggested === "number" && suggested >= 0 && suggested < preview.columns.length) {
+        next[field.key] = suggested;
+      }
+    }
+    state.columnMapping = next;
+  }
+
+  async function loadPreviewForCurrentCSV(): Promise<void> {
+    const filePath = csvPathInput.value.trim();
+    if (!filePath) {
+      throw new Error("Vyber alebo zadaj vstupný CSV súbor.");
+    }
+
+    appendLog(`Načítavam hlavičku CSV: ${filePath}`);
+    const preview = (await LoadCSVPreview(filePath)) as main.CSVPreview;
+    const previousFilePath = state.preview?.filePath ?? "";
+    state.preview = preview;
+    applySuggestedMapping(preview);
+    renderPreview();
+    renderMappingGrid();
+    appendLog(`Načítané stĺpce (${preview.columns.length}), encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`);
+
+    if (filePath !== previousFilePath || !state.timeSelectorData) {
+      await loadTimeSelectorForCurrentCSV(filePath);
+    }
+  }
+
+  function buildColumnMapping(): Record<string, number> {
+    if (!state.preview) {
+      throw new Error("Najprv načítaj stĺpce zo vstupného CSV.");
+    }
+    const columnMapping: Record<string, number> = {};
+    for (const field of COLUMN_FIELDS) {
+      const idx = state.columnMapping[field.key];
+      if (typeof idx !== "number" || Number.isNaN(idx)) {
+        throw new Error(`Chýba mapovanie stĺpca pre '${field.label}'.`);
+      }
+      columnMapping[field.key] = idx;
+    }
+    return columnMapping;
+  }
+
+  async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
+    const filePath = csvPathInput.value.trim();
+    if (!filePath) {
+      throw new Error("Vyber vstupný CSV súbor.");
+    }
+
+    const column_mapping = buildColumnMapping();
+    const mobile_mode_enabled = mobileModeCheckbox.checked;
+    const mobile_lte_file_path = mobileLtePathInput.value.trim();
+    if (mobile_mode_enabled && !mobile_lte_file_path) {
+      throw new Error("Pre Mobile režim vyber LTE CSV súbor.");
+    }
+
+    const zone_size_m = parseNumberInput(zoneSizeInput, "Veľkosť zóny/úseku");
+    if (zone_size_m <= 0) {
+      throw new Error("Veľkosť zóny/úseku musí byť kladná.");
+    }
+
+    const rsrp_threshold = parseNumberInput(rsrpThresholdInput, "RSRP hranica");
+    const sinr_threshold = parseNumberInput(sinrThresholdInput, "SINR hranica");
+    const mobile_time_tolerance_ms = parseIntegerInput(mobileToleranceInput, "Tolerancia času");
+
+    let custom_operators: backend.CustomOperator[] = [];
+    const include_empty_zones = includeEmptyZonesCheckbox.checked;
+    const add_custom_operators = include_empty_zones && addCustomOperatorsCheckbox.checked;
+    if (add_custom_operators) {
+      custom_operators = parseCustomOperatorsText(customOperatorsTextInput.value);
+    }
+
+    let filter_paths: string[] | undefined;
+    const useAuto = useAutoFiltersCheckbox.checked;
+    if (!useAuto && state.customFilterPaths.length === 0) {
+      filter_paths = [];
+    } else if (useAuto && state.customFilterPaths.length === 0) {
+      filter_paths = undefined;
+    } else {
+      let merged: string[] = [];
+      if (useAuto) {
+        const autoPaths = (await DiscoverAutoFilterPaths()) as string[];
+        merged = merged.concat(autoPaths);
+      }
+      merged = merged.concat(state.customFilterPaths);
+      filter_paths = dedupePaths(merged);
+    }
+
+    return {
+      file_path: filePath,
+      column_mapping,
+      keep_original_rows: keepOriginalRowsCheckbox.checked,
+      excluded_original_rows: sortUniqueNumbers(state.excludedOriginalRows),
+      zone_mode: zoneModeSelect.value || "segments",
+      zone_size_m,
+      rsrp_threshold,
+      sinr_threshold,
+      include_empty_zones,
+      add_custom_operators,
+      custom_operators,
+      filter_paths,
+      output_suffix: "",
+      mobile_mode_enabled,
+      mobile_lte_file_path: mobile_mode_enabled ? mobile_lte_file_path : "",
+      mobile_time_tolerance_ms,
+      mobile_require_nr_yes: false,
+      mobile_nr_column_name: "5G NR",
+      progress_enabled: false,
+    } as backend.ProcessingConfig;
+  }
+
+  async function runProcessing(): Promise<void> {
+    if (state.running) {
+      return;
+    }
+
+    try {
+      setRunning(true);
+      setStatus("Kontrolujem vstupy...", "running");
+      appendLog("Spúšťam spracovanie");
+
+      const cfg = await buildProcessingConfig();
+      appendLog(
+        `Konfigurácia: mode=${cfg.zone_mode}, zone=${cfg.zone_size_m}m, filters=${cfg.filter_paths === undefined ? "auto" : cfg.filter_paths.length}, mobile=${cfg.mobile_mode_enabled}, excluded=${cfg.excluded_original_rows.length}`
+      );
+
+      setStatus("Spracovanie prebieha...", "running");
+      const result = (await RunProcessingWithConfig(cfg)) as backend.ProcessingResult;
+      state.result = result;
+      renderResult();
+
+      setStatus("Spracovanie úspešne dokončené", "success");
+      appendLog(`Výstup zón: ${result.zones_file}`);
+      appendLog(`Výstup štatistík: ${result.stats_file}`);
+      appendLog(
+        `Hotovo (zóny=${result.unique_zones}, operátori=${result.unique_operators}, riadky=${result.total_zone_rows}, vylúčené=${state.excludedOriginalRows.length})`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus("Chyba pri spracovaní", "error");
+      appendLog(`Chyba: ${message}`);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function pickCsvAndLoadPreview(): Promise<void> {
+    const path = await PickInputCSVFile();
+    if (!path) {
+      return;
+    }
+    csvPathInput.value = path;
+    clearTimeSelectorState();
+    await loadPreviewForCurrentCSV();
+  }
+
+  async function pickMobileLTE(): Promise<void> {
+    const path = await PickMobileLTECSVFile();
+    if (!path) {
+      return;
+    }
+    mobileLtePathInput.value = path;
+    appendLog(`Vybraný LTE CSV: ${path}`);
+  }
+
+  async function addFilterFiles(): Promise<void> {
+    const files = (await PickFilterFiles()) as string[];
+    if (!files || files.length === 0) {
+      return;
+    }
+    state.customFilterPaths = dedupePaths([...state.customFilterPaths, ...files]);
+    renderFilterList();
+    appendLog(`Pridané filtre: ${files.length}`);
+  }
+
+  function removeSelectedFilters(): void {
+    const selected = new Set(Array.from(filtersList.selectedOptions).map((opt) => opt.value));
+    if (selected.size === 0) {
+      return;
+    }
+    state.customFilterPaths = state.customFilterPaths.filter((path) => !selected.has(path));
+    renderFilterList();
+    appendLog(`Odstránené filtre: ${selected.size}`);
+  }
+
+  function clearFilters(): void {
+    if (state.customFilterPaths.length === 0) {
+      return;
+    }
+    const count = state.customFilterPaths.length;
+    state.customFilterPaths = [];
+    renderFilterList();
+    appendLog(`Vyčistené filtre (${count})`);
+  }
+
+  pickCsvBtn.addEventListener("click", () => {
+    void pickCsvAndLoadPreview();
+  });
+  loadPreviewBtn.addEventListener("click", () => {
+    clearTimeSelectorState();
+    void loadPreviewForCurrentCSV().catch(handlePreviewError);
+  });
+  pickMobileLteBtn.addEventListener("click", () => {
+    void pickMobileLTE();
+  });
+  addFiltersBtn.addEventListener("click", () => {
+    void addFilterFiles();
+  });
+  removeFilterBtn.addEventListener("click", removeSelectedFilters);
+  clearFiltersBtn.addEventListener("click", clearFilters);
+  mobileModeCheckbox.addEventListener("change", updateDependentUI);
+  includeEmptyZonesCheckbox.addEventListener("change", updateDependentUI);
+  addCustomOperatorsCheckbox.addEventListener("change", updateDependentUI);
+  addTimeWindowBtn.addEventListener("click", () => {
+    if (!state.timeSelectorData) {
+      return;
+    }
+    state.timeWindows = [...state.timeWindows, buildDefaultTimeWindow(state.timeDateOptions, state.timeWindows.length)];
+    state.activeDropdown = null;
+    recomputeTimeWindowSelection();
+    renderTimeSelector();
+    renderResult();
+  });
+  clearTimeWindowsBtn.addEventListener("click", () => {
+    const removed = state.excludedOriginalRows.length;
+    state.timeWindows = [];
+    state.activeDropdown = null;
+    recomputeTimeWindowSelection();
+    renderTimeSelector();
+    renderResult();
+    if (removed > 0) {
+      appendLog(`Vymazané časové okná (${removed} vylúčených riadkov)`);
+    }
+  });
+  timeWindowList.addEventListener("input", (event) => {
+    const target = event.target as HTMLInputElement | null;
+    const windowId = target?.dataset.windowId;
+    const field = target?.dataset.dropdownSearch as DropdownField | undefined;
+    if (!target || !windowId || !field) {
+      return;
+    }
+    if (!state.activeDropdown || state.activeDropdown.windowId !== windowId || state.activeDropdown.field !== field) {
+      return;
+    }
+    state.activeDropdown = {
+      ...state.activeDropdown,
+      query: target.value,
+    };
+    renderTimeSelector();
+    focusActiveDropdownSearch();
+  });
+  timeWindowList.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const button = target?.closest<HTMLButtonElement>("button[data-remove-window]");
+    const windowId = button?.dataset.removeWindow;
+    if (windowId) {
+      state.timeWindows = state.timeWindows.filter((window) => window.id !== windowId);
+      state.activeDropdown = null;
+      recomputeTimeWindowSelection();
+      renderTimeSelector();
+      renderResult();
+      return;
+    }
+
+    const toggleButton = target?.closest<HTMLButtonElement>("button[data-open-dropdown]");
+    const dropdownWindowId = toggleButton?.dataset.windowId;
+    const dropdownField = toggleButton?.dataset.field as DropdownField | undefined;
+    if (dropdownWindowId && dropdownField) {
+      if (
+        state.activeDropdown &&
+        state.activeDropdown.windowId === dropdownWindowId &&
+        state.activeDropdown.field === dropdownField
+      ) {
+        state.activeDropdown = null;
+      } else {
+        state.activeDropdown = {
+          windowId: dropdownWindowId,
+          field: dropdownField,
+          query: "",
+        };
+      }
+      renderTimeSelector();
+      focusActiveDropdownSearch();
+      return;
+    }
+
+    const optionButton = target?.closest<HTMLButtonElement>("button[data-select-option]");
+    const optionWindowId = optionButton?.dataset.windowId;
+    const optionField = optionButton?.dataset.field as DropdownField | undefined;
+    const optionValue = optionButton?.dataset.optionValue ?? "";
+    if (optionWindowId && optionField) {
+      state.timeWindows = state.timeWindows.map((window) =>
+        window.id === optionWindowId ? updateTimeWindowField(window, optionField, optionValue, state.timeDateOptions) : window
+      );
+      if (optionField === "startDate") {
+        state.activeDropdown = { windowId: optionWindowId, field: "startTime", query: "" };
+      } else if (optionField === "endDate") {
+        state.activeDropdown = { windowId: optionWindowId, field: "endTime", query: "" };
+      } else {
+        state.activeDropdown = null;
+      }
+      recomputeTimeWindowSelection();
+      renderTimeSelector();
+      focusActiveDropdownSearch();
+      renderResult();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest(".dropdown-field")) {
+      if (state.activeDropdown) {
+        state.activeDropdown = null;
+        renderTimeSelector();
+      }
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.activeDropdown) {
+      state.activeDropdown = null;
+      renderTimeSelector();
+    }
+  });
+  runBtn.addEventListener("click", () => {
+    void runProcessing();
+  });
+  clearLogBtn.addEventListener("click", () => {
+    state.logs = [];
+    logOutput.textContent = "Log vyčistený.";
+  });
+  csvPathInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    clearTimeSelectorState();
+    void loadPreviewForCurrentCSV().catch(handlePreviewError);
+  });
+
+  function handlePreviewError(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    setStatus("Chyba pri načítaní CSV", "error");
+    appendLog(`Chyba pri načítaní CSV: ${message}`);
+  }
+
+  renderPreview();
+  renderFilterList();
+  renderMappingGrid();
+  renderResult();
+  renderTimeSelector();
+  updateDependentUI();
+  setStatus("Pripravené", "idle");
+
+  function focusActiveDropdownSearch(): void {
+    if (!state.activeDropdown) {
+      return;
+    }
+    const selector = `input[data-window-id="${cssEscape(state.activeDropdown.windowId)}"][data-dropdown-search="${state.activeDropdown.field}"]`;
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>(selector);
+      if (!input) {
+        return;
+      }
+      input.focus();
+      const length = input.value.length;
+      input.setSelectionRange(length, length);
+    });
+  }
+}
 
 function qs<T extends Element>(selector: string): T {
   const node = document.querySelector<T>(selector);
@@ -248,48 +1087,270 @@ function qs<T extends Element>(selector: string): T {
   return node;
 }
 
-const csvPathInput = qs<HTMLInputElement>("#csvPath");
-const pickCsvBtn = qs<HTMLButtonElement>("#pickCsvBtn");
-const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
-const previewMeta = qs<HTMLSpanElement>("#previewMeta");
-const previewColumns = qs<HTMLDivElement>("#previewColumns");
-const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
-const mobileFields = qs<HTMLDivElement>("#mobileFields");
-const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
-const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
-const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
-const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
-const addFiltersBtn = qs<HTMLButtonElement>("#addFiltersBtn");
-const removeFilterBtn = qs<HTMLButtonElement>("#removeFilterBtn");
-const clearFiltersBtn = qs<HTMLButtonElement>("#clearFiltersBtn");
-const filtersList = qs<HTMLSelectElement>("#filtersList");
-const zoneModeSelect = qs<HTMLSelectElement>("#zoneMode");
-const zoneSizeInput = qs<HTMLInputElement>("#zoneSize");
-const rsrpThresholdInput = qs<HTMLInputElement>("#rsrpThreshold");
-const sinrThresholdInput = qs<HTMLInputElement>("#sinrThreshold");
-const keepOriginalRowsCheckbox = qs<HTMLInputElement>("#keepOriginalRows");
-const includeEmptyZonesCheckbox = qs<HTMLInputElement>("#includeEmptyZones");
-const skipRowsWithoutGPSCheckbox = qs<HTMLInputElement>("#skipRowsWithoutGPS");
-const customOperatorsPanel = qs<HTMLDivElement>("#customOperatorsPanel");
-const addCustomOperatorsCheckbox = qs<HTMLInputElement>("#addCustomOperators");
-const customOperatorsTextInput = qs<HTMLInputElement>("#customOperatorsText");
-const mappingGrid = qs<HTMLDivElement>("#mappingGrid");
-const runBtn = qs<HTMLButtonElement>("#runBtn");
-const clearLogBtn = qs<HTMLButtonElement>("#clearLogBtn");
-const progressBar = qs<HTMLDivElement>("#progressBar");
-const resultContent = qs<HTMLDivElement>("#resultContent");
-const logOutput = qs<HTMLPreElement>("#logOutput");
-const statusChip = qs<HTMLDivElement>("#statusChip");
-const statusText = qs<HTMLDivElement>("#statusText");
-const runStateBadge = qs<HTMLSpanElement>("#runStateBadge");
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return value.replaceAll('"', '\\"');
+}
 
-ZONE_MODES.forEach((mode) => {
-  const opt = document.createElement("option");
-  opt.value = mode.value;
-  opt.textContent = mode.label;
-  zoneModeSelect.appendChild(opt);
-});
-zoneModeSelect.value = "segments";
+function renderDropdownField(params: {
+  window: TimeWindowDraft;
+  field: DropdownField;
+  label: string;
+  value: string;
+  placeholder: string;
+  options: string[];
+  state: UIState;
+  disabled?: boolean;
+}): string {
+  const { window, field, label, value, placeholder, options, state, disabled = false } = params;
+  const isOpen = state.activeDropdown?.windowId === window.id && state.activeDropdown.field === field;
+  const query = isOpen ? state.activeDropdown?.query ?? "" : "";
+  const buttonLabel = value || placeholder;
+  const emptyText = query ? "Žiadna zhoda pre vyhľadávanie." : "Žiadne dostupné možnosti.";
+
+  return `
+    <div class="dropdown-field${disabled ? " is-disabled" : ""}">
+      <span>${label}</span>
+      <button
+        class="dropdown-trigger${isOpen ? " is-open" : ""}"
+        type="button"
+        data-open-dropdown="true"
+        data-window-id="${escapeHtml(window.id)}"
+        data-field="${field}"
+        ${disabled ? "disabled" : ""}
+      >
+        <span class="${value ? "dropdown-value" : "dropdown-placeholder"}">${escapeHtml(buttonLabel)}</span>
+        <span class="dropdown-caret">▾</span>
+      </button>
+      ${
+        isOpen && !disabled
+          ? `
+            <div class="dropdown-panel">
+              <input
+                class="dropdown-search"
+                type="text"
+                value="${escapeHtml(query)}"
+                placeholder="Hľadaj..."
+                data-window-id="${escapeHtml(window.id)}"
+                data-dropdown-search="${field}"
+                autocomplete="off"
+              />
+              <div class="dropdown-options">
+                ${
+                  options.length > 0
+                    ? options
+                        .map(
+                          (option) => `
+                            <button
+                              class="dropdown-option${option === value ? " is-selected" : ""}"
+                              type="button"
+                              data-select-option="true"
+                              data-window-id="${escapeHtml(window.id)}"
+                              data-field="${field}"
+                              data-option-value="${escapeHtml(option)}"
+                            >
+                              ${escapeHtml(option)}
+                            </button>`
+                        )
+                        .join("")
+                    : `<div class="dropdown-empty">${escapeHtml(emptyText)}</div>`
+                }
+              </div>
+            </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function filterDropdownOptions(options: string[], query: string): string[] {
+  const trimmed = query.trim().toLocaleLowerCase("sk-SK");
+  if (!trimmed) {
+    return options.slice(0, 200);
+  }
+  return options
+    .filter((option) => option.toLocaleLowerCase("sk-SK").includes(trimmed))
+    .slice(0, 200);
+}
+
+function buildDefaultTimeWindow(dateOptions: TimeDateOption[], index: number): TimeWindowDraft {
+  const flat = flattenTimeDateOptions(dateOptions);
+  const safeIndex = Math.min(index, Math.max(flat.length - 1, 0));
+  const startOption = flat[safeIndex] ?? null;
+  const endOption = flat[Math.min(safeIndex + 30, Math.max(flat.length - 1, 0))] ?? startOption;
+  return {
+    id: `window-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    startDateInput: startOption?.dateLabel ?? "",
+    startTimeInput: startOption?.timeLabel ?? "",
+    endDateInput: endOption?.dateLabel ?? "",
+    endTimeInput: endOption?.timeLabel ?? "",
+    startTimestampMS: startOption?.timestampMS ?? null,
+    endTimestampMS: endOption?.timestampMS ?? null,
+    excludedRows: 0,
+  };
+}
+
+function isCompleteTimeWindow(window: TimeWindowDraft): boolean {
+  return window.startTimestampMS !== null && window.endTimestampMS !== null && window.startTimestampMS <= window.endTimestampMS;
+}
+
+function describeTimeWindow(window: TimeWindowDraft): string {
+  if (!window.startDateInput || !window.startTimeInput || !window.endDateInput || !window.endTimeInput) {
+    return "Vyber dátum aj čas v oboch dropdownoch.";
+  }
+  if (window.startTimestampMS === null || window.endTimestampMS === null) {
+    return "Vyber presnú kombináciu dátumu a času z ponuky.";
+  }
+  if (window.startTimestampMS > window.endTimestampMS) {
+    return "Koniec musí byť po začiatku.";
+  }
+  if (window.excludedRows === 0) {
+    return "V tomto okne nie sú žiadne body.";
+  }
+  return `${window.excludedRows} bodov bude vynechaných.`;
+}
+
+function buildTimeDateOptions(rows: backend.TimeSelectorRow[]): TimeDateOption[] {
+  const grouped = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const dateLabel = formatDateLabel(row.timestamp_ms);
+    const timeLabel = formatTimeLabel(row.timestamp_ms);
+    let times = grouped.get(dateLabel);
+    if (!times) {
+      times = new Map<string, number>();
+      grouped.set(dateLabel, times);
+    }
+    if (!times.has(timeLabel)) {
+      times.set(timeLabel, row.timestamp_ms);
+    }
+  }
+
+  return Array.from(grouped.entries())
+    .map(([dateLabel, times]) => ({
+      dateLabel,
+      times: Array.from(times.entries())
+        .map(([timeLabel, timestampMS]) => ({ timeLabel, timestampMS }))
+        .sort((a, b) => a.timestampMS - b.timestampMS),
+    }))
+    .sort((a, b) => {
+      const left = a.times[0]?.timestampMS ?? 0;
+      const right = b.times[0]?.timestampMS ?? 0;
+      return left - right;
+    });
+}
+
+function getTimeOptionsForDate(dateOptions: TimeDateOption[], dateLabel: string): TimeValueOption[] {
+  const trimmed = dateLabel.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return dateOptions.find((option) => option.dateLabel === trimmed)?.times ?? [];
+}
+
+function flattenTimeDateOptions(dateOptions: TimeDateOption[]): Array<{ dateLabel: string; timeLabel: string; timestampMS: number }> {
+  return dateOptions.flatMap((dateOption) =>
+    dateOption.times.map((timeOption) => ({
+      dateLabel: dateOption.dateLabel,
+      timeLabel: timeOption.timeLabel,
+      timestampMS: timeOption.timestampMS,
+    }))
+  );
+}
+
+function updateTimeWindowField(
+  window: TimeWindowDraft,
+  field: string,
+  value: string,
+  dateOptions: TimeDateOption[]
+): TimeWindowDraft {
+  const next = { ...window };
+  const trimmed = value.trim();
+
+  switch (field) {
+    case "startDate":
+      next.startDateInput = trimmed;
+      if (!getTimeOptionsForDate(dateOptions, trimmed).some((option) => option.timeLabel === next.startTimeInput)) {
+        next.startTimeInput = "";
+      }
+      next.startTimestampMS = resolveTimeWindowTimestamp(next.startDateInput, next.startTimeInput, dateOptions);
+      return next;
+    case "startTime":
+      next.startTimeInput = trimmed;
+      next.startTimestampMS = resolveTimeWindowTimestamp(next.startDateInput, next.startTimeInput, dateOptions);
+      return next;
+    case "endDate":
+      next.endDateInput = trimmed;
+      if (!getTimeOptionsForDate(dateOptions, trimmed).some((option) => option.timeLabel === next.endTimeInput)) {
+        next.endTimeInput = "";
+      }
+      next.endTimestampMS = resolveTimeWindowTimestamp(next.endDateInput, next.endTimeInput, dateOptions);
+      return next;
+    case "endTime":
+      next.endTimeInput = trimmed;
+      next.endTimestampMS = resolveTimeWindowTimestamp(next.endDateInput, next.endTimeInput, dateOptions);
+      return next;
+    default:
+      return next;
+  }
+}
+
+function resolveTimeWindowTimestamp(dateLabel: string, timeLabel: string, dateOptions: TimeDateOption[]): number | null {
+  const trimmedDate = dateLabel.trim();
+  const trimmedTime = timeLabel.trim();
+  if (!trimmedDate || !trimmedTime) {
+    return null;
+  }
+  const dateOption = dateOptions.find((option) => option.dateLabel === trimmedDate);
+  const timeOption = dateOption?.times.find((option) => option.timeLabel === trimmedTime);
+  return timeOption ? timeOption.timestampMS : null;
+}
+
+function formatDateLabel(timestampMS: number): string {
+  const date = new Date(timestampMS);
+  return date.toLocaleDateString("sk-SK", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatTimeLabel(timestampMS: number): string {
+  const date = new Date(timestampMS);
+  return date.toLocaleTimeString("sk-SK", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatDateTimeLabel(timestampMS: number): string {
+  const date = new Date(timestampMS);
+  return date.toLocaleString("sk-SK", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function labelForTimeStrategy(strategy?: string): string {
+  switch (strategy) {
+    case "utc_numeric":
+      return "UTC číslo";
+    case "utc_datetime":
+      return "UTC dátum/čas";
+    case "date_time":
+      return "Date + Time";
+    default:
+      return strategy || "neznáme";
+  }
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -304,173 +1365,11 @@ function timestamp(): string {
   return new Date().toLocaleTimeString("sk-SK", { hour12: false });
 }
 
-function appendLog(message: string): void {
-  state.logs.push(`[${timestamp()}] ${message}`);
-  if (state.logs.length > 250) {
-    state.logs = state.logs.slice(-250);
-  }
-  logOutput.textContent = state.logs.join("\n");
-  logOutput.scrollTop = logOutput.scrollHeight;
-}
-
-function setStatus(text: string, tone: Tone): void {
-  state.statusText = text;
-  state.statusTone = tone;
-  statusText.textContent = text;
-  statusChip.className = `status-chip ${tone}`;
-  statusChip.textContent =
-    tone === "running" ? "RUNNING" : tone === "success" ? "DONE" : tone === "error" ? "ERROR" : "READY";
-  runStateBadge.className = `tag ${tone === "idle" ? "muted-tag" : `${tone}-tag`}`;
-  runStateBadge.textContent = tone;
-}
-
-function setRunning(running: boolean): void {
-  state.running = running;
-  runBtn.disabled = running;
-  pickCsvBtn.disabled = running;
-  loadPreviewBtn.disabled = running;
-  pickMobileLteBtn.disabled = running || !mobileModeCheckbox.checked;
-  addFiltersBtn.disabled = running;
-  removeFilterBtn.disabled = running;
-  clearFiltersBtn.disabled = running;
-  progressBar.classList.toggle("is-running", running);
-}
-
-function renderPreview(): void {
-  if (!state.preview) {
-    previewMeta.textContent = "Čaká na súbor";
-    previewColumns.innerHTML = `<span class="muted">Zatiaľ nenačítané.</span>`;
-    return;
-  }
-  const p = state.preview;
-  previewMeta.textContent = `Encoding: ${p.encoding} | Hlavička: riadok ${p.headerLine + 1}`;
-  previewColumns.innerHTML = p.columns
-    .map((col, idx) => `<span class="col-pill">${idx}: ${escapeHtml(col)}</span>`)
-    .join("");
-}
-
-function renderFilterList(): void {
-  filtersList.innerHTML = "";
-  for (const path of state.customFilterPaths) {
-    const opt = document.createElement("option");
-    opt.value = path;
-    opt.textContent = path;
-    filtersList.appendChild(opt);
-  }
-}
-
-function renderResult(): void {
-  if (!state.result) {
-    resultContent.innerHTML = "Zatiaľ nebolo spustené spracovanie.";
-    resultContent.classList.add("muted");
-    return;
-  }
-  const r = state.result;
-  resultContent.classList.remove("muted");
-  resultContent.innerHTML = `
-    <div><span>Zóny CSV</span><strong>${escapeHtml(r.zones_file ?? "")}</strong></div>
-    <div><span>Štatistiky CSV</span><strong>${escapeHtml(r.stats_file ?? "")}</strong></div>
-    <div><span>Unikátne zóny</span><strong>${String(r.unique_zones ?? 0)}</strong></div>
-    <div><span>Unikátni operátori</span><strong>${String(r.unique_operators ?? 0)}</strong></div>
-    <div><span>Riadky zón</span><strong>${String(r.total_zone_rows ?? 0)}</strong></div>
-    <div><span>Pokrytie</span><strong>${formatPercent(r.coverage_percent)}</strong></div>
-  `;
-}
-
-function renderMappingGrid(): void {
-  if (!state.preview) {
-    mappingGrid.innerHTML = COLUMN_FIELDS.map(
-      ({ key, label }) => `
-        <label class="field mapping-field">
-          <span>${label}</span>
-          <select data-column-key="${key}" disabled>
-            <option>Najprv načítaj CSV</option>
-          </select>
-        </label>`
-    ).join("");
-    return;
-  }
-
-  const options = state.preview.columns
-    .map((col, idx) => `<option value="${idx}">${idx}: ${escapeHtml(col)}</option>`)
-    .join("");
-
-  mappingGrid.innerHTML = COLUMN_FIELDS.map(({ key, label }) => {
-    const selected = state.columnMapping[key];
-    const selectedAttr = (idx: number): string => (selected === idx ? " selected" : "");
-    const optionsWithSelected = state.preview!.columns
-      .map((col, idx) => `<option value="${idx}"${selectedAttr(idx)}>${idx}: ${escapeHtml(col)}</option>`)
-      .join("");
-    return `
-      <label class="field mapping-field">
-        <span>${label}</span>
-        <select data-column-key="${key}">
-          <option value="">-- vyber stĺpec --</option>
-          ${optionsWithSelected || options}
-        </select>
-      </label>`;
-  }).join("");
-
-  mappingGrid.querySelectorAll<HTMLSelectElement>("select[data-column-key]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const key = select.dataset.columnKey as ColumnKey;
-      const raw = select.value;
-      if (raw === "") {
-        delete state.columnMapping[key];
-        return;
-      }
-      state.columnMapping[key] = Number(raw);
-    });
-  });
-}
-
-function updateDependentUI(): void {
-  const mobileEnabled = mobileModeCheckbox.checked;
-  mobileFields.classList.toggle("disabled-panel", !mobileEnabled);
-  mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((el) => {
-    el.disabled = !mobileEnabled || state.running;
-  });
-
-  const allowCustomOperators = includeEmptyZonesCheckbox.checked;
-  customOperatorsPanel.classList.toggle("disabled-panel", !allowCustomOperators);
-  addCustomOperatorsCheckbox.disabled = !allowCustomOperators || state.running;
-  customOperatorsTextInput.disabled = !allowCustomOperators || !addCustomOperatorsCheckbox.checked || state.running;
-  if (!allowCustomOperators) {
-    addCustomOperatorsCheckbox.checked = false;
-    customOperatorsTextInput.value = "";
-  }
-}
-
-function applySuggestedMapping(preview: main.CSVPreview): void {
-  const next: Partial<Record<ColumnKey, number>> = {};
-  for (const field of COLUMN_FIELDS) {
-    const suggested = preview.suggestedMapping?.[field.key];
-    if (typeof suggested === "number" && suggested >= 0 && suggested < preview.columns.length) {
-      next[field.key] = suggested;
-    }
-  }
-  state.columnMapping = next;
-}
-
-async function loadPreviewForCurrentCSV(): Promise<void> {
-  const filePath = csvPathInput.value.trim();
-  if (!filePath) {
-    throw new Error("Vyber alebo zadaj vstupný CSV súbor.");
-  }
-  appendLog(`Načítavam hlavičku CSV: ${filePath}`);
-  const preview = (await LoadCSVPreview(filePath)) as main.CSVPreview;
-  state.preview = preview;
-  applySuggestedMapping(preview);
-  renderPreview();
-  renderMappingGrid();
-  appendLog(`Načítané stĺpce (${preview.columns.length}), encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`);
-}
-
 function dedupePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const p of paths) {
-    const trimmed = p.trim();
+  for (const path of paths) {
+    const trimmed = path.trim();
     if (!trimmed || seen.has(trimmed)) {
       continue;
     }
@@ -505,100 +1404,20 @@ function parseCustomOperatorsText(text: string): backend.CustomOperator[] {
   if (!trimmed) {
     return [];
   }
+
   const out: backend.CustomOperator[] = [];
   for (const token of trimmed.split(/\s+/)) {
     const parts = token.split(":");
     if (parts.length !== 2 && parts.length !== 3) {
       throw new Error(`Neplatný operátor '${token}'. Použi formát MCC:MNC alebo MCC:MNC:PCI.`);
     }
-    const [mcc, mnc, pci = ""] = parts.map((v) => v.trim());
+    const [mcc, mnc, pci = ""] = parts.map((value) => value.trim());
     if (!mcc || !mnc) {
       throw new Error(`Neplatný operátor '${token}'. MCC a MNC musia byť vyplnené.`);
     }
     out.push({ mcc, mnc, pci } as backend.CustomOperator);
   }
   return out;
-}
-
-async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
-  const filePath = csvPathInput.value.trim();
-  if (!filePath) {
-    throw new Error("Vyber vstupný CSV súbor.");
-  }
-  if (!state.preview) {
-    throw new Error("Najprv načítaj stĺpce zo vstupného CSV.");
-  }
-
-  const column_mapping: Record<string, number> = {};
-  for (const field of COLUMN_FIELDS) {
-    const idx = state.columnMapping[field.key];
-    if (typeof idx !== "number" || Number.isNaN(idx)) {
-      throw new Error(`Chýba mapovanie stĺpca pre '${field.label}'.`);
-    }
-    column_mapping[field.key] = idx;
-  }
-
-  const mobile_mode_enabled = mobileModeCheckbox.checked;
-  const mobile_lte_file_path = mobileLtePathInput.value.trim();
-  if (mobile_mode_enabled && !mobile_lte_file_path) {
-    throw new Error("Pre Mobile režim vyber LTE CSV súbor.");
-  }
-
-  const zone_size_m = parseNumberInput(zoneSizeInput, "Veľkosť zóny/úseku");
-  if (zone_size_m <= 0) {
-    throw new Error("Veľkosť zóny/úseku musí byť kladná.");
-  }
-
-  const rsrp_threshold = parseNumberInput(rsrpThresholdInput, "RSRP hranica");
-  const sinr_threshold = parseNumberInput(sinrThresholdInput, "SINR hranica");
-  const mobile_time_tolerance_ms = parseIntegerInput(mobileToleranceInput, "Tolerancia času");
-
-  let custom_operators: backend.CustomOperator[] = [];
-  const include_empty_zones = includeEmptyZonesCheckbox.checked;
-  const add_custom_operators = include_empty_zones && addCustomOperatorsCheckbox.checked;
-  if (add_custom_operators) {
-    custom_operators = parseCustomOperatorsText(customOperatorsTextInput.value);
-  }
-
-  let filter_paths: string[] | undefined;
-  const useAuto = useAutoFiltersCheckbox.checked;
-  if (!useAuto && state.customFilterPaths.length === 0) {
-    filter_paths = [];
-  } else if (useAuto && state.customFilterPaths.length === 0) {
-    filter_paths = undefined;
-  } else {
-    let merged: string[] = [];
-    if (useAuto) {
-      const autoPaths = (await DiscoverAutoFilterPaths()) as string[];
-      merged = merged.concat(autoPaths);
-    }
-    merged = merged.concat(state.customFilterPaths);
-    filter_paths = dedupePaths(merged);
-  }
-
-  const cfg = {
-    file_path: filePath,
-    column_mapping,
-    keep_original_rows: keepOriginalRowsCheckbox.checked,
-    skip_rows_without_gps: skipRowsWithoutGPSCheckbox.checked,
-    zone_mode: zoneModeSelect.value || "segments",
-    zone_size_m,
-    rsrp_threshold,
-    sinr_threshold,
-    include_empty_zones,
-    add_custom_operators,
-    custom_operators,
-    filter_paths,
-    output_suffix: "",
-    mobile_mode_enabled,
-    mobile_lte_file_path: mobile_mode_enabled ? mobile_lte_file_path : "",
-    mobile_time_tolerance_ms,
-    mobile_require_nr_yes: false,
-    mobile_nr_column_name: "5G NR",
-    progress_enabled: false,
-  } as backend.ProcessingConfig;
-
-  return cfg;
 }
 
 function formatPercent(value?: number): string {
@@ -608,129 +1427,8 @@ function formatPercent(value?: number): string {
   return `${value.toFixed(2)} %`;
 }
 
-async function runProcessing(): Promise<void> {
-  if (state.running) {
-    return;
-  }
-
-  try {
-    setRunning(true);
-    setStatus("Kontrolujem vstupy...", "running");
-    appendLog("Spúšťam spracovanie");
-
-    const cfg = await buildProcessingConfig();
-    appendLog(
-      `Konfigurácia: mode=${cfg.zone_mode}, zone=${cfg.zone_size_m}m, filters=${cfg.filter_paths === undefined ? "auto" : cfg.filter_paths.length}, mobile=${cfg.mobile_mode_enabled}, skipNoGPS=${cfg.skip_rows_without_gps}`
-    );
-
-    setStatus("Spracovanie prebieha...", "running");
-    const result = (await RunProcessingWithConfig(cfg)) as backend.ProcessingResult;
-    state.result = result;
-    renderResult();
-
-    setStatus("Spracovanie úspešne dokončené", "success");
-    appendLog(`Výstup zón: ${result.zones_file}`);
-    appendLog(`Výstup štatistík: ${result.stats_file}`);
-    appendLog(`Hotovo (zóny=${result.unique_zones}, operátori=${result.unique_operators}, riadky=${result.total_zone_rows})`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    setStatus("Chyba pri spracovaní", "error");
-    appendLog(`Chyba: ${message}`);
-  } finally {
-    setRunning(false);
-  }
+function sortUniqueNumbers(values: number[]): number[] {
+  const out = Array.from(new Set(values.filter((value) => Number.isFinite(value))));
+  out.sort((a, b) => a - b);
+  return out;
 }
-
-async function pickCsvAndLoadPreview(): Promise<void> {
-  const path = await PickInputCSVFile();
-  if (!path) {
-    return;
-  }
-  csvPathInput.value = path;
-  await loadPreviewForCurrentCSV();
-}
-
-async function pickMobileLTE(): Promise<void> {
-  const path = await PickMobileLTECSVFile();
-  if (!path) {
-    return;
-  }
-  mobileLtePathInput.value = path;
-  appendLog(`Vybraný LTE CSV: ${path}`);
-}
-
-async function addFilterFiles(): Promise<void> {
-  const files = (await PickFilterFiles()) as string[];
-  if (!files || files.length === 0) {
-    return;
-  }
-  state.customFilterPaths = dedupePaths([...state.customFilterPaths, ...files]);
-  renderFilterList();
-  appendLog(`Pridané filtre: ${files.length}`);
-}
-
-function removeSelectedFilters(): void {
-  const selected = new Set(Array.from(filtersList.selectedOptions).map((opt) => opt.value));
-  if (selected.size === 0) {
-    return;
-  }
-  state.customFilterPaths = state.customFilterPaths.filter((p) => !selected.has(p));
-  renderFilterList();
-  appendLog(`Odstránené filtre: ${selected.size}`);
-}
-
-function clearFilters(): void {
-  if (state.customFilterPaths.length === 0) {
-    return;
-  }
-  const count = state.customFilterPaths.length;
-  state.customFilterPaths = [];
-  renderFilterList();
-  appendLog(`Vyčistené filtre (${count})`);
-}
-
-pickCsvBtn.addEventListener("click", () => {
-  void pickCsvAndLoadPreview();
-});
-loadPreviewBtn.addEventListener("click", () => {
-  void loadPreviewForCurrentCSV().catch((err) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    setStatus("Chyba pri načítaní CSV", "error");
-    appendLog(`Chyba pri načítaní CSV: ${msg}`);
-  });
-});
-pickMobileLteBtn.addEventListener("click", () => {
-  void pickMobileLTE();
-});
-addFiltersBtn.addEventListener("click", () => {
-  void addFilterFiles();
-});
-removeFilterBtn.addEventListener("click", removeSelectedFilters);
-clearFiltersBtn.addEventListener("click", clearFilters);
-mobileModeCheckbox.addEventListener("change", updateDependentUI);
-includeEmptyZonesCheckbox.addEventListener("change", updateDependentUI);
-addCustomOperatorsCheckbox.addEventListener("change", updateDependentUI);
-runBtn.addEventListener("click", () => {
-  void runProcessing();
-});
-clearLogBtn.addEventListener("click", () => {
-  state.logs = [];
-  logOutput.textContent = "Log vyčistený.";
-});
-csvPathInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    void loadPreviewForCurrentCSV().catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      setStatus("Chyba pri načítaní CSV", "error");
-      appendLog(`Chyba pri načítaní CSV: ${msg}`);
-    });
-  }
-});
-
-renderPreview();
-renderFilterList();
-renderMappingGrid();
-renderResult();
-updateDependentUI();
-setStatus("Pripravené", "idle");

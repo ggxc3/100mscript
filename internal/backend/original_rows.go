@@ -35,3 +35,55 @@ func ensureOriginalExcelRowColumn(data *CSVData) (*CSVData, error) {
 
 	return out, nil
 }
+
+func excludeRowsByOriginalExcelRow(data *CSVData, excluded []int) (*CSVData, int, error) {
+	if data == nil {
+		return nil, 0, fmt.Errorf("nil CSVData")
+	}
+	if len(excluded) == 0 {
+		return data.clone(), 0, nil
+	}
+
+	idx := data.columnIndexByName("original_excel_row")
+	if idx < 0 {
+		return nil, 0, fmt.Errorf("missing original_excel_row column")
+	}
+
+	excludedSet := make(map[int]struct{}, len(excluded))
+	for _, rowID := range excluded {
+		excludedSet[rowID] = struct{}{}
+	}
+
+	out := &CSVData{
+		Columns:  append([]string(nil), data.Columns...),
+		Rows:     make([][]string, 0, len(data.Rows)),
+		FileInfo: data.FileInfo,
+	}
+	removed := 0
+
+	for _, row := range data.Rows {
+		rowID, err := originalExcelRowValue(row, idx)
+		if err != nil {
+			return nil, 0, err
+		}
+		if _, skip := excludedSet[rowID]; skip {
+			removed++
+			continue
+		}
+		out.Rows = append(out.Rows, append([]string(nil), row...))
+	}
+
+	return out, removed, nil
+}
+
+func originalExcelRowValue(row []string, idx int) (int, error) {
+	if idx < 0 || idx >= len(row) {
+		return 0, fmt.Errorf("row is missing original_excel_row value")
+	}
+	value := strings.TrimSpace(row[idx])
+	rowID, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid original_excel_row value %q", value)
+	}
+	return rowID, nil
+}

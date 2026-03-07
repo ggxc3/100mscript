@@ -7,6 +7,8 @@ export function DiscoverAutoFilterPaths():Promise<Array<string>>;
 
 export function LoadCSVPreview(arg1:string):Promise<main.CSVPreview>;
 
+export function LoadTimeSelectorData(arg1:string):Promise<backend.TimeSelectorData>;
+
 export function PickFilterFiles():Promise<Array<string>>;
 
 export function PickInputCSVFile():Promise<string>;

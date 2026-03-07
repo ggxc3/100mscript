@@ -90,7 +90,6 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	type rawParsed struct {
 		row              []string
 		originalExcelRow int
-		gapBefore        bool
 		lat              float64
 		lon              float64
 		rsrp             float64
@@ -114,16 +113,10 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		}
 		lat, ok := parseNumberString(cellAt(rowCopy, latIdx))
 		if !ok {
-			if cfg.SkipRowsWithoutGPS {
-				continue
-			}
 			return nil, fmt.Errorf("invalid latitude at row %d", originalExcelRow)
 		}
 		lon, ok := parseNumberString(cellAt(rowCopy, lonIdx))
 		if !ok {
-			if cfg.SkipRowsWithoutGPS {
-				continue
-			}
 			return nil, fmt.Errorf("invalid longitude at row %d", originalExcelRow)
 		}
 
@@ -136,15 +129,9 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 			}
 		}
 
-		gapBefore := false
-		if cfg.SkipRowsWithoutGPS && len(filtered) > 0 && originalExcelRow > filtered[len(filtered)-1].originalExcelRow+1 {
-			gapBefore = true
-		}
-
 		filtered = append(filtered, rawParsed{
 			row:              rowCopy,
 			originalExcelRow: originalExcelRow,
-			gapBefore:        gapBefore,
 			lat:              lat,
 			lon:              lon,
 			rsrp:             rsrp,
@@ -172,21 +159,12 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	epsilon := 1e-9
 	segmentIDs := make([]int, len(filtered))
 	if cfg.ZoneMode == "segments" && len(filtered) > 0 {
-		runStartSegmentID := 0
 		cumulativeDistance := 0.0
 		prevX, prevY := xy[0].A, xy[0].B
-		segmentMeta[runStartSegmentID] = Point{A: prevX, B: prevY}
-		segmentIDs[0] = runStartSegmentID
+		segmentMeta[0] = Point{A: prevX, B: prevY}
+		segmentIDs[0] = 0
 		for i := 1; i < len(filtered); i++ {
 			x, y := xy[i].A, xy[i].B
-			if cfg.SkipRowsWithoutGPS && filtered[i].gapBefore {
-				runStartSegmentID = segmentIDs[i-1] + 1
-				cumulativeDistance = 0
-				segmentMeta[runStartSegmentID] = Point{A: x, B: y}
-				segmentIDs[i] = runStartSegmentID
-				prevX, prevY = x, y
-				continue
-			}
 			stepDistance := math.Hypot(x-prevX, y-prevY)
 			if stepDistance > 0 {
 				prevCumulative := cumulativeDistance
@@ -203,14 +181,14 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 						} else if fraction > 1 {
 							fraction = 1
 						}
-						segmentMeta[runStartSegmentID+segID] = Point{
+						segmentMeta[segID] = Point{
 							A: prevX + (x-prevX)*fraction,
 							B: prevY + (y-prevY)*fraction,
 						}
 					}
 				}
 			}
-			segmentIDs[i] = runStartSegmentID + int(math.Floor((cumulativeDistance+epsilon)/zoneSize))
+			segmentIDs[i] = int(math.Floor((cumulativeDistance + epsilon) / zoneSize))
 			prevX, prevY = x, y
 		}
 	}
