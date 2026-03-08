@@ -1168,11 +1168,9 @@ function renderDropdownField(params: {
 function filterDropdownOptions(options: string[], query: string): string[] {
   const trimmed = query.trim().toLocaleLowerCase("sk-SK");
   if (!trimmed) {
-    return options.slice(0, 200);
+    return options;
   }
-  return options
-    .filter((option) => option.toLocaleLowerCase("sk-SK").includes(trimmed))
-    .slice(0, 200);
+  return options.filter((option) => option.toLocaleLowerCase("sk-SK").includes(trimmed));
 }
 
 function buildDefaultTimeWindow(dateOptions: TimeDateOption[], index: number): TimeWindowDraft {
@@ -1308,35 +1306,40 @@ function resolveTimeWindowTimestamp(dateLabel: string, timeLabel: string, dateOp
 }
 
 function formatDateLabel(timestampMS: number): string {
-  const date = new Date(timestampMS);
-  return date.toLocaleDateString("sk-SK", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  return formatDateTimeParts(timestampMS).dateLabel;
 }
 
 function formatTimeLabel(timestampMS: number): string {
-  const date = new Date(timestampMS);
-  return date.toLocaleTimeString("sk-SK", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  return formatDateTimeParts(timestampMS).timeLabel;
 }
 
 function formatDateTimeLabel(timestampMS: number): string {
-  const date = new Date(timestampMS);
-  return date.toLocaleString("sk-SK", {
+  const parts = formatDateTimeParts(timestampMS);
+  return `${parts.dateLabel} ${parts.timeLabel}`;
+}
+
+function formatDateTimeParts(timestampMS: number): { dateLabel: string; timeLabel: string } {
+  const formatter = new Intl.DateTimeFormat("sk-SK", {
+    timeZone: "Europe/Bratislava",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    fractionalSecondDigits: 3,
     hour12: false,
   });
+  const formatted = formatter.formatToParts(new Date(timestampMS));
+  const values = new Map<string, string>();
+  for (const part of formatted) {
+    values.set(part.type, (values.get(part.type) ?? "") + part.value);
+  }
+  const dateLabel = `${values.get("day") ?? "00"}.${values.get("month") ?? "00"}.${values.get("year") ?? "0000"}`;
+  const fraction = values.get("fractionalSecond") ?? "000";
+  const timeLabel =
+    `${values.get("hour") ?? "00"}:${values.get("minute") ?? "00"}:${values.get("second") ?? "00"}.${fraction}`;
+  return { dateLabel, timeLabel };
 }
 
 function labelForTimeStrategy(strategy?: string): string {

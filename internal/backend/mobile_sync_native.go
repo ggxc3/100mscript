@@ -348,16 +348,22 @@ func parseDateTimeToMillis(s string) (int64, bool) {
 	if s == "" {
 		return 0, false
 	}
+	location := time.Local
+	if bratislava, err := time.LoadLocation("Europe/Bratislava"); err == nil {
+		location = bratislava
+	}
 	layouts := []string{
 		"2006-01-02 15:04:05.999999999",
 		"2006-01-02 15:04:05",
+		"2.1.2006 15:04:05.999999999",
 		"2.1.2006 15:04:05",
+		"02.01.2006 15:04:05.999999999",
 		"02.01.2006 15:04:05",
 		time.RFC3339Nano,
 		time.RFC3339,
 	}
 	for _, layout := range layouts {
-		if ts, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+		if ts, err := time.ParseInLocation(layout, s, location); err == nil {
 			return ts.UnixMilli(), true
 		}
 	}

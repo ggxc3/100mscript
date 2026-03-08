@@ -181,6 +181,35 @@ func TestLoadTimeSelectorDataBuildsTimeRows(t *testing.T) {
 	}
 }
 
+func TestLoadTimeSelectorDataParsesMillisecondsInDateAndTime(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "time_selector_millis.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time",
+		"48.148600;17.107700;3500;10;231;01;-100;16.02.2025;12:45:03.381",
+		"48.148700;17.107800;3500;11;231;01;-101;16.02.2025;12:45:03.582",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	data, err := LoadTimeSelectorData(inputPath)
+	if err != nil {
+		t.Fatalf("load time selector data with milliseconds: %v", err)
+	}
+	if data.TimedRows != 2 {
+		t.Fatalf("expected 2 timed rows, got %d", data.TimedRows)
+	}
+	if data.Rows[0].TimestampMS == data.Rows[1].TimestampMS {
+		t.Fatalf("expected distinct timestamps for millisecond values, got %#v", data.Rows)
+	}
+	if got := data.Rows[1].TimestampMS - data.Rows[0].TimestampMS; got != 201 {
+		t.Fatalf("expected 201ms difference, got %d", got)
+	}
+}
+
 func TestRunProcessingSegmentsStillGeneratesMissingOperatorsForObservedSegments(t *testing.T) {
 	t.Parallel()
 
