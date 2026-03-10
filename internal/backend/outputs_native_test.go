@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunProcessingExportsNRAsBinaryValues(t *testing.T) {
@@ -208,6 +209,46 @@ func TestLoadTimeSelectorDataParsesMillisecondsInDateAndTime(t *testing.T) {
 	if got := data.Rows[1].TimestampMS - data.Rows[0].TimestampMS; got != 201 {
 		t.Fatalf("expected 201ms difference, got %d", got)
 	}
+}
+
+func TestLoadTimeSelectorDataPrefersDateTimeOverConflictingUTC(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "time_selector_prefer_datetime.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time;UTC",
+		"48.148600;17.107700;3500;10;231;01;-100;05.02.2026;09:46:33.670;1770277588",
+		"48.148700;17.107800;3500;11;231;01;-101;05.02.2026;09:46:34.014;1770277589",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	data, err := LoadTimeSelectorData(inputPath)
+	if err != nil {
+		t.Fatalf("load time selector data with conflicting UTC: %v", err)
+	}
+	if data.Strategy != "date_time" {
+		t.Fatalf("expected date_time strategy, got %q", data.Strategy)
+	}
+	if len(data.Rows) != 2 {
+		t.Fatalf("expected 2 selector rows, got %d", len(data.Rows))
+	}
+
+	expected := time.Date(2026, time.February, 5, 9, 46, 33, 670*int(time.Millisecond), mustLoadLocation(t, "Europe/Bratislava")).UnixMilli()
+	if data.Rows[0].TimestampMS != expected {
+		t.Fatalf("expected first timestamp %d from Date+Time, got %d", expected, data.Rows[0].TimestampMS)
+	}
+}
+
+func mustLoadLocation(t *testing.T, name string) *time.Location {
+	t.Helper()
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatalf("load location %q: %v", name, err)
+	}
+	return location
 }
 
 func TestRunProcessingSegmentsStillGeneratesMissingOperatorsForObservedSegments(t *testing.T) {

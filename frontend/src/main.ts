@@ -1348,6 +1348,8 @@ function labelForTimeStrategy(strategy?: string): string {
       return "UTC číslo";
     case "utc_datetime":
       return "UTC dátum/čas";
+    case "date_time_with_utc_fallback":
+      return "Date + Time (UTC fallback)";
     case "date_time":
       return "Date + Time";
     default:

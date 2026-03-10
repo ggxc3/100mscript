@@ -24,7 +24,7 @@ func LoadTimeSelectorData(filePath string) (TimeSelectorData, error) {
 		return TimeSelectorData{}, fmt.Errorf("missing original_excel_row column")
 	}
 
-	series, strategy := buildTimeMillisSeriesNative(data, utcIdx, dateIdx, timeIdx)
+	series, strategy := buildTimeSelectorSeriesNative(data, utcIdx, dateIdx, timeIdx)
 	rows := make([]TimeSelectorRow, 0, len(data.Rows))
 	var minTimeMS int64
 	var maxTimeMS int64
@@ -69,4 +69,32 @@ func LoadTimeSelectorData(filePath string) (TimeSelectorData, error) {
 		MaxTimeMS: maxTimeMS,
 		Strategy:  strategy,
 	}, nil
+}
+
+func buildTimeSelectorSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) (timeSeriesNative, string) {
+	dateTimeSeries, dateTimeStrategy := buildTimeMillisSeriesNative(data, -1, dateIdx, timeIdx)
+	if dateTimeStrategy == "missing" {
+		return buildTimeMillisSeriesNative(data, utcIdx, -1, -1)
+	}
+
+	utcSeries, utcStrategy := buildTimeMillisSeriesNative(data, utcIdx, -1, -1)
+	if utcStrategy == "missing" {
+		return dateTimeSeries, dateTimeStrategy
+	}
+
+	usedFallback := false
+	for i := range dateTimeSeries.Values {
+		if dateTimeSeries.Valid[i] {
+			continue
+		}
+		if i < len(utcSeries.Valid) && utcSeries.Valid[i] {
+			dateTimeSeries.Values[i] = utcSeries.Values[i]
+			dateTimeSeries.Valid[i] = true
+			usedFallback = true
+		}
+	}
+	if usedFallback {
+		return dateTimeSeries, "date_time_with_utc_fallback"
+	}
+	return dateTimeSeries, dateTimeStrategy
 }
