@@ -5,13 +5,15 @@ import {backend} from '../models';
 
 export function DiscoverAutoFilterPaths():Promise<Array<string>>;
 
-export function LoadCSVPreview(arg1:string):Promise<main.CSVPreview>;
+export function LoadCSVPreview(arg1:Array<string>):Promise<main.CSVPreview>;
 
-export function LoadTimeSelectorData(arg1:string):Promise<backend.TimeSelectorData>;
+export function LoadTimeSelectorData(arg1:Array<string>):Promise<backend.TimeSelectorData>;
 
 export function PickFilterFiles():Promise<Array<string>>;
 
 export function PickInputCSVFile():Promise<string>;
+
+export function PickInputCSVPaths():Promise<Array<string>>;
 
 export function PickMobileLTECSVFile():Promise<string>;
 

@@ -203,9 +203,15 @@
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: rgba(11, 122, 117, 0.56);
   box-shadow: 0 0 0 3px rgba(11, 122, 117, 0.12);
+}
+
+.filters-panel .csv-input-note {
+  margin-top: 0;
+  margin-bottom: 10px;
 }
 
 .field input:disabled,

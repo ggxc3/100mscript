@@ -12,11 +12,24 @@ func nativeSupported(cfg ProcessingConfig) bool {
 }
 
 func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingResult, error) {
-	data, err := LoadCSVFile(cfg.FilePath)
-	if err != nil {
-		return ProcessingResult{}, fmt.Errorf("load csv: %w", err)
+	paths := InputPathsFromConfig(cfg)
+	if len(paths) == 0 {
+		return ProcessingResult{}, fmt.Errorf("chýba vstupný CSV súbor")
 	}
-	data, err = ensureOriginalExcelRowColumn(data)
+	data, err := LoadAndMergeCSVFiles(paths)
+	if err != nil {
+		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
+	}
+	if len(paths) > 1 {
+		if sorted, ok := sortMergedCSVRowsByTime(data); ok {
+			data = sorted
+		}
+	}
+	if len(paths) == 1 {
+		data, err = ensureOriginalExcelRowColumn(data)
+	} else {
+		data, err = assignSequentialOriginalExcelRows(data)
+	}
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("original excel row: %w", err)
 	}

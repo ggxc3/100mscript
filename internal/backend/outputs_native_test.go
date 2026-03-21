@@ -158,7 +158,7 @@ func TestLoadTimeSelectorDataBuildsTimeRows(t *testing.T) {
 		t.Fatalf("write input csv: %v", err)
 	}
 
-	data, err := LoadTimeSelectorData(inputPath)
+	data, err := LoadTimeSelectorData([]string{inputPath})
 	if err != nil {
 		t.Fatalf("load time selector data: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestLoadTimeSelectorDataParsesMillisecondsInDateAndTime(t *testing.T) {
 		t.Fatalf("write input csv: %v", err)
 	}
 
-	data, err := LoadTimeSelectorData(inputPath)
+	data, err := LoadTimeSelectorData([]string{inputPath})
 	if err != nil {
 		t.Fatalf("load time selector data with milliseconds: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestLoadTimeSelectorDataPrefersDateTimeOverConflictingUTC(t *testing.T) {
 		t.Fatalf("write input csv: %v", err)
 	}
 
-	data, err := LoadTimeSelectorData(inputPath)
+	data, err := LoadTimeSelectorData([]string{inputPath})
 	if err != nil {
 		t.Fatalf("load time selector data with conflicting UTC: %v", err)
 	}

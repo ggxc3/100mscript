@@ -22,6 +22,10 @@ export function PickInputCSVFile() {
   return window['go']['main']['App']['PickInputCSVFile']();
 }
 
+export function PickInputCSVPaths() {
+  return window['go']['main']['App']['PickInputCSVPaths']();
+}
+
 export function PickMobileLTECSVFile() {
   return window['go']['main']['App']['PickMobileLTECSVFile']();
 }

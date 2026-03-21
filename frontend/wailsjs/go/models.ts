@@ -18,6 +18,7 @@ export namespace backend {
 	}
 	export class ProcessingConfig {
 	    file_path: string;
+	    input_file_paths?: string[];
 	    column_mapping: Record<string, number>;
 	    keep_original_rows: boolean;
 	    excluded_original_rows: number[];
@@ -44,6 +45,7 @@ export namespace backend {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.file_path = source["file_path"];
+	        this.input_file_paths = source["input_file_paths"];
 	        this.column_mapping = source["column_mapping"];
 	        this.keep_original_rows = source["keep_original_rows"];
 	        this.excluded_original_rows = source["excluded_original_rows"];
@@ -180,6 +182,7 @@ export namespace backend {
 export namespace main {
 	
 	export class CSVPreview {
+	    filePaths: string[];
 	    filePath: string;
 	    columns: string[];
 	    encoding: string;
@@ -193,6 +196,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filePaths = source["filePaths"] ?? (source["filePath"] ? [source["filePath"]] : []);
 	        this.filePath = source["filePath"];
 	        this.columns = source["columns"];
 	        this.encoding = source["encoding"];

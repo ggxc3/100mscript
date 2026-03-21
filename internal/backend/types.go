@@ -8,6 +8,7 @@ type CustomOperator struct {
 
 type ProcessingConfig struct {
 	FilePath              string           `json:"file_path"`
+	InputFilePaths        []string         `json:"input_file_paths,omitempty"`
 	ColumnMapping         map[string]int   `json:"column_mapping"`
 	KeepOriginalRows      bool             `json:"keep_original_rows"`
 	ExcludedOriginalRows  []int            `json:"excluded_original_rows"`
