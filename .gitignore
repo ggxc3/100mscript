@@ -28,6 +28,7 @@ bin/
 coverage.out
 
 # Wails / frontend
+frontend/ui-app-preview.png
 frontend/node_modules/
 frontend/dist/*
 !frontend/dist/gitkeep
