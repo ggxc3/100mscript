@@ -21,6 +21,9 @@ func LoadTimeSelectorData(paths []string) (TimeSelectorData, error) {
 		if err != nil {
 			return TimeSelectorData{}, err
 		}
+		if sorted, ok := sortMergedCSVRowsByTime(data); ok {
+			data = sorted
+		}
 		data, err = assignSequentialOriginalExcelRows(data)
 	}
 	if err != nil {
@@ -88,6 +91,17 @@ func buildTimeSelectorFromCSVData(data *CSVData) (TimeSelectorData, error) {
 		MaxTimeMS: maxTimeMS,
 		Strategy:  strategy,
 	}, nil
+}
+
+// timeSeriesForSorting uses the same UTC / Date+Time column resolution as the time-window UI.
+func timeSeriesForSorting(data *CSVData) (timeSeriesNative, string) {
+	utcCol := findColumnNameNative(data.Columns, []string{"UTC"})
+	dateCol := findColumnNameNative(data.Columns, []string{"Date"})
+	timeCol := findColumnNameNative(data.Columns, []string{"Time"})
+	utcIdx := data.columnIndexByName(utcCol)
+	dateIdx := data.columnIndexByName(dateCol)
+	timeIdx := data.columnIndexByName(timeCol)
+	return buildTimeSelectorSeriesNative(data, utcIdx, dateIdx, timeIdx)
 }
 
 func buildTimeSelectorSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) (timeSeriesNative, string) {

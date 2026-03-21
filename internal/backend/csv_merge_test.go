@@ -93,6 +93,41 @@ func TestLoadTimeSelectorDataMergedRenumbersOriginalRows(t *testing.T) {
 	}
 }
 
+func TestSortMergedCSVRowsByTimeReordersRows(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	header := "latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time"
+	p1 := filepath.Join(tmpDir, "late.csv")
+	p2 := filepath.Join(tmpDir, "early.csv")
+	csv1 := strings.Join([]string{
+		header,
+		"48.1;17.1;3500;10;231;01;-100;05.02.2026;10:05:00",
+	}, "\n") + "\n"
+	csv2 := strings.Join([]string{
+		header,
+		"48.2;17.2;3600;20;231;02;-101;05.02.2026;10:03:00",
+	}, "\n") + "\n"
+	if err := os.WriteFile(p1, []byte(csv1), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(csv2), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles([]string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	sorted, changed := sortMergedCSVRowsByTime(data)
+	if !changed {
+		t.Fatalf("expected time sort to reorder rows")
+	}
+	if sorted.Rows[0][3] != "20" || sorted.Rows[1][3] != "10" {
+		t.Fatalf("expected earlier time (PCI 20) first, got PCI columns %#v", []string{sorted.Rows[0][3], sorted.Rows[1][3]})
+	}
+}
+
 func TestRunProcessingWithMergedInputPaths(t *testing.T) {
 	t.Parallel()
 

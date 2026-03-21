@@ -6,6 +6,7 @@ import {
   LoadCSVPreview,
   LoadTimeSelectorData,
   PickFilterFiles,
+  PickInputCSVFile,
   PickInputCSVPaths,
   PickMobileLTECSVFile,
   RunProcessingWithConfig,
@@ -49,6 +50,7 @@ type TimeWindowDraft = {
 type UIState = {
   preview: main.CSVPreview | null;
   columnMapping: Partial<Record<ColumnKey, number>>;
+  inputCsvPaths: string[];
   customFilterPaths: string[];
   running: boolean;
   statusText: string;
@@ -92,6 +94,7 @@ function mountMainView(root: HTMLDivElement): void {
   const state: UIState = {
     preview: null,
     columnMapping: {},
+    inputCsvPaths: [],
     customFilterPaths: [],
     running: false,
     statusText: "Pripravené",
@@ -128,23 +131,24 @@ function mountMainView(root: HTMLDivElement): void {
               <span class="tag">CSV</span>
             </div>
 
-            <label class="field">
-              <span>Vstupné CSV (jeden alebo viac súborov)</span>
-              <textarea
-                id="csvPaths"
-                class="csv-paths-input"
-                rows="4"
-                spellcheck="false"
-                placeholder="Jedna cesta na riadok. Môžeš vybrať viac súborov naraz (rovnaká trasa, viac zariadení)."
-              ></textarea>
-              <div class="inline-row">
-                <button id="pickCsvBtn" class="btn secondary" type="button">Vybrať CSV…</button>
+            <div class="filters-panel">
+              <div class="filters-head">
+                <strong>Vstupné CSV súbory</strong>
+                <span class="tag">poradie = zlúčenie</span>
+              </div>
+              <p class="section-note csv-input-note">
+                Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí). Po zlúčení sa riadky
+                zoradia podľa času (UTC alebo Date+Time), aby sedeli s časovými oknami.
+              </p>
+              <div class="inline-actions">
+                <button id="addCsvBtn" class="btn secondary" type="button">Pridať súbor</button>
+                <button id="addCsvMultiBtn" class="btn secondary" type="button">Pridať viac naraz</button>
+                <button id="removeCsvBtn" class="btn danger" type="button">Odstrániť vybrané</button>
+                <button id="clearCsvBtn" class="btn ghost" type="button">Vyčistiť</button>
                 <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
               </div>
-              <small class="muted"
-                >Súbory musia mať rovnaké stĺpce v rovnakom poradí (napr. nie je možné zlúčiť LTE export s 5G NR exportom s inými hlavičkami).</small
-              >
-            </label>
+              <select id="csvList" class="listbox" multiple size="5"></select>
+            </div>
 
             <div class="preview-box">
               <div class="preview-head">
@@ -309,8 +313,11 @@ function mountMainView(root: HTMLDivElement): void {
     </main>
   `;
 
-  const csvPathsInput = qs<HTMLTextAreaElement>("#csvPaths");
-  const pickCsvBtn = qs<HTMLButtonElement>("#pickCsvBtn");
+  const csvList = qs<HTMLSelectElement>("#csvList");
+  const addCsvBtn = qs<HTMLButtonElement>("#addCsvBtn");
+  const addCsvMultiBtn = qs<HTMLButtonElement>("#addCsvMultiBtn");
+  const removeCsvBtn = qs<HTMLButtonElement>("#removeCsvBtn");
+  const clearCsvBtn = qs<HTMLButtonElement>("#clearCsvBtn");
   const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
   const previewMeta = qs<HTMLSpanElement>("#previewMeta");
   const previewColumns = qs<HTMLDivElement>("#previewColumns");
@@ -379,8 +386,11 @@ function mountMainView(root: HTMLDivElement): void {
   function setRunning(running: boolean): void {
     state.running = running;
     runBtn.disabled = running;
-    csvPathsInput.disabled = running;
-    pickCsvBtn.disabled = running;
+    csvList.disabled = running;
+    addCsvBtn.disabled = running;
+    addCsvMultiBtn.disabled = running;
+    removeCsvBtn.disabled = running;
+    clearCsvBtn.disabled = running;
     loadPreviewBtn.disabled = running;
     pickMobileLteBtn.disabled = running || !mobileModeCheckbox.checked;
     addFiltersBtn.disabled = running;
@@ -415,6 +425,100 @@ function mountMainView(root: HTMLDivElement): void {
       opt.textContent = path;
       filtersList.appendChild(opt);
     }
+  }
+
+  function renderCsvList(): void {
+    csvList.innerHTML = "";
+    for (const path of state.inputCsvPaths) {
+      const opt = document.createElement("option");
+      opt.value = path;
+      opt.textContent = path;
+      csvList.appendChild(opt);
+    }
+  }
+
+  function getInputCsvPaths(): string[] {
+    return [...state.inputCsvPaths];
+  }
+
+  function clearCsvInputAndPreview(): void {
+    state.inputCsvPaths = [];
+    state.preview = null;
+    state.columnMapping = {};
+    clearTimeSelectorState();
+    renderCsvList();
+    renderPreview();
+    renderMappingGrid();
+    renderResult();
+  }
+
+  function invalidateCsvPreviewAfterListChange(): void {
+    state.preview = null;
+    state.columnMapping = {};
+    clearTimeSelectorState();
+    renderPreview();
+    renderMappingGrid();
+    renderResult();
+  }
+
+  function removeSelectedCsvPaths(): void {
+    const selected = new Set(Array.from(csvList.selectedOptions).map((opt) => opt.value));
+    if (selected.size === 0) {
+      return;
+    }
+    state.inputCsvPaths = state.inputCsvPaths.filter((path) => !selected.has(path));
+    if (state.inputCsvPaths.length === 0) {
+      clearCsvInputAndPreview();
+    } else {
+      invalidateCsvPreviewAfterListChange();
+      renderCsvList();
+    }
+    appendLog(`Odstránené vstupné CSV (${selected.size})`);
+  }
+
+  function clearCsvPaths(): void {
+    if (state.inputCsvPaths.length === 0) {
+      return;
+    }
+    const count = state.inputCsvPaths.length;
+    clearCsvInputAndPreview();
+    appendLog(`Vyčistený zoznam vstupných CSV (${count})`);
+  }
+
+  async function addOneCsvFromPicker(): Promise<void> {
+    const path = await PickInputCSVFile();
+    if (!path) {
+      return;
+    }
+    if (state.inputCsvPaths.includes(path)) {
+      appendLog(`Súbor už je v zozname: ${path}`);
+      return;
+    }
+    state.inputCsvPaths = [...state.inputCsvPaths, path];
+    invalidateCsvPreviewAfterListChange();
+    renderCsvList();
+    appendLog(`Pridaný CSV: ${path}`);
+  }
+
+  async function addMultipleCsvFromPicker(): Promise<void> {
+    const paths = (await PickInputCSVPaths()) as string[];
+    if (!paths || paths.length === 0) {
+      return;
+    }
+    let added = 0;
+    for (const p of paths) {
+      if (state.inputCsvPaths.includes(p)) {
+        continue;
+      }
+      state.inputCsvPaths = [...state.inputCsvPaths, p];
+      added++;
+    }
+    if (added > 0) {
+      invalidateCsvPreviewAfterListChange();
+    }
+    renderCsvList();
+    const skipped = paths.length - added;
+    appendLog(`Pridané nové CSV súbory: ${added}${skipped > 0 ? ` (preskočené duplicitné: ${skipped})` : ""}`);
   }
 
   function renderResult(): void {
@@ -731,22 +835,15 @@ function mountMainView(root: HTMLDivElement): void {
     state.columnMapping = next;
   }
 
-  function parseCsvPathsFromTextarea(): string[] {
-    return csvPathsInput.value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  }
-
   async function loadPreviewForCurrentCSV(): Promise<void> {
-    const paths = parseCsvPathsFromTextarea();
+    const paths = getInputCsvPaths();
     if (paths.length === 0) {
-      throw new Error("Vyber alebo zadaj aspoň jeden vstupný CSV súbor.");
+      throw new Error("Pridaj aspoň jeden vstupný CSV súbor.");
     }
 
     appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
     const preview = (await LoadCSVPreview(paths)) as main.CSVPreview;
-    const previousKey = (state.preview?.filePaths ?? []).join("\n") || state.preview?.filePath || "";
+    const previousKey = state.inputCsvPaths.join("\n");
     const newKey = (preview.filePaths ?? []).join("\n") || preview.filePath || "";
     state.preview = preview;
     applySuggestedMapping(preview);
@@ -775,9 +872,9 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
-    const paths = parseCsvPathsFromTextarea();
+    const paths = getInputCsvPaths();
     if (paths.length === 0) {
-      throw new Error("Vyber vstupný CSV súbor (aspoň jeden).");
+      throw new Error("Pridaj vstupný CSV súbor (aspoň jeden).");
     }
     const filePath = paths[0];
     const input_file_paths = paths.length > 1 ? paths : undefined;
@@ -880,16 +977,6 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
-  async function pickCsvAndLoadPreview(): Promise<void> {
-    const paths = (await PickInputCSVPaths()) as string[];
-    if (!paths || paths.length === 0) {
-      return;
-    }
-    csvPathsInput.value = paths.join("\n");
-    clearTimeSelectorState();
-    await loadPreviewForCurrentCSV();
-  }
-
   async function pickMobileLTE(): Promise<void> {
     const path = await PickMobileLTECSVFile();
     if (!path) {
@@ -929,9 +1016,14 @@ function mountMainView(root: HTMLDivElement): void {
     appendLog(`Vyčistené filtre (${count})`);
   }
 
-  pickCsvBtn.addEventListener("click", () => {
-    void pickCsvAndLoadPreview();
+  addCsvBtn.addEventListener("click", () => {
+    void addOneCsvFromPicker();
   });
+  addCsvMultiBtn.addEventListener("click", () => {
+    void addMultipleCsvFromPicker();
+  });
+  removeCsvBtn.addEventListener("click", removeSelectedCsvPaths);
+  clearCsvBtn.addEventListener("click", clearCsvPaths);
   loadPreviewBtn.addEventListener("click", () => {
     clearTimeSelectorState();
     void loadPreviewForCurrentCSV().catch(handlePreviewError);
@@ -1063,15 +1155,6 @@ function mountMainView(root: HTMLDivElement): void {
     state.logs = [];
     logOutput.textContent = "Log vyčistený.";
   });
-  csvPathsInput.addEventListener("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") {
-      return;
-    }
-    event.preventDefault();
-    clearTimeSelectorState();
-    void loadPreviewForCurrentCSV().catch(handlePreviewError);
-  });
-
   function handlePreviewError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
     setStatus("Chyba pri načítaní CSV", "error");
@@ -1079,6 +1162,7 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   renderPreview();
+  renderCsvList();
   renderFilterList();
   renderMappingGrid();
   renderResult();

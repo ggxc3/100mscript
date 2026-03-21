@@ -20,6 +20,11 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
 	}
+	if len(paths) > 1 {
+		if sorted, ok := sortMergedCSVRowsByTime(data); ok {
+			data = sorted
+		}
+	}
 	if len(paths) == 1 {
 		data, err = ensureOriginalExcelRowColumn(data)
 	} else {
