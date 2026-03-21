@@ -843,7 +843,9 @@ function mountMainView(root: HTMLDivElement): void {
 
     appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
     const preview = (await LoadCSVPreview(paths)) as main.CSVPreview;
-    const previousKey = state.inputCsvPaths.join("\n");
+    const previousKey = state.preview
+      ? (state.preview.filePaths ?? []).join("\n") || state.preview.filePath || ""
+      : "";
     const newKey = (preview.filePaths ?? []).join("\n") || preview.filePath || "";
     state.preview = preview;
     applySuggestedMapping(preview);
