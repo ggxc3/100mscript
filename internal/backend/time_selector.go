@@ -2,16 +2,35 @@ package backend
 
 import "fmt"
 
-func LoadTimeSelectorData(filePath string) (TimeSelectorData, error) {
-	data, err := LoadCSVFile(filePath)
-	if err != nil {
-		return TimeSelectorData{}, err
+func LoadTimeSelectorData(paths []string) (TimeSelectorData, error) {
+	paths = NormalizeInputPaths(paths)
+	if len(paths) == 0 {
+		return TimeSelectorData{}, fmt.Errorf("žiadna cesta k CSV súboru")
 	}
-	data, err = ensureOriginalExcelRowColumn(data)
+
+	var data *CSVData
+	var err error
+	if len(paths) == 1 {
+		data, err = LoadCSVFile(paths[0])
+		if err != nil {
+			return TimeSelectorData{}, err
+		}
+		data, err = ensureOriginalExcelRowColumn(data)
+	} else {
+		data, err = LoadAndMergeCSVFiles(paths)
+		if err != nil {
+			return TimeSelectorData{}, err
+		}
+		data, err = assignSequentialOriginalExcelRows(data)
+	}
 	if err != nil {
 		return TimeSelectorData{}, err
 	}
 
+	return buildTimeSelectorFromCSVData(data)
+}
+
+func buildTimeSelectorFromCSVData(data *CSVData) (TimeSelectorData, error) {
 	utcCol := findColumnNameNative(data.Columns, []string{"UTC"})
 	dateCol := findColumnNameNative(data.Columns, []string{"Date"})
 	timeCol := findColumnNameNative(data.Columns, []string{"Time"})

@@ -203,9 +203,23 @@
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: rgba(11, 122, 117, 0.56);
   box-shadow: 0 0 0 3px rgba(11, 122, 117, 0.12);
+}
+
+.csv-paths-input {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid #d5dbe6;
+  padding: 10px 12px;
+  font: 500 13px/1.35 "IBM Plex Sans", sans-serif;
+  background: #fff;
+  color: #1f2933;
 }
 
 .field input:disabled,

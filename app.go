@@ -59,6 +59,7 @@ func (a *App) DiscoverAutoFilterPaths() ([]string, error) {
 }
 
 type CSVPreview struct {
+	FilePaths        []string       `json:"filePaths"`
 	FilePath         string         `json:"filePath"`
 	Columns          []string       `json:"columns"`
 	Encoding         string         `json:"encoding"`
@@ -67,13 +68,24 @@ type CSVPreview struct {
 	SuggestedMapping map[string]int `json:"suggestedMapping"`
 }
 
-func (a *App) LoadCSVPreview(filePath string) (CSVPreview, error) {
-	data, err := backendpkg.LoadCSVFile(filePath)
+func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
+	paths = backendpkg.NormalizeInputPaths(paths)
+	if len(paths) == 0 {
+		return CSVPreview{}, fmt.Errorf("zadaj aspoň jednu cestu k CSV súboru")
+	}
+	var data *backendpkg.CSVData
+	var err error
+	if len(paths) == 1 {
+		data, err = backendpkg.LoadCSVFile(paths[0])
+	} else {
+		data, err = backendpkg.LoadAndMergeCSVFiles(paths)
+	}
 	if err != nil {
 		return CSVPreview{}, err
 	}
 	return CSVPreview{
-		FilePath:         filePath,
+		FilePaths:        paths,
+		FilePath:         paths[0],
 		Columns:          data.Columns,
 		Encoding:         data.FileInfo.Encoding,
 		HeaderLine:       data.FileInfo.HeaderLine,
@@ -82,8 +94,28 @@ func (a *App) LoadCSVPreview(filePath string) (CSVPreview, error) {
 	}, nil
 }
 
-func (a *App) LoadTimeSelectorData(filePath string) (backendpkg.TimeSelectorData, error) {
-	return backendpkg.LoadTimeSelectorData(filePath)
+func (a *App) LoadTimeSelectorData(paths []string) (backendpkg.TimeSelectorData, error) {
+	return backendpkg.LoadTimeSelectorData(paths)
+}
+
+func (a *App) PickInputCSVPaths() ([]string, error) {
+	if a.ctx == nil {
+		return nil, fmt.Errorf("aplikacia nie je inicializovana")
+	}
+	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Vyber jeden alebo viac CSV súborov (rovnaká štruktúra)",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "CSV files (*.csv)", Pattern: "*.csv"},
+			{DisplayName: "All files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		return []string{}, nil
+	}
+	return files, nil
 }
 
 func (a *App) RunProcessingWithConfig(cfg backendpkg.ProcessingConfig) (backendpkg.ProcessingResult, error) {

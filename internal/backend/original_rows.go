@@ -36,6 +36,35 @@ func ensureOriginalExcelRowColumn(data *CSVData) (*CSVData, error) {
 	return out, nil
 }
 
+// assignSequentialOriginalExcelRows sets original_excel_row to 1..N for every row (used after merging files).
+func assignSequentialOriginalExcelRows(data *CSVData) (*CSVData, error) {
+	if data == nil {
+		return nil, fmt.Errorf("nil CSVData")
+	}
+
+	out := data.clone()
+	idx := out.columnIndexByName("original_excel_row")
+	if idx == -1 {
+		out.Columns = append(out.Columns, "original_excel_row")
+		idx = len(out.Columns) - 1
+		for i := range out.Rows {
+			out.Rows[i] = append(out.Rows[i], strconv.Itoa(i+1))
+		}
+		return out, nil
+	}
+
+	for i := range out.Rows {
+		if idx >= len(out.Rows[i]) {
+			padded := make([]string, idx+1)
+			copy(padded, out.Rows[i])
+			out.Rows[i] = padded
+		}
+		out.Rows[i][idx] = strconv.Itoa(i + 1)
+	}
+
+	return out, nil
+}
+
 func excludeRowsByOriginalExcelRow(data *CSVData, excluded []int) (*CSVData, int, error) {
 	if data == nil {
 		return nil, 0, fmt.Errorf("nil CSVData")
