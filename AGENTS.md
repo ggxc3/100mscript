@@ -30,3 +30,14 @@
 ## Configuration & Runtime Notes
 - Filters are auto-loaded from `filters/` and `filtre_5G/`; add new `.txt` files there to extend behavior.
 - Environment variables: `FILTERS_DEBUG_OUTPUT` for filter dumps and `OUTPUT_SUFFIX` for output naming.
+
+## Cursor Cloud specific instructions
+
+- **System deps (pre-installed in snapshot):** `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `pkg-config`, `build-essential` are required for compiling Wails on Linux.
+- **webkit2gtk version caveat:** Ubuntu 24.04 ships `webkit2gtk-4.1` (not 4.0). You **must** pass `-tags webkit2_41` to all Wails commands. For example:
+  - Dev: `go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 dev -tags webkit2_41`
+  - Tests: `go test -tags webkit2_41 ./...`
+  - Build: `go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -tags webkit2_41 -platform linux/amd64 -clean`
+- **Frontend build before Go compile:** The Go binary embeds `frontend/dist/` via `//go:embed`. Run `cd frontend && npm run build` before `go build` or `go test` if `frontend/dist/` is missing.
+- **Display:** The VM has `DISPLAY=:1` running via Xvfb. Wails dev renders in this virtual display; use `http://localhost:34115` in Chrome to interact with the app via the browser dev server.
+- **Sample data:** `data/` is gitignored. To test end-to-end through the UI, create a semicolon-delimited CSV with columns: `latitude;longitude;frequency;pci;mcc;mnc;rsrp;sinr` (and optionally `Date;Time` for time selector).
