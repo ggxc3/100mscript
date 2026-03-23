@@ -98,7 +98,9 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	}
 
 	filtered := make([]rawParsed, 0, len(data.Rows))
+	nIn := len(data.Rows)
 	for i, row := range data.Rows {
+		maybeEmitProgressInRange(ctx, "compute_zones", i, nIn, 0, 22)
 		rowCopy := append([]string(nil), row...)
 		originalExcelRow := i + data.FileInfo.HeaderLine + 1
 		if origExcelIdx >= 0 && origExcelIdx < len(rowCopy) {
@@ -144,10 +146,12 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	for i, r := range filtered {
 		lonLat[i] = Point{A: r.lon, B: r.lat}
 	}
+	emitProcessingProgress(ctx, "compute_zones", 24)
 	xy, err := transformer.Forward(ctx, lonLat)
 	if err != nil {
 		return nil, err
 	}
+	emitProcessingProgress(ctx, "compute_zones", 38)
 
 	rows := make([]ProcessedRow, len(filtered))
 	segmentMeta := map[int]Point{}
@@ -163,7 +167,11 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		prevX, prevY := xy[0].A, xy[0].B
 		segmentMeta[0] = Point{A: prevX, B: prevY}
 		segmentIDs[0] = 0
+		segSteps := len(filtered) - 1
 		for i := 1; i < len(filtered); i++ {
+			if segSteps > 0 {
+				maybeEmitProgressInRange(ctx, "compute_zones", i-1, segSteps, 38, 46)
+			}
 			x, y := xy[i].A, xy[i].B
 			stepDistance := math.Hypot(x-prevX, y-prevY)
 			if stepDistance > 0 {
@@ -193,7 +201,9 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		}
 	}
 
+	nF := len(filtered)
 	for i, src := range filtered {
+		maybeEmitProgressInRange(ctx, "compute_zones", i, nF, 46, 99)
 		x := xy[i].A
 		y := xy[i].B
 		mcc := cellAt(src.row, mccIdx)
@@ -239,6 +249,7 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		}
 	}
 
+	emitProcessingProgress(ctx, "compute_zones", 100)
 	return &ProcessedDataset{
 		Rows:        rows,
 		Columns:     cols,
@@ -278,7 +289,9 @@ func CalculateZoneStatsNative(
 	}
 
 	agg := make(map[aggKey]*aggVal)
-	for _, r := range ds.Rows {
+	nAgg := len(ds.Rows)
+	for i, r := range ds.Rows {
+		maybeEmitProgressInRange(ctx, "zone_stats", i, nAgg, 0, 22)
 		if strings.TrimSpace(r.MCC) == "" || strings.TrimSpace(r.MNC) == "" || strings.TrimSpace(r.PCI) == "" || strings.TrimSpace(r.Frequency) == "" {
 			// Mirror pandas groupby behavior: rows with missing grouping keys (blank CSV -> NaN) are excluded.
 			continue
@@ -343,6 +356,7 @@ func CalculateZoneStatsNative(
 		zoneFreqStats = append(zoneFreqStats, z)
 	}
 
+	emitProcessingProgress(ctx, "zone_stats", 28)
 	sort.Slice(zoneFreqStats, func(i, j int) bool {
 		a, b := zoneFreqStats[i], zoneFreqStats[j]
 		if a.RSRPAvg != b.RSRPAvg {
@@ -373,7 +387,9 @@ func CalculateZoneStatsNative(
 	}
 	chosen := map[chosenKey]zoneFreqStat{}
 	chosenOrder := make([]chosenKey, 0, len(zoneFreqStats))
-	for _, z := range zoneFreqStats {
+	nZf := len(zoneFreqStats)
+	for zi, z := range zoneFreqStats {
+		maybeEmitProgressInRange(ctx, "zone_stats", zi, nZf, 24, 38)
 		key := chosenKey{
 			ZonaKey:     z.Key.ZonaKey,
 			OperatorKey: z.Key.OperatorKey,
@@ -391,7 +407,9 @@ func CalculateZoneStatsNative(
 
 	points := make([]Point, 0, len(chosenOrder))
 	zoneCenters := make([]Point, 0, len(chosenOrder))
-	for _, key := range chosenOrder {
+	nChosen := len(chosenOrder)
+	for pi, key := range chosenOrder {
+		maybeEmitProgressInRange(ctx, "zone_stats", pi, nChosen, 38, 52)
 		z := chosen[key]
 		var center Point
 		if cfg.ZoneMode == "segments" {
@@ -402,13 +420,16 @@ func CalculateZoneStatsNative(
 		zoneCenters = append(zoneCenters, center)
 		points = append(points, center)
 	}
+	emitProcessingProgress(ctx, "zone_stats", 55)
 	lonLat, err := transformer.Inverse(ctx, points)
 	if err != nil {
 		return nil, err
 	}
+	emitProcessingProgress(ctx, "zone_stats", 72)
 
 	stats := make([]ZoneStat, 0, len(chosenOrder))
 	for i, key := range chosenOrder {
+		maybeEmitProgressInRange(ctx, "zone_stats", i, nChosen, 72, 99)
 		z := chosen[key]
 		stat := ZoneStat{
 			ZonaKey:                z.Key.ZonaKey,
@@ -448,6 +469,7 @@ func CalculateZoneStatsNative(
 		}
 		stats = append(stats, stat)
 	}
+	emitProcessingProgress(ctx, "zone_stats", 100)
 	sort.Slice(stats, func(i, j int) bool {
 		a, b := stats[i], stats[j]
 		if a.ZonaKey != b.ZonaKey {

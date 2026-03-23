@@ -16,10 +16,12 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if len(paths) == 0 {
 		return ProcessingResult{}, fmt.Errorf("chýba vstupný CSV súbor")
 	}
-	data, err := LoadAndMergeCSVFiles(paths)
+	emitProcessingPhase(ctx, "load_csv")
+	data, err := LoadAndMergeCSVFiles(ctx, paths)
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
 	}
+	emitProcessingProgress(ctx, "load_csv", 100)
 	if len(paths) > 1 {
 		if sorted, ok := sortMergedCSVRowsByTime(data); ok {
 			data = sorted
@@ -39,22 +41,26 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 			return ProcessingResult{}, fmt.Errorf("exclude original rows: %w", err)
 		}
 	}
+	emitProcessingPhase(ctx, "prepare_rows")
 
 	rules, err := loadRulesForConfig(cfg)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingPhase(ctx, "apply_filters")
 	if len(rules) > 0 {
-		data, err = ApplyFiltersCSV(data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
+		data, err = ApplyFiltersCSV(ctx, data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
 		if err != nil {
 			return ProcessingResult{}, fmt.Errorf("apply filters: %w", err)
 		}
 	}
 	if cfg.MobileModeEnabled {
+		emitProcessingPhase(ctx, "mobile_sync")
 		if strings.TrimSpace(cfg.MobileLTEFilePath) == "" {
 			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but mobile_lte_file_path is empty")
 		}
 		data, _, err = syncMobileNRFromLTECSVNative(
+			ctx,
 			data,
 			cfg.ColumnMapping,
 			cfg.MobileLTEFilePath,
@@ -75,16 +81,19 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		return ProcessingResult{}, err
 	}
 
+	emitProcessingPhase(ctx, "compute_zones")
 	ds, err := ProcessDataNative(ctx, data, cfg, transformer)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingPhase(ctx, "zone_stats")
 	zoneStats, err := CalculateZoneStatsNative(ctx, ds, cfg, transformer)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
 
 	zonesFile, statsFile, _ := outputPathsForConfig(cfg)
+	emitProcessingPhase(ctx, "export_files")
 	exportOutcome, err := SaveZoneResultsNative(ctx, ds, zoneStats, cfg, transformer, zonesFile)
 	if err != nil {
 		return ProcessingResult{}, err
@@ -93,6 +102,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err := SaveStatsNative(zoneStats, cfg, statsFile, exportOutcome.UniqueZones); err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingProgress(ctx, "export_files", 100)
 
 	uniqueZones := map[string]struct{}{}
 	uniqueOperators := map[string]struct{}{}

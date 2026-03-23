@@ -3,11 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 
 	backendpkg "github.com/jakubvysocan/100mscript/internal/backend"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// AppVersion should stay in sync with wails.json info.productVersion.
+const AppVersion = "0.2.0"
 
 type App struct {
 	ctx      context.Context
@@ -78,7 +85,7 @@ func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
 	if len(paths) == 1 {
 		data, err = backendpkg.LoadCSVFile(paths[0])
 	} else {
-		data, err = backendpkg.LoadAndMergeCSVFiles(paths)
+		data, err = backendpkg.LoadAndMergeCSVFiles(a.ctx, paths)
 	}
 	if err != nil {
 		return CSVPreview{}, err
@@ -124,6 +131,55 @@ func (a *App) RunProcessingWithConfig(cfg backendpkg.ProcessingConfig) (backendp
 		cfg.ProgressEnabled = false
 	}
 	return backendpkg.RunProcessing(a.ctx, cfg)
+}
+
+// AppInfo is exposed to the UI (about dialog, window title hints).
+type AppInfo struct {
+	ProductName string `json:"productName"`
+	Version     string `json:"version"`
+}
+
+func (a *App) GetAppInfo() AppInfo {
+	return AppInfo{
+		ProductName: "100mscript",
+		Version:     AppVersion,
+	}
+}
+
+// OpenContainingFolder opens the system file manager at the given file or directory.
+func (a *App) OpenContainingFolder(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("prázdna cesta")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("cesta nie je dostupná: %w", err)
+	}
+
+	switch goruntime.GOOS {
+	case "windows":
+		if fi.IsDir() {
+			return exec.Command("explorer", abs).Start()
+		}
+		// Reveal file in Explorer
+		return exec.Command("explorer", "/select,"+abs).Start()
+	case "darwin":
+		if fi.IsDir() {
+			return exec.Command("open", abs).Start()
+		}
+		return exec.Command("open", "-R", abs).Start()
+	default:
+		dir := abs
+		if !fi.IsDir() {
+			dir = filepath.Dir(abs)
+		}
+		return exec.Command("xdg-open", dir).Start()
+	}
 }
 
 func (a *App) pickCSVFile(title string) (string, error) {

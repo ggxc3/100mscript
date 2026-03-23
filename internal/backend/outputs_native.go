@@ -212,7 +212,9 @@ func SaveZoneResultsNative(
 	seenZones := map[string]bool{}
 	measuredZoneKeys := make(map[string]bool, len(sortedStats))
 	useZoneCenter := cfg.ZoneMode == "center"
-	for _, zs := range sortedStats {
+	nExport := len(sortedStats)
+	for ei, zs := range sortedStats {
+		maybeEmitProgressInRange(ctx, "export_files", ei, nExport, 0, 88)
 		measuredZoneKeys[zs.ZonaKey] = true
 		if !seenZones[zs.ZonaKey] {
 			seenZones[zs.ZonaKey] = true
@@ -278,9 +280,11 @@ func SaveZoneResultsNative(
 	if customRowsAdded > 0 {
 		content += "\n"
 	}
+	emitProcessingProgress(ctx, "export_files", 94)
 	if err := os.WriteFile(zonesFile, []byte(content), 0o644); err != nil {
 		return ZoneExportOutcome{ZoneStats: finalZoneStats, UniqueZones: allZoneKeys}, err
 	}
+	emitProcessingProgress(ctx, "export_files", 97)
 	return ZoneExportOutcome{ZoneStats: finalZoneStats, UniqueZones: allZoneKeys}, nil
 }
 

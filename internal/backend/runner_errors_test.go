@@ -52,7 +52,7 @@ func TestRunProcessing_mobileModeMissingLTE(t *testing.T) {
 func TestApplyFiltersCSV_nilData(t *testing.T) {
 	t.Parallel()
 
-	_, err := ApplyFiltersCSV(nil, []FilterRule{{Name: "x"}}, false, nil)
+	_, err := ApplyFiltersCSV(context.Background(), nil, []FilterRule{{Name: "x"}}, false, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}

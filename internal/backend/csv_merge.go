@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sort"
@@ -107,7 +108,7 @@ func sortMergedCSVRowsByTime(data *CSVData) (*CSVData, bool) {
 
 // LoadAndMergeCSVFiles loads one or more semicolon CSV files and appends rows when len(paths) > 1.
 // All files must have identical column names in the same order (after loader normalization).
-func LoadAndMergeCSVFiles(paths []string) (*CSVData, error) {
+func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error) {
 	paths = NormalizeInputPaths(paths)
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("žiadna cesta k CSV súboru")
@@ -117,12 +118,14 @@ func LoadAndMergeCSVFiles(paths []string) (*CSVData, error) {
 	}
 
 	loaded := make([]*CSVData, 0, len(paths))
-	for _, p := range paths {
+	nPaths := len(paths)
+	for i, p := range paths {
 		d, err := LoadCSVFile(p)
 		if err != nil {
 			return nil, fmt.Errorf("načítanie %q: %w", p, err)
 		}
 		loaded = append(loaded, d)
+		emitProcessingProgress(ctx, "load_csv", float64(i+1)/float64(nPaths)*100)
 	}
 
 	base := loaded[0].Columns

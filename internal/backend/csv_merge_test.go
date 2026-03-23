@@ -25,7 +25,7 @@ func TestLoadAndMergeCSVFilesCompatible(t *testing.T) {
 		t.Fatalf("write b: %v", err)
 	}
 
-	data, err := LoadAndMergeCSVFiles([]string{p1, p2})
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestLoadAndMergeCSVFilesIncompatibleHeaders(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	_, err := LoadAndMergeCSVFiles([]string{p1, p2})
+	_, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
 	if err == nil {
 		t.Fatalf("expected error for mismatched columns")
 	}
@@ -115,7 +115,7 @@ func TestSortMergedCSVRowsByTimeReordersRows(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	data, err := LoadAndMergeCSVFiles([]string{p1, p2})
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}
