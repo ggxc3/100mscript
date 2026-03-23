@@ -529,6 +529,19 @@ function mountMainView(root: HTMLDivElement): void {
 
   let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
+  let pendingLoaderExitId: string | null = null;
+  let loaderExitClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleLoaderExitCleanup(): void {
+    if (loaderExitClearTimer !== null) {
+      clearTimeout(loaderExitClearTimer);
+    }
+    loaderExitClearTimer = window.setTimeout(() => {
+      loaderExitClearTimer = null;
+      pendingLoaderExitId = null;
+      renderProcessingPipeline();
+    }, 420);
+  }
 
   function cancelPreviewAutoload(): void {
     if (previewAutoloadTimer !== null) {
@@ -609,6 +622,26 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
+  function phaseLoadingBlock(p: PhaseRow): string {
+    if (p.status === "active") {
+      return `
+        <div class="phase-loading-wrap phase-loading-wrap--enter" aria-hidden="true">
+          <div class="phase-loading-track">
+            <div class="phase-loading-bar"></div>
+          </div>
+        </div>`;
+    }
+    if (pendingLoaderExitId === p.id && (p.status === "done" || p.status === "error")) {
+      return `
+        <div class="phase-loading-wrap phase-loading-wrap--exit" aria-hidden="true">
+          <div class="phase-loading-track">
+            <div class="phase-loading-bar"></div>
+          </div>
+        </div>`;
+    }
+    return "";
+  }
+
   function renderProcessingPipeline(): void {
     const phases = state.processingPhases;
     if (phases.length === 0) {
@@ -622,7 +655,10 @@ function mountMainView(root: HTMLDivElement): void {
         (p) => `
         <div class="phase-row phase-${p.status}" role="listitem">
           <span class="phase-icon" aria-hidden="true">${phaseStatusIcon(p.status)}</span>
-          <span class="phase-label">${escapeHtml(p.label)}</span>
+          <div class="phase-text-block">
+            <span class="phase-label">${escapeHtml(p.label)}</span>
+            ${phaseLoadingBlock(p)}
+          </div>
         </div>`
       )
       .join("");
@@ -630,9 +666,14 @@ function mountMainView(root: HTMLDivElement): void {
 
   function applyProcessingPhaseEvent(phaseId: string): void {
     const phases = state.processingPhases;
+    const prevActive = phases.find((p) => p.status === "active");
     const idx = phases.findIndex((p) => p.id === phaseId);
     if (idx < 0) {
       return;
+    }
+    if (prevActive && prevActive.id !== phaseId) {
+      pendingLoaderExitId = prevActive.id;
+      scheduleLoaderExitCleanup();
     }
     state.processingPhases = phases.map((p, i) => ({
       ...p,
@@ -1302,6 +1343,11 @@ function mountMainView(root: HTMLDivElement): void {
 
     try {
       setRunning(true);
+      pendingLoaderExitId = null;
+      if (loaderExitClearTimer !== null) {
+        clearTimeout(loaderExitClearTimer);
+        loaderExitClearTimer = null;
+      }
       state.processingPhases = [];
       renderProcessingPipeline();
       setStatus("Kontrolujem vstupy...", "running");
@@ -1315,7 +1361,12 @@ function mountMainView(root: HTMLDivElement): void {
       );
 
       const result = (await RunProcessingWithConfig(cfg)) as backend.ProcessingResult;
+      const lastActive = state.processingPhases.find((p) => p.status === "active");
       state.processingPhases = state.processingPhases.map((p) => ({ ...p, status: "done" as PhaseStatus }));
+      if (lastActive) {
+        pendingLoaderExitId = lastActive.id;
+        scheduleLoaderExitCleanup();
+      }
       renderProcessingPipeline();
       state.result = result;
       renderResult();
@@ -1332,6 +1383,11 @@ function mountMainView(root: HTMLDivElement): void {
       appendLog(`Chyba: ${message}`);
       if (state.processingPhases.length > 0) {
         if (state.processingPhases.some((p) => p.status === "active")) {
+          const activePhase = state.processingPhases.find((p) => p.status === "active");
+          if (activePhase) {
+            pendingLoaderExitId = activePhase.id;
+            scheduleLoaderExitCleanup();
+          }
           state.processingPhases = state.processingPhases.map((p) =>
             p.status === "active" ? { ...p, status: "error" as PhaseStatus } : p
           );
