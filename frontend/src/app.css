@@ -598,9 +598,15 @@
 
 .result-actions-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding-top: 4px;
+  padding-top: 8px;
+}
+
+.result-actions-bar .btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .readiness-panel {
