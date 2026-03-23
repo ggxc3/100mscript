@@ -244,7 +244,7 @@ function mountMainView(root: HTMLDivElement): void {
           <button id="aboutBtn" type="button" class="btn btn-toolbar">O aplikácii</button>
           <div class="status-stack">
             <div id="statusChip" class="status-chip idle">PRIPRAVENÉ</div>
-            <div id="statusText" class="status-text">Pripravené</div>
+            <div id="statusText" class="status-text" hidden aria-live="polite"></div>
             <div id="statusElapsed" class="status-elapsed" aria-live="polite"></div>
           </div>
         </div>
@@ -734,7 +734,9 @@ function mountMainView(root: HTMLDivElement): void {
   function setStatus(text: string, tone: Tone): void {
     state.statusText = text;
     state.statusTone = tone;
-    statusText.textContent = text;
+    const idleReady = tone === "idle" && text === "Pripravené";
+    statusText.hidden = idleReady;
+    statusText.textContent = idleReady ? "" : text;
     statusChip.className = `status-chip ${tone}`;
     statusChip.textContent =
       tone === "running" ? "PREBIEHA" : tone === "success" ? "HOTOVÉ" : tone === "error" ? "CHYBA" : "PRIPRAVENÉ";
