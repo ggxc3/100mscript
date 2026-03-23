@@ -36,7 +36,7 @@
 .topbar-aside {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px 16px;
 }
 
@@ -67,6 +67,18 @@
   background: #f3f4f6;
 }
 
+/* Zarovnanie „O aplikácii“ a stavového chipu (rovnaká výška, rovnaký polomer) */
+.topbar-aside > .btn.btn-toolbar {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 35px;
+  padding: 8px 12px;
+  line-height: 1.2;
+  border-radius: 6px;
+}
+
 .status-stack {
   display: grid;
   justify-items: end;
@@ -74,13 +86,19 @@
 }
 
 .status-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 104px;
+  min-height: 35px;
+  padding: 8px 12px;
+  border-radius: 6px;
   text-align: center;
-  border-radius: 4px;
-  padding: 6px 10px;
-  font: 600 11px/1 "IBM Plex Sans", sans-serif;
-  letter-spacing: 0.06em;
+  font: 600 11px/1.2 "IBM Plex Sans", sans-serif;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: #fff;
 }
 
@@ -109,6 +127,10 @@
   font: 500 12px/1.2 "IBM Plex Mono", ui-monospace, monospace;
   color: #9ca3af;
   min-height: 1.2em;
+}
+
+.status-elapsed:empty {
+  display: none;
 }
 
 .content-grid {
