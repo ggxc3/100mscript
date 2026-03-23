@@ -278,14 +278,7 @@ function mountMainView(root: HTMLDivElement): void {
                 <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
               </div>
               <select id="csvList" class="listbox" multiple size="5"></select>
-            </div>
-
-            <div class="preview-box">
-              <div class="preview-head">
-                <strong>Auto-detekcia stĺpcov</strong>
-                <span id="previewMeta" class="muted">Čaká na súbor</span>
-              </div>
-              <div id="previewColumns" class="preview-status muted">Zatiaľ nenačítané.</div>
+              <p id="csvPreviewStatus" class="csv-preview-inline muted" aria-live="polite">Hlavička ešte nenačítaná.</p>
             </div>
 
             <label class="check-row">
@@ -485,8 +478,7 @@ function mountMainView(root: HTMLDivElement): void {
   const removeCsvBtn = qs<HTMLButtonElement>("#removeCsvBtn");
   const clearCsvBtn = qs<HTMLButtonElement>("#clearCsvBtn");
   const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
-  const previewMeta = qs<HTMLSpanElement>("#previewMeta");
-  const previewColumns = qs<HTMLDivElement>("#previewColumns");
+  const csvPreviewStatus = qs<HTMLParagraphElement>("#csvPreviewStatus");
   const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
   const mobileFields = qs<HTMLDivElement>("#mobileFields");
   const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
@@ -778,19 +770,19 @@ function mountMainView(root: HTMLDivElement): void {
   function renderPreview(): void {
     updateLoadPreviewButtonLabel();
     if (state.previewError) {
-      previewMeta.textContent = "Neúspešné načítanie";
-      previewColumns.innerHTML = `<span class="preview-status-msg preview-status-msg--error">${escapeHtml(state.previewError)}</span>`;
+      csvPreviewStatus.className = "csv-preview-inline";
+      csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__err">Chyba: ${escapeHtml(state.previewError)}</span>`;
       renderReadiness();
       return;
     }
     if (!state.preview) {
-      previewMeta.textContent = "Čaká na súbor";
-      previewColumns.innerHTML = `<span class="muted">Zatiaľ nenačítané.</span>`;
+      csvPreviewStatus.className = "csv-preview-inline muted";
+      csvPreviewStatus.textContent = "Hlavička ešte nenačítaná.";
       renderReadiness();
       return;
     }
-    previewMeta.textContent = "Úspešne načítané";
-    previewColumns.innerHTML = `<span class="preview-status-msg preview-status-msg--ok">Detekcia hlavičky prebehla úspešne.</span>`;
+    csvPreviewStatus.className = "csv-preview-inline";
+    csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span>`;
     renderReadiness();
   }
 

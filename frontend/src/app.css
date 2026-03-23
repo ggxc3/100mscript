@@ -135,18 +135,11 @@
 .section-card > .check-row + .stack,
 .section-card > .stack + .check-row,
 .section-card > .check-row + .filters-panel,
-.section-card > .filters-panel + .preview-box,
-.section-card > .field + .preview-box,
-.section-card > .preview-box + .check-row,
+.section-card > .filters-panel + .check-row,
 .section-card > .quad-grid + .double-grid,
 .section-card > .double-grid + .stack,
 .section-card > .section-note + .mapping-grid {
   margin-top: 8px;
-}
-
-/* Väčší odstup medzi zoznamom CSV a boxom auto-detekcie */
-.section-card > .filters-panel + .preview-box {
-  margin-top: 14px;
 }
 
 .sticky-panel {
@@ -351,7 +344,6 @@
   background: #f4d0cb;
 }
 
-.preview-box,
 .result-box,
 .filters-panel {
   background: #f9fafb;
@@ -388,17 +380,20 @@
   min-height: 24px;
 }
 
-.preview-status {
-  min-height: 24px;
-  font: 500 13px/1.35 "IBM Plex Sans", sans-serif;
+/* Kompaktný stav náhľadu hlavičky pod zoznamom CSV */
+.csv-preview-inline {
+  margin: 8px 0 0;
+  padding: 0;
+  font: 500 12px/1.35 "IBM Plex Sans", sans-serif;
 }
 
-.preview-status-msg--ok {
+.csv-preview-inline__ok {
   color: #166534;
 }
 
-.preview-status-msg--error {
+.csv-preview-inline__err {
   color: #9b251d;
+  word-break: break-word;
 }
 
 .col-pill {
