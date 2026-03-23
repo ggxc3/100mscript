@@ -16,6 +16,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if len(paths) == 0 {
 		return ProcessingResult{}, fmt.Errorf("chýba vstupný CSV súbor")
 	}
+	emitProcessingPhase(ctx, "load_csv")
 	data, err := LoadAndMergeCSVFiles(paths)
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
@@ -39,11 +40,13 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 			return ProcessingResult{}, fmt.Errorf("exclude original rows: %w", err)
 		}
 	}
+	emitProcessingPhase(ctx, "prepare_rows")
 
 	rules, err := loadRulesForConfig(cfg)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingPhase(ctx, "apply_filters")
 	if len(rules) > 0 {
 		data, err = ApplyFiltersCSV(data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
 		if err != nil {
@@ -51,6 +54,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		}
 	}
 	if cfg.MobileModeEnabled {
+		emitProcessingPhase(ctx, "mobile_sync")
 		if strings.TrimSpace(cfg.MobileLTEFilePath) == "" {
 			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but mobile_lte_file_path is empty")
 		}
@@ -75,16 +79,19 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		return ProcessingResult{}, err
 	}
 
+	emitProcessingPhase(ctx, "compute_zones")
 	ds, err := ProcessDataNative(ctx, data, cfg, transformer)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingPhase(ctx, "zone_stats")
 	zoneStats, err := CalculateZoneStatsNative(ctx, ds, cfg, transformer)
 	if err != nil {
 		return ProcessingResult{}, err
 	}
 
 	zonesFile, statsFile, _ := outputPathsForConfig(cfg)
+	emitProcessingPhase(ctx, "export_files")
 	exportOutcome, err := SaveZoneResultsNative(ctx, ds, zoneStats, cfg, transformer, zonesFile)
 	if err != nil {
 		return ProcessingResult{}, err

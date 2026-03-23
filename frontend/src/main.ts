@@ -14,7 +14,7 @@ import {
   RunProcessingWithConfig,
 } from "../wailsjs/go/main/App";
 import { backend, main } from "../wailsjs/go/models";
-import { ClipboardSetText } from "../wailsjs/runtime/runtime";
+import { ClipboardSetText, EventsOn } from "../wailsjs/runtime/runtime";
 
 type ColumnKey =
   | "latitude"
@@ -67,6 +67,8 @@ type UIState = {
   timeSelectorLoading: boolean;
   timeSelectorError: string;
   activeDropdown: { windowId: string; field: DropdownField; query: string } | null;
+  processingPhases: PhaseRow[];
+  logExpanded: boolean;
 };
 
 type ReadinessItem = {
@@ -75,6 +77,41 @@ type ReadinessItem = {
   ok: boolean;
   detail: string;
 };
+
+type PhaseStatus = "pending" | "active" | "done" | "error";
+
+type PhaseRow = {
+  id: string;
+  label: string;
+  status: PhaseStatus;
+};
+
+const PROCESSING_PHASE_LABELS: Record<string, string> = {
+  load_csv: "Načítanie a zlúčenie CSV",
+  prepare_rows: "Príprava riadkov a časové výnimky",
+  apply_filters: "Aplikácia filtrov",
+  mobile_sync: "Synchronizácia 5G / LTE",
+  compute_zones: "Výpočet zón",
+  zone_stats: "Štatistiky zón",
+  export_files: "Zápis výstupných súborov",
+};
+
+function buildProcessingPhaseRows(cfg: backend.ProcessingConfig): PhaseRow[] {
+  const rows: PhaseRow[] = [
+    { id: "load_csv", label: PROCESSING_PHASE_LABELS.load_csv, status: "pending" },
+    { id: "prepare_rows", label: PROCESSING_PHASE_LABELS.prepare_rows, status: "pending" },
+    { id: "apply_filters", label: PROCESSING_PHASE_LABELS.apply_filters, status: "pending" },
+  ];
+  if (cfg.mobile_mode_enabled) {
+    rows.push({ id: "mobile_sync", label: PROCESSING_PHASE_LABELS.mobile_sync, status: "pending" });
+  }
+  rows.push(
+    { id: "compute_zones", label: PROCESSING_PHASE_LABELS.compute_zones, status: "pending" },
+    { id: "zone_stats", label: PROCESSING_PHASE_LABELS.zone_stats, status: "pending" },
+    { id: "export_files", label: PROCESSING_PHASE_LABELS.export_files, status: "pending" }
+  );
+  return rows;
+}
 
 const PREVIEW_AUTOLOAD_MS = 420;
 const HIGH_EXCLUSION_RATIO = 0.9;
@@ -187,6 +224,8 @@ function mountMainView(root: HTMLDivElement): void {
     timeSelectorLoading: false,
     timeSelectorError: "",
     activeDropdown: null,
+    processingPhases: [],
+    logExpanded: false,
   };
 
   root.innerHTML = `
@@ -376,10 +415,16 @@ function mountMainView(root: HTMLDivElement): void {
 
             <div id="readinessPanel" class="readiness-panel" aria-label="Kontrola pred spustením"></div>
 
+            <div id="processingPipelineWrap" class="processing-pipeline-wrap" hidden>
+              <div class="preview-head pipeline-head">
+                <strong>Priebeh spracovania</strong>
+                <span class="muted pipeline-hint">Aktuálna fáza podľa backendu</span>
+              </div>
+              <div id="processingPipeline" class="processing-pipeline" role="list" aria-live="polite"></div>
+            </div>
+
             <div class="run-actions">
               <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
-              <button id="clearLogBtn" class="btn ghost" type="button">Vyčistiť log</button>
-              <button id="exportLogBtn" class="btn ghost" type="button">Exportovať log</button>
             </div>
 
             <div id="progressBar" class="progress-bar" aria-hidden="true">
@@ -394,10 +439,26 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
 
             <div class="log-box">
-              <div class="log-head">
-                <strong>Log</strong>
+              <div class="log-head log-head-row">
+                <strong>Technický log</strong>
+                <button
+                  id="toggleLogBtn"
+                  type="button"
+                  class="btn btn-toolbar"
+                  aria-expanded="false"
+                  aria-controls="logPanel"
+                >
+                  Zobraziť log
+                </button>
               </div>
-              <pre id="logOutput" class="log-output">Pripravené.</pre>
+              <p class="log-teaser muted">Detailné hlášky sú skryté. Otvor log pri diagnostike alebo podpore.</p>
+              <div id="logPanel" class="log-panel" hidden>
+                <div class="log-toolbar">
+                  <button id="clearLogBtn" class="btn ghost small-btn" type="button">Vyčistiť log</button>
+                  <button id="exportLogBtn" class="btn ghost small-btn" type="button">Exportovať log</button>
+                </div>
+                <pre id="logOutput" class="log-output">Pripravené.</pre>
+              </div>
             </div>
           </article>
         </section>
@@ -461,6 +522,10 @@ function mountMainView(root: HTMLDivElement): void {
   const aboutOverlay = qs<HTMLDivElement>("#aboutOverlay");
   const aboutBody = qs<HTMLParagraphElement>("#aboutBody");
   const aboutCloseBtn = qs<HTMLButtonElement>("#aboutCloseBtn");
+  const processingPipelineWrap = qs<HTMLDivElement>("#processingPipelineWrap");
+  const processingPipeline = qs<HTMLDivElement>("#processingPipeline");
+  const toggleLogBtn = qs<HTMLButtonElement>("#toggleLogBtn");
+  const logPanel = qs<HTMLDivElement>("#logPanel");
 
   let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -530,6 +595,69 @@ function mountMainView(root: HTMLDivElement): void {
   function updateLoadPreviewButtonLabel(): void {
     loadPreviewBtn.textContent = state.preview ? "Obnoviť náhľad" : "Načítať stĺpce";
   }
+
+  function phaseStatusIcon(status: PhaseStatus): string {
+    switch (status) {
+      case "done":
+        return "✓";
+      case "active":
+        return "›";
+      case "error":
+        return "✕";
+      default:
+        return "○";
+    }
+  }
+
+  function renderProcessingPipeline(): void {
+    const phases = state.processingPhases;
+    if (phases.length === 0) {
+      processingPipelineWrap.hidden = true;
+      processingPipeline.innerHTML = "";
+      return;
+    }
+    processingPipelineWrap.hidden = false;
+    processingPipeline.innerHTML = phases
+      .map(
+        (p) => `
+        <div class="phase-row phase-${p.status}" role="listitem">
+          <span class="phase-icon" aria-hidden="true">${phaseStatusIcon(p.status)}</span>
+          <span class="phase-label">${escapeHtml(p.label)}</span>
+        </div>`
+      )
+      .join("");
+  }
+
+  function applyProcessingPhaseEvent(phaseId: string): void {
+    const phases = state.processingPhases;
+    const idx = phases.findIndex((p) => p.id === phaseId);
+    if (idx < 0) {
+      return;
+    }
+    state.processingPhases = phases.map((p, i) => ({
+      ...p,
+      status: i < idx ? "done" : i === idx ? "active" : "pending",
+    }));
+    renderProcessingPipeline();
+    const label = PROCESSING_PHASE_LABELS[phaseId] ?? phaseId;
+    setStatus(label, "running");
+  }
+
+  function syncLogPanelUI(): void {
+    const expanded = state.logExpanded;
+    logPanel.hidden = !expanded;
+    toggleLogBtn.textContent = expanded ? "Skryť log" : "Zobraziť log";
+    toggleLogBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+  }
+
+  EventsOn("processing:phase", (...args: unknown[]) => {
+    const raw = args[0];
+    const phaseId = typeof raw === "string" ? raw : String(raw ?? "");
+    if (!phaseId) {
+      return;
+    }
+    applyProcessingPhaseEvent(phaseId);
+  });
 
   ZONE_MODES.forEach((mode) => {
     const opt = document.createElement("option");
@@ -1174,16 +1302,21 @@ function mountMainView(root: HTMLDivElement): void {
 
     try {
       setRunning(true);
+      state.processingPhases = [];
+      renderProcessingPipeline();
       setStatus("Kontrolujem vstupy...", "running");
       appendLog("Spúšťam spracovanie");
 
       const cfg = await buildProcessingConfig();
+      state.processingPhases = buildProcessingPhaseRows(cfg);
+      renderProcessingPipeline();
       appendLog(
         `Konfigurácia: mode=${cfg.zone_mode}, zone=${cfg.zone_size_m}m, filters=${cfg.filter_paths === undefined ? "auto" : cfg.filter_paths.length}, mobile=${cfg.mobile_mode_enabled}, excluded=${cfg.excluded_original_rows.length}`
       );
 
-      setStatus("Spracovanie prebieha...", "running");
       const result = (await RunProcessingWithConfig(cfg)) as backend.ProcessingResult;
+      state.processingPhases = state.processingPhases.map((p) => ({ ...p, status: "done" as PhaseStatus }));
+      renderProcessingPipeline();
       state.result = result;
       renderResult();
 
@@ -1197,6 +1330,26 @@ function mountMainView(root: HTMLDivElement): void {
       const message = err instanceof Error ? err.message : String(err);
       setStatus("Chyba pri spracovaní", "error");
       appendLog(`Chyba: ${message}`);
+      if (state.processingPhases.length > 0) {
+        if (state.processingPhases.some((p) => p.status === "active")) {
+          state.processingPhases = state.processingPhases.map((p) =>
+            p.status === "active" ? { ...p, status: "error" as PhaseStatus } : p
+          );
+        } else {
+          let lastDone = -1;
+          state.processingPhases.forEach((p, i) => {
+            if (p.status === "done") {
+              lastDone = i;
+            }
+          });
+          const failAt = Math.min(Math.max(lastDone + 1, 0), state.processingPhases.length - 1);
+          state.processingPhases = state.processingPhases.map((p, i) => ({
+            ...p,
+            status: i < failAt ? "done" : i === failAt ? ("error" as PhaseStatus) : "pending",
+          }));
+        }
+        renderProcessingPipeline();
+      }
     } finally {
       setRunning(false);
     }
@@ -1380,6 +1533,10 @@ function mountMainView(root: HTMLDivElement): void {
   runBtn.addEventListener("click", () => {
     void runProcessing();
   });
+  toggleLogBtn.addEventListener("click", () => {
+    state.logExpanded = !state.logExpanded;
+    syncLogPanelUI();
+  });
   clearLogBtn.addEventListener("click", () => {
     state.logs = [];
     logOutput.textContent = "Log vyčistený.";
@@ -1463,6 +1620,7 @@ function mountMainView(root: HTMLDivElement): void {
   renderTimeSelector();
   updateDependentUI();
   renderReadiness();
+  syncLogPanelUI();
   setStatus("Pripravené", "idle");
 
   function focusActiveDropdownSearch(): void {
