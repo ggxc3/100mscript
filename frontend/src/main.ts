@@ -745,9 +745,10 @@ function mountMainView(root: HTMLDivElement): void {
   function setStatus(text: string, tone: Tone): void {
     state.statusText = text;
     state.statusTone = tone;
-    const idleReady = tone === "idle" && text === "Pripravené";
-    statusText.hidden = idleReady;
-    statusText.textContent = idleReady ? "" : text;
+    const hideSubtitle =
+      (tone === "idle" && text === "Pripravené") || tone === "success";
+    statusText.hidden = hideSubtitle;
+    statusText.textContent = hideSubtitle ? "" : text;
     statusChip.className = `status-chip ${tone}`;
     statusChip.textContent =
       tone === "running" ? "PREBIEHA" : tone === "success" ? "HOTOVÉ" : tone === "error" ? "CHYBA" : "PRIPRAVENÉ";
