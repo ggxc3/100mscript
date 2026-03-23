@@ -275,6 +275,12 @@
   gap: 6px;
 }
 
+/* Oddelenie akcií od zoznamu súborov / filtrov */
+.filters-panel .inline-actions {
+  margin-bottom: 14px;
+  gap: 8px;
+}
+
 .btn {
   border-radius: 6px;
   border: 1px solid transparent;
