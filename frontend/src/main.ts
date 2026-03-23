@@ -310,16 +310,25 @@ function mountMainView(root: HTMLDivElement): void {
               <span>Použiť automatické filtre z priečinkov <code>filters/</code> a <code>filtre_5G/</code></span>
             </label>
 
-            <div class="filters-panel">
-              <div class="filters-head">
-                <strong>Dodatočné filtre (.txt)</strong>
-                <div class="inline-actions">
-                  <button id="addFiltersBtn" class="btn secondary" type="button">Pridať</button>
-                  <button id="removeFilterBtn" class="btn danger" type="button">Odstrániť</button>
-                  <button id="clearFiltersBtn" class="btn ghost" type="button">Vyčistiť</button>
+            <label class="check-row">
+              <input id="useAdditionalFilters" type="checkbox" />
+              <span>Nahrať dodatočné filtre (.txt)</span>
+            </label>
+
+            <div id="extraFiltersWrap" class="collapsible-block" aria-hidden="true">
+              <div class="collapsible-block__inner">
+                <div class="filters-panel">
+                  <div class="filters-head">
+                    <strong>Dodatočné filtre (.txt)</strong>
+                    <div class="inline-actions">
+                      <button id="addFiltersBtn" class="btn secondary" type="button">Pridať</button>
+                      <button id="removeFilterBtn" class="btn danger" type="button">Odstrániť</button>
+                      <button id="clearFiltersBtn" class="btn ghost" type="button">Vyčistiť</button>
+                    </div>
+                  </div>
+                  <select id="filtersList" class="listbox" multiple size="5"></select>
                 </div>
               </div>
-              <select id="filtersList" class="listbox" multiple size="5"></select>
             </div>
           </article>
 
@@ -490,6 +499,8 @@ function mountMainView(root: HTMLDivElement): void {
   const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
   const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
   const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
+  const useAdditionalFiltersCheckbox = qs<HTMLInputElement>("#useAdditionalFilters");
+  const extraFiltersWrap = qs<HTMLDivElement>("#extraFiltersWrap");
   const addFiltersBtn = qs<HTMLButtonElement>("#addFiltersBtn");
   const removeFilterBtn = qs<HTMLButtonElement>("#removeFilterBtn");
   const clearFiltersBtn = qs<HTMLButtonElement>("#clearFiltersBtn");
@@ -765,9 +776,11 @@ function mountMainView(root: HTMLDivElement): void {
     clearCsvBtn.disabled = running;
     loadPreviewBtn.disabled = running;
     pickMobileLteBtn.disabled = running || !mobileModeCheckbox.checked;
-    addFiltersBtn.disabled = running;
-    removeFilterBtn.disabled = running;
-    clearFiltersBtn.disabled = running;
+    const additionalFiltersOn = useAdditionalFiltersCheckbox.checked;
+    addFiltersBtn.disabled = running || !additionalFiltersOn;
+    removeFilterBtn.disabled = running || !additionalFiltersOn;
+    clearFiltersBtn.disabled = running || !additionalFiltersOn;
+    filtersList.disabled = running || !additionalFiltersOn;
     addTimeWindowBtn.disabled = running || state.timeSelectorLoading || !state.timeSelectorData;
     clearTimeWindowsBtn.disabled = running || state.timeWindows.length === 0;
     progressBar.classList.toggle("is-running", running);
@@ -1214,6 +1227,10 @@ function mountMainView(root: HTMLDivElement): void {
       el.disabled = !mobileEnabled || state.running;
     });
 
+    const additionalFiltersEnabled = useAdditionalFiltersCheckbox.checked;
+    extraFiltersWrap.classList.toggle("is-open", additionalFiltersEnabled);
+    extraFiltersWrap.setAttribute("aria-hidden", additionalFiltersEnabled ? "false" : "true");
+
     const allowCustomOperators = includeEmptyZonesCheckbox.checked;
     customOperatorsPanel.classList.toggle("disabled-panel", !allowCustomOperators);
     addCustomOperatorsCheckbox.disabled = !allowCustomOperators || state.running;
@@ -1309,9 +1326,11 @@ function mountMainView(root: HTMLDivElement): void {
 
     let filter_paths: string[] | undefined;
     const useAuto = useAutoFiltersCheckbox.checked;
-    if (!useAuto && state.customFilterPaths.length === 0) {
+    const useAdditional = useAdditionalFiltersCheckbox.checked;
+    const effectiveCustomPaths = useAdditional ? state.customFilterPaths : [];
+    if (!useAuto && effectiveCustomPaths.length === 0) {
       filter_paths = [];
-    } else if (useAuto && state.customFilterPaths.length === 0) {
+    } else if (useAuto && effectiveCustomPaths.length === 0) {
       filter_paths = undefined;
     } else {
       let merged: string[] = [];
@@ -1319,7 +1338,7 @@ function mountMainView(root: HTMLDivElement): void {
         const autoPaths = (await DiscoverAutoFilterPaths()) as string[];
         merged = merged.concat(autoPaths);
       }
-      merged = merged.concat(state.customFilterPaths);
+      merged = merged.concat(effectiveCustomPaths);
       filter_paths = dedupePaths(merged);
     }
 
@@ -1502,6 +1521,7 @@ function mountMainView(root: HTMLDivElement): void {
   removeFilterBtn.addEventListener("click", removeSelectedFilters);
   clearFiltersBtn.addEventListener("click", clearFilters);
   mobileModeCheckbox.addEventListener("change", updateDependentUI);
+  useAdditionalFiltersCheckbox.addEventListener("change", updateDependentUI);
   includeEmptyZonesCheckbox.addEventListener("change", updateDependentUI);
   addCustomOperatorsCheckbox.addEventListener("change", updateDependentUI);
   addTimeWindowBtn.addEventListener("click", () => {

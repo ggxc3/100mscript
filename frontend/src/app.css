@@ -154,9 +154,9 @@
   padding: 14px;
 }
 
+.section-card > .check-row + .check-row,
 .section-card > .check-row + .collapsible-block,
 .section-card > .collapsible-block + .check-row,
-.section-card > .check-row + .filters-panel,
 .section-card > .filters-panel + .check-row,
 .section-card > .quad-grid + .double-grid,
 .section-card > .double-grid + .stack,
