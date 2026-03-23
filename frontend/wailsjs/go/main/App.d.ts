@@ -5,9 +5,13 @@ import {backend} from '../models';
 
 export function DiscoverAutoFilterPaths():Promise<Array<string>>;
 
+export function GetAppInfo():Promise<main.AppInfo>;
+
 export function LoadCSVPreview(arg1:Array<string>):Promise<main.CSVPreview>;
 
 export function LoadTimeSelectorData(arg1:Array<string>):Promise<backend.TimeSelectorData>;
+
+export function OpenContainingFolder(arg1:string):Promise<void>;
 
 export function PickFilterFiles():Promise<Array<string>>;
 

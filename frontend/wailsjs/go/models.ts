@@ -181,6 +181,20 @@ export namespace backend {
 
 export namespace main {
 	
+	export class AppInfo {
+	    productName: string;
+	    version: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.productName = source["productName"];
+	        this.version = source["version"];
+	    }
+	}
 	export class CSVPreview {
 	    filePaths: string[];
 	    filePath: string;
@@ -196,7 +210,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.filePaths = source["filePaths"] ?? (source["filePath"] ? [source["filePath"]] : []);
+	        this.filePaths = source["filePaths"];
 	        this.filePath = source["filePath"];
 	        this.columns = source["columns"];
 	        this.encoding = source["encoding"];

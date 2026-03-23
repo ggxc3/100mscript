@@ -6,12 +6,20 @@ export function DiscoverAutoFilterPaths() {
   return window['go']['main']['App']['DiscoverAutoFilterPaths']();
 }
 
+export function GetAppInfo() {
+  return window['go']['main']['App']['GetAppInfo']();
+}
+
 export function LoadCSVPreview(arg1) {
   return window['go']['main']['App']['LoadCSVPreview'](arg1);
 }
 
 export function LoadTimeSelectorData(arg1) {
   return window['go']['main']['App']['LoadTimeSelectorData'](arg1);
+}
+
+export function OpenContainingFolder(arg1) {
+  return window['go']['main']['App']['OpenContainingFolder'](arg1);
 }
 
 export function PickFilterFiles() {

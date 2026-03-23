@@ -3,8 +3,10 @@ import "./app.css";
 
 import {
   DiscoverAutoFilterPaths,
+  GetAppInfo,
   LoadCSVPreview,
   LoadTimeSelectorData,
+  OpenContainingFolder,
   PickFilterFiles,
   PickInputCSVFile,
   PickInputCSVPaths,
@@ -12,6 +14,7 @@ import {
   RunProcessingWithConfig,
 } from "../wailsjs/go/main/App";
 import { backend, main } from "../wailsjs/go/models";
+import { ClipboardSetText } from "../wailsjs/runtime/runtime";
 
 type ColumnKey =
   | "latitude"
@@ -66,6 +69,16 @@ type UIState = {
   activeDropdown: { windowId: string; field: DropdownField; query: string } | null;
 };
 
+type ReadinessItem = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+const PREVIEW_AUTOLOAD_MS = 420;
+const HIGH_EXCLUSION_RATIO = 0.9;
+
 const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "latitude", label: "Latitude" },
   { key: "longitude", label: "Longitude" },
@@ -76,6 +89,72 @@ const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "rsrp", label: "RSRP" },
   { key: "sinr", label: "SINR" },
 ];
+
+function pathsMatchPreview(paths: string[], preview: main.CSVPreview | null): boolean {
+  if (!preview || paths.length === 0) {
+    return false;
+  }
+  const fromPreview =
+    preview.filePaths && preview.filePaths.length > 0 ? preview.filePaths : preview.filePath ? [preview.filePath] : [];
+  if (paths.length !== fromPreview.length) {
+    return false;
+  }
+  return paths.every((p, i) => p === fromPreview[i]);
+}
+
+function mappingComplete(ui: UIState): boolean {
+  if (!ui.preview) {
+    return false;
+  }
+  return COLUMN_FIELDS.every((f) => {
+    const idx = ui.columnMapping[f.key];
+    return typeof idx === "number" && !Number.isNaN(idx) && idx >= 0 && idx < ui.preview!.columns.length;
+  });
+}
+
+function computeReadinessItems(
+  paths: string[],
+  state: UIState,
+  mobileEnabled: boolean,
+  mobileLtePath: string
+): ReadinessItem[] {
+  const items: ReadinessItem[] = [];
+  items.push({
+    id: "csv",
+    label: "Vstupné CSV",
+    ok: paths.length > 0,
+    detail: paths.length === 0 ? "Pridaj aspoň jeden súbor." : `${paths.length} v zozname`,
+  });
+  const previewSync = pathsMatchPreview(paths, state.preview);
+  items.push({
+    id: "preview",
+    label: "Náhľad a časové dáta",
+    ok: previewSync && !state.timeSelectorLoading,
+    detail: state.timeSelectorLoading
+      ? "Načítavam…"
+      : previewSync
+        ? "Súbory zodpovedajú zoznamu."
+        : paths.length > 0
+          ? "Načítaj náhľad alebo uprav zoznam súborov."
+          : "—",
+  });
+  const mapOk = mappingComplete(state);
+  items.push({
+    id: "mapping",
+    label: "Mapovanie stĺpcov",
+    ok: mapOk,
+    detail: mapOk ? "Všetky povinné polia." : "Vyber stĺpec pre každé pole.",
+  });
+  const lte = mobileLtePath.trim();
+  const mobileOk = !mobileEnabled || lte.length > 0;
+  items.push({
+    id: "mobile",
+    label: "Mobile režim",
+    ok: mobileOk,
+    detail: mobileEnabled ? (mobileOk ? "LTE súbor zadaný." : "Vyber LTE CSV.") : "Vypnutý.",
+  });
+  return items;
+}
 
 const ZONE_MODES = [
   { value: "segments", label: "Úseky po trase" },
@@ -112,14 +191,18 @@ function mountMainView(root: HTMLDivElement): void {
 
   root.innerHTML = `
     <main class="desktop-shell">
-      <header class="topbar card">
-        <div>
+      <header class="topbar">
+        <div class="topbar-main">
           <h1>100mscript</h1>
-          <p class="lede">Spracovanie meraní, export zón a jednoduché vylúčenie časových úsekov priamo v light-mode rozhraní.</p>
+          <p class="lede">Spracovanie CSV meraní do zón a štatistík. Mapovanie stĺpcov a voliteľné časové výnimky.</p>
         </div>
-        <div class="status-stack">
-          <div id="statusChip" class="status-chip idle">READY</div>
-          <div id="statusText" class="status-text">Pripravené</div>
+        <div class="topbar-aside">
+          <button id="aboutBtn" type="button" class="btn btn-toolbar">O aplikácii</button>
+          <div class="status-stack">
+            <div id="statusChip" class="status-chip idle">PRIPRAVENÉ</div>
+            <div id="statusText" class="status-text">Pripravené</div>
+            <div id="statusElapsed" class="status-elapsed" aria-live="polite"></div>
+          </div>
         </div>
       </header>
 
@@ -139,6 +222,9 @@ function mountMainView(root: HTMLDivElement): void {
               <p class="section-note csv-input-note">
                 Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí). Po zlúčení sa riadky
                 zoradia podľa času (UTC alebo Date+Time), aby sedeli s časovými oknami.
+              </p>
+              <p class="section-note csv-autoload-note">
+                Po pridaní súborov sa náhľad <strong>načíta automaticky</strong>. Tlačidlo nižšie použite na obnovenie po zmene súborov na disku.
               </p>
               <div class="inline-actions">
                 <button id="addCsvBtn" class="btn secondary" type="button">Pridať súbor</button>
@@ -233,6 +319,9 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
 
             <div id="customOperatorsPanel" class="stack disabled-panel">
+              <p class="section-note operator-hint">
+                Dostupné len pri zapnutí „Generovať prázdne zóny“. Umožní doplniť operátorov, ktorí nemajú merané body, aby sa im aj tak vytvorili záznamy v štatistikách.
+              </p>
               <label class="check-row">
                 <input id="addCustomOperators" type="checkbox" />
                 <span>Pridať vlastných operátorov</span>
@@ -245,12 +334,21 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
           </article>
 
-          <article class="card section-card time-window-card">
+          <article class="card section-card">
             <div class="section-head">
-              <h2>Časové Úseky</h2>
+              <h2>Mapovanie stĺpcov</h2>
+              <span class="tag">Auto</span>
+            </div>
+            <p class="section-note">Najprv načítaj CSV (automaticky po pridaní). Stĺpce sa predvyplnia podľa hlavičky; pred spustením skontroluj každé pole.</p>
+            <div id="mappingGrid" class="mapping-grid"></div>
+          </article>
+
+          <article class="card section-card">
+            <div class="section-head">
+              <h2>Časové úseky</h2>
             </div>
             <p class="section-note">
-              Vyber časové okná, ktoré sa majú vylúčiť zo spracovania. Počet vylúčených bodov sa prepočíta pri každej zmene.
+              Voliteľné okná vylúčia merania z výpočtu. Počet vylúčených bodov sa prepočíta pri každej zmene.
             </p>
             <div id="timeSelectorInfo" class="time-selector-info muted">Najprv načítaj CSV.</div>
             <div id="timeSelectorSummary" class="time-selector-summary">
@@ -267,27 +365,21 @@ function mountMainView(root: HTMLDivElement): void {
               <div class="time-window-empty muted">Zatiaľ nie je definované žiadne časové okno.</div>
             </div>
           </article>
-
-          <article class="card section-card">
-            <div class="section-head">
-              <h2>Mapovanie stĺpcov</h2>
-              <span class="tag">Auto</span>
-            </div>
-            <p class="section-note">Po načítaní CSV sa ponúknu stĺpce a predvyplní sa detekované mapovanie.</p>
-            <div id="mappingGrid" class="mapping-grid"></div>
-          </article>
         </section>
 
         <section class="right-column">
           <article class="card section-card sticky-panel">
             <div class="section-head">
               <h2>Spustenie a priebeh</h2>
-              <span id="runStateBadge" class="tag muted-tag">idle</span>
+              <span id="runStateBadge" class="tag muted-tag">čaká</span>
             </div>
+
+            <div id="readinessPanel" class="readiness-panel" aria-label="Kontrola pred spustením"></div>
 
             <div class="run-actions">
               <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
               <button id="clearLogBtn" class="btn ghost" type="button">Vyčistiť log</button>
+              <button id="exportLogBtn" class="btn ghost" type="button">Exportovať log</button>
             </div>
 
             <div id="progressBar" class="progress-bar" aria-hidden="true">
@@ -298,7 +390,7 @@ function mountMainView(root: HTMLDivElement): void {
               <div class="preview-head">
                 <strong>Výsledok</strong>
               </div>
-              <div id="resultContent" class="result-grid muted">Zatiaľ nebolo spustené spracovanie.</div>
+              <div id="resultContent" class="result-body muted">Zatiaľ nebolo spustené spracovanie.</div>
             </div>
 
             <div class="log-box">
@@ -310,6 +402,14 @@ function mountMainView(root: HTMLDivElement): void {
           </article>
         </section>
       </section>
+
+      <div id="aboutOverlay" class="modal-overlay" hidden>
+        <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+          <h3 id="aboutTitle" class="modal-title">100mscript</h3>
+          <p id="aboutBody" class="modal-body"></p>
+          <button type="button" id="aboutCloseBtn" class="btn primary">Zavrieť</button>
+        </div>
+      </div>
     </main>
   `;
 
@@ -348,12 +448,88 @@ function mountMainView(root: HTMLDivElement): void {
   const mappingGrid = qs<HTMLDivElement>("#mappingGrid");
   const runBtn = qs<HTMLButtonElement>("#runBtn");
   const clearLogBtn = qs<HTMLButtonElement>("#clearLogBtn");
+  const exportLogBtn = qs<HTMLButtonElement>("#exportLogBtn");
   const progressBar = qs<HTMLDivElement>("#progressBar");
   const resultContent = qs<HTMLDivElement>("#resultContent");
   const logOutput = qs<HTMLPreElement>("#logOutput");
   const statusChip = qs<HTMLDivElement>("#statusChip");
   const statusText = qs<HTMLDivElement>("#statusText");
+  const statusElapsed = qs<HTMLDivElement>("#statusElapsed");
   const runStateBadge = qs<HTMLSpanElement>("#runStateBadge");
+  const readinessPanel = qs<HTMLDivElement>("#readinessPanel");
+  const aboutBtn = qs<HTMLButtonElement>("#aboutBtn");
+  const aboutOverlay = qs<HTMLDivElement>("#aboutOverlay");
+  const aboutBody = qs<HTMLParagraphElement>("#aboutBody");
+  const aboutCloseBtn = qs<HTMLButtonElement>("#aboutCloseBtn");
+
+  let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
+  let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
+
+  function cancelPreviewAutoload(): void {
+    if (previewAutoloadTimer !== null) {
+      clearTimeout(previewAutoloadTimer);
+      previewAutoloadTimer = null;
+    }
+  }
+
+  function scheduleAutoLoadPreview(): void {
+    cancelPreviewAutoload();
+    previewAutoloadTimer = setTimeout(() => {
+      previewAutoloadTimer = null;
+      if (state.inputCsvPaths.length === 0) {
+        return;
+      }
+      void loadPreviewForCurrentCSV().catch(handlePreviewError);
+    }, PREVIEW_AUTOLOAD_MS);
+  }
+
+  function stopRunElapsedTimer(): void {
+    if (runElapsedTimer !== null) {
+      clearInterval(runElapsedTimer);
+      runElapsedTimer = null;
+    }
+    statusElapsed.textContent = "";
+  }
+
+  function startRunElapsedTimer(): void {
+    stopRunElapsedTimer();
+    const started = Date.now();
+    runElapsedTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - started) / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      statusElapsed.textContent = m > 0 ? `Uplynulo ${m}:${s.toString().padStart(2, "0")}` : `Uplynulo ${sec} s`;
+    }, 500);
+  }
+
+  function allInputsReady(): boolean {
+    return computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, mobileLtePathInput.value).every(
+      (item) => item.ok
+    );
+  }
+
+  function renderReadiness(): void {
+    const items = computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, mobileLtePathInput.value);
+    readinessPanel.innerHTML = items
+      .map(
+        (item) => `
+        <div class="readiness-row ${item.ok ? "is-ok" : "is-missing"}">
+          <span class="readiness-icon" aria-hidden="true">${item.ok ? "✓" : "·"}</span>
+          <div class="readiness-copy">
+            <div class="readiness-label">${escapeHtml(item.label)}</div>
+            <div class="readiness-detail">${escapeHtml(item.detail)}</div>
+          </div>
+        </div>`
+      )
+      .join("");
+    if (!state.running) {
+      runBtn.disabled = !allInputsReady();
+    }
+  }
+
+  function updateLoadPreviewButtonLabel(): void {
+    loadPreviewBtn.textContent = state.preview ? "Obnoviť náhľad" : "Načítať stĺpce";
+  }
 
   ZONE_MODES.forEach((mode) => {
     const opt = document.createElement("option");
@@ -378,14 +554,20 @@ function mountMainView(root: HTMLDivElement): void {
     statusText.textContent = text;
     statusChip.className = `status-chip ${tone}`;
     statusChip.textContent =
-      tone === "running" ? "RUNNING" : tone === "success" ? "DONE" : tone === "error" ? "ERROR" : "READY";
+      tone === "running" ? "PREBIEHA" : tone === "success" ? "HOTOVÉ" : tone === "error" ? "CHYBA" : "PRIPRAVENÉ";
     runStateBadge.className = `tag ${tone === "idle" ? "muted-tag" : `${tone}-tag`}`;
-    runStateBadge.textContent = tone;
+    runStateBadge.textContent =
+      tone === "running" ? "prebieha" : tone === "success" ? "hotovo" : tone === "error" ? "chyba" : "čaká";
   }
 
   function setRunning(running: boolean): void {
     state.running = running;
-    runBtn.disabled = running;
+    if (running) {
+      startRunElapsedTimer();
+    } else {
+      stopRunElapsedTimer();
+    }
+    runBtn.disabled = running || !allInputsReady();
     csvList.disabled = running;
     addCsvBtn.disabled = running;
     addCsvMultiBtn.disabled = running;
@@ -399,12 +581,15 @@ function mountMainView(root: HTMLDivElement): void {
     addTimeWindowBtn.disabled = running || state.timeSelectorLoading || !state.timeSelectorData;
     clearTimeWindowsBtn.disabled = running || state.timeWindows.length === 0;
     progressBar.classList.toggle("is-running", running);
+    renderReadiness();
   }
 
   function renderPreview(): void {
+    updateLoadPreviewButtonLabel();
     if (!state.preview) {
       previewMeta.textContent = "Čaká na súbor";
       previewColumns.innerHTML = `<span class="muted">Zatiaľ nenačítané.</span>`;
+      renderReadiness();
       return;
     }
     const preview = state.preview;
@@ -415,6 +600,7 @@ function mountMainView(root: HTMLDivElement): void {
     previewColumns.innerHTML = preview.columns
       .map((col, idx) => `<span class="col-pill">${idx}: ${escapeHtml(col)}</span>`)
       .join("");
+    renderReadiness();
   }
 
   function renderFilterList(): void {
@@ -442,6 +628,7 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function clearCsvInputAndPreview(): void {
+    cancelPreviewAutoload();
     state.inputCsvPaths = [];
     state.preview = null;
     state.columnMapping = {};
@@ -472,6 +659,7 @@ function mountMainView(root: HTMLDivElement): void {
     } else {
       invalidateCsvPreviewAfterListChange();
       renderCsvList();
+      scheduleAutoLoadPreview();
     }
     appendLog(`Odstránené vstupné CSV (${selected.size})`);
   }
@@ -498,6 +686,7 @@ function mountMainView(root: HTMLDivElement): void {
     invalidateCsvPreviewAfterListChange();
     renderCsvList();
     appendLog(`Pridaný CSV: ${path}`);
+    scheduleAutoLoadPreview();
   }
 
   async function addMultipleCsvFromPicker(): Promise<void> {
@@ -519,24 +708,34 @@ function mountMainView(root: HTMLDivElement): void {
     renderCsvList();
     const skipped = paths.length - added;
     appendLog(`Pridané nové CSV súbory: ${added}${skipped > 0 ? ` (preskočené duplicitné: ${skipped})` : ""}`);
+    if (added > 0) {
+      scheduleAutoLoadPreview();
+    }
   }
 
   function renderResult(): void {
     if (!state.result) {
+      resultContent.className = "result-body muted";
       resultContent.innerHTML = "Zatiaľ nebolo spustené spracovanie.";
-      resultContent.classList.add("muted");
       return;
     }
     const result = state.result;
-    resultContent.classList.remove("muted");
+    resultContent.className = "result-body";
     resultContent.innerHTML = `
-      <div><span>Zóny CSV</span><strong>${escapeHtml(result.zones_file ?? "")}</strong></div>
-      <div><span>Štatistiky CSV</span><strong>${escapeHtml(result.stats_file ?? "")}</strong></div>
-      <div><span>Unikátne zóny</span><strong>${String(result.unique_zones ?? 0)}</strong></div>
-      <div><span>Unikátni operátori</span><strong>${String(result.unique_operators ?? 0)}</strong></div>
-      <div><span>Riadky zón</span><strong>${String(result.total_zone_rows ?? 0)}</strong></div>
-      <div><span>Vylúčené riadky</span><strong>${String(state.excludedOriginalRows.length)}</strong></div>
-      <div><span>Pokrytie</span><strong>${formatPercent(result.coverage_percent)}</strong></div>
+      <div class="result-grid">
+        <div><span>Zóny CSV</span><strong>${escapeHtml(result.zones_file ?? "")}</strong></div>
+        <div><span>Štatistiky CSV</span><strong>${escapeHtml(result.stats_file ?? "")}</strong></div>
+        <div><span>Unikátne zóny</span><strong>${String(result.unique_zones ?? 0)}</strong></div>
+        <div><span>Unikátni operátori</span><strong>${String(result.unique_operators ?? 0)}</strong></div>
+        <div><span>Riadky zón</span><strong>${String(result.total_zone_rows ?? 0)}</strong></div>
+        <div><span>Vylúčené riadky</span><strong>${String(state.excludedOriginalRows.length)}</strong></div>
+        <div><span>Pokrytie</span><strong>${formatPercent(result.coverage_percent)}</strong></div>
+      </div>
+      <div class="result-actions-bar">
+        <button type="button" class="btn secondary small-btn" data-result-action="open-output">Otvoriť výstupný priečinok</button>
+        <button type="button" class="btn ghost small-btn" data-result-action="copy-zones">Skopírovať cestu (zóny)</button>
+        <button type="button" class="btn ghost small-btn" data-result-action="copy-stats">Skopírovať cestu (štatistiky)</button>
+      </div>
     `;
   }
 
@@ -612,11 +811,13 @@ function mountMainView(root: HTMLDivElement): void {
     if (!data) {
       const message = state.timeSelectorError || "Časový selector bude dostupný po načítaní CSV.";
       timeWindowList.innerHTML = `<div class="time-window-empty muted">${escapeHtml(message)}</div>`;
+      renderReadiness();
       return;
     }
 
     if (state.timeWindows.length === 0) {
       timeWindowList.innerHTML = `<div class="time-window-empty muted">Zatiaľ nie je definované žiadne časové okno. Klikni na „Pridať časové okno“.</div>`;
+      renderReadiness();
       return;
     }
 
@@ -717,6 +918,7 @@ function mountMainView(root: HTMLDivElement): void {
         `;
       })
       .join("");
+    renderReadiness();
   }
 
   function clearTimeSelectorState(): void {
@@ -729,6 +931,7 @@ function mountMainView(root: HTMLDivElement): void {
     state.excludedOriginalRows = [];
     renderTimeSelector();
     renderResult();
+    renderReadiness();
   }
 
   async function loadTimeSelectorForCurrentCSV(paths: string[]): Promise<void> {
@@ -771,6 +974,7 @@ function mountMainView(root: HTMLDivElement): void {
             </select>
           </label>`
       ).join("");
+      renderReadiness();
       return;
     }
 
@@ -801,8 +1005,10 @@ function mountMainView(root: HTMLDivElement): void {
         } else {
           state.columnMapping[key] = Number(raw);
         }
+        renderReadiness();
       });
     });
+    renderReadiness();
   }
 
   function updateDependentUI(): void {
@@ -948,6 +1154,23 @@ function mountMainView(root: HTMLDivElement): void {
     if (state.running) {
       return;
     }
+    if (!allInputsReady()) {
+      appendLog("Nie je možné spustiť: skontroluj kontrolný zoznam v pravom paneli.");
+      setStatus("Doplň položky v kontrolnom zozname", "idle");
+      return;
+    }
+
+    const timed = state.timeSelectorData?.timed_rows ?? 0;
+    const excluded = state.excludedOriginalRows.length;
+    if (timed > 0 && excluded > 0 && excluded / timed > HIGH_EXCLUSION_RATIO) {
+      const ok = window.confirm(
+        `Vylúčených je viac ako ${Math.round(HIGH_EXCLUSION_RATIO * 100)} % časovo označených riadkov. Naozaj pokračovať?`
+      );
+      if (!ok) {
+        appendLog("Spustenie zrušené (vysoké pokrytie vylúčením).");
+        return;
+      }
+    }
 
     try {
       setRunning(true);
@@ -986,6 +1209,7 @@ function mountMainView(root: HTMLDivElement): void {
     }
     mobileLtePathInput.value = path;
     appendLog(`Vybraný LTE CSV: ${path}`);
+    renderReadiness();
   }
 
   async function addFilterFiles(): Promise<void> {
@@ -1027,7 +1251,6 @@ function mountMainView(root: HTMLDivElement): void {
   removeCsvBtn.addEventListener("click", removeSelectedCsvPaths);
   clearCsvBtn.addEventListener("click", clearCsvPaths);
   loadPreviewBtn.addEventListener("click", () => {
-    clearTimeSelectorState();
     void loadPreviewForCurrentCSV().catch(handlePreviewError);
   });
   pickMobileLteBtn.addEventListener("click", () => {
@@ -1145,6 +1368,10 @@ function mountMainView(root: HTMLDivElement): void {
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !aboutOverlay.hidden) {
+      aboutOverlay.hidden = true;
+      return;
+    }
     if (event.key === "Escape" && state.activeDropdown) {
       state.activeDropdown = null;
       renderTimeSelector();
@@ -1156,6 +1383,71 @@ function mountMainView(root: HTMLDivElement): void {
   clearLogBtn.addEventListener("click", () => {
     state.logs = [];
     logOutput.textContent = "Log vyčistený.";
+  });
+  exportLogBtn.addEventListener("click", () => {
+    const text = state.logs.length > 0 ? state.logs.join("\n") : "(prázdny log)";
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `100mscript-log-${formatTimestampForFilename()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    appendLog("Log exportovaný.");
+  });
+  mobileLtePathInput.addEventListener("input", () => {
+    renderReadiness();
+  });
+  resultContent.addEventListener("click", (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-result-action]");
+    if (!btn?.dataset.resultAction) {
+      return;
+    }
+    const action = btn.dataset.resultAction;
+    const result = state.result;
+    if (!result) {
+      return;
+    }
+    void (async () => {
+      try {
+        if (action === "open-output") {
+          const path = result.zones_file || result.stats_file;
+          if (!path) {
+            return;
+          }
+          await OpenContainingFolder(path);
+          appendLog("Otvorený priečinok / súbor vo výstupe.");
+        } else if (action === "copy-zones" && result.zones_file) {
+          await ClipboardSetText(result.zones_file);
+          appendLog("Skopírovaná cesta k súboru zón.");
+        } else if (action === "copy-stats" && result.stats_file) {
+          await ClipboardSetText(result.stats_file);
+          appendLog("Skopírovaná cesta k štatistikám.");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        appendLog(`Chyba: ${message}`);
+      }
+    })();
+  });
+  aboutBtn.addEventListener("click", () => {
+    void (async () => {
+      try {
+        const info = (await GetAppInfo()) as main.AppInfo;
+        aboutBody.textContent = `${info.productName}\nVerzia ${info.version}\n\nVýstupy sa ukladajú vedľa vstupného súboru ako súbory _zones.csv a _stats.csv.`;
+      } catch {
+        aboutBody.textContent = "100mscript\n\nNepodarilo sa načítať informácie o verzii.";
+      }
+      aboutOverlay.hidden = false;
+    })();
+  });
+  aboutCloseBtn.addEventListener("click", () => {
+    aboutOverlay.hidden = true;
+  });
+  aboutOverlay.addEventListener("click", (event) => {
+    if (event.target === aboutOverlay) {
+      aboutOverlay.hidden = true;
+    }
   });
   function handlePreviewError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
@@ -1170,6 +1462,7 @@ function mountMainView(root: HTMLDivElement): void {
   renderResult();
   renderTimeSelector();
   updateDependentUI();
+  renderReadiness();
   setStatus("Pripravené", "idle");
 
   function focusActiveDropdownSearch(): void {
@@ -1478,6 +1771,12 @@ function escapeHtml(value: string): string {
 
 function timestamp(): string {
   return new Date().toLocaleTimeString("sk-SK", { hour12: false });
+}
+
+function formatTimestampForFilename(): string {
+  const d = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
 }
 
 function dedupePaths(paths: string[]): string[] {
