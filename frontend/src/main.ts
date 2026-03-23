@@ -369,13 +369,15 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
 
             <div id="customOperatorsPanel" class="stack disabled-panel">
-              <p class="section-note operator-hint">
-                Dostupné len pri zapnutí „Generovať prázdne zóny“. Umožní doplniť operátorov, ktorí nemajú merané body, aby sa im aj tak vytvorili záznamy v štatistikách.
-              </p>
-              <label class="check-row">
-                <input id="addCustomOperators" type="checkbox" />
-                <span>Pridať vlastných operátorov</span>
-              </label>
+              <div class="custom-operators-intro">
+                <p class="section-note operator-hint">
+                  Dostupné len pri zapnutí „Generovať prázdne zóny“. Umožní doplniť operátorov, ktorí nemajú merané body, aby sa im aj tak vytvorili záznamy v štatistikách.
+                </p>
+                <label class="check-row">
+                  <input id="addCustomOperators" type="checkbox" />
+                  <span>Pridať vlastných operátorov</span>
+                </label>
+              </div>
               <label class="field">
                 <span>Vlastní operátori</span>
                 <input id="customOperatorsText" type="text" placeholder="231:01 231:02:10" />
