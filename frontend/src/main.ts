@@ -52,6 +52,8 @@ type TimeWindowDraft = {
 
 type UIState = {
   preview: main.CSVPreview | null;
+  /** Posledná chyba načítania náhľadu (hlavičky); pri úspechu null. */
+  previewError: string | null;
   columnMapping: Partial<Record<ColumnKey, number>>;
   inputCsvPaths: string[];
   customFilterPaths: string[];
@@ -169,11 +171,13 @@ function computeReadinessItems(
     ok: previewSync && !state.timeSelectorLoading,
     detail: state.timeSelectorLoading
       ? "Načítavam…"
-      : previewSync
-        ? "Súbory zodpovedajú zoznamu."
-        : paths.length > 0
-          ? "Načítaj náhľad alebo uprav zoznam súborov."
-          : "—",
+      : state.previewError
+        ? state.previewError
+        : previewSync
+          ? "Súbory zodpovedajú zoznamu."
+          : paths.length > 0
+            ? "Načítaj náhľad alebo uprav zoznam súborov."
+            : "—",
   });
   const mapOk = mappingComplete(state);
   items.push({
@@ -209,6 +213,7 @@ mountMainView(app);
 function mountMainView(root: HTMLDivElement): void {
   const state: UIState = {
     preview: null,
+    previewError: null,
     columnMapping: {},
     inputCsvPaths: [],
     customFilterPaths: [],
@@ -280,7 +285,7 @@ function mountMainView(root: HTMLDivElement): void {
                 <strong>Auto-detekcia stĺpcov</strong>
                 <span id="previewMeta" class="muted">Čaká na súbor</span>
               </div>
-              <div id="previewColumns" class="columns-list muted">Zatiaľ nenačítané.</div>
+              <div id="previewColumns" class="preview-status muted">Zatiaľ nenačítané.</div>
             </div>
 
             <label class="check-row">
@@ -772,20 +777,20 @@ function mountMainView(root: HTMLDivElement): void {
 
   function renderPreview(): void {
     updateLoadPreviewButtonLabel();
+    if (state.previewError) {
+      previewMeta.textContent = "Neúspešné načítanie";
+      previewColumns.innerHTML = `<span class="preview-status-msg preview-status-msg--error">${escapeHtml(state.previewError)}</span>`;
+      renderReadiness();
+      return;
+    }
     if (!state.preview) {
       previewMeta.textContent = "Čaká na súbor";
       previewColumns.innerHTML = `<span class="muted">Zatiaľ nenačítané.</span>`;
       renderReadiness();
       return;
     }
-    const preview = state.preview;
-    const n = preview.filePaths?.length ?? (preview.filePath ? 1 : 0);
-    const filesLabel =
-      n === 1 ? "1 súbor" : n >= 2 && n <= 4 ? `${n} súbory` : `${n} súborov`;
-    previewMeta.textContent = `${filesLabel} • Encoding: ${preview.encoding} | Hlavička: riadok ${preview.headerLine + 1}`;
-    previewColumns.innerHTML = preview.columns
-      .map((col, idx) => `<span class="col-pill">${idx}: ${escapeHtml(col)}</span>`)
-      .join("");
+    previewMeta.textContent = "Úspešne načítané";
+    previewColumns.innerHTML = `<span class="preview-status-msg preview-status-msg--ok">Detekcia hlavičky prebehla úspešne.</span>`;
     renderReadiness();
   }
 
@@ -817,6 +822,7 @@ function mountMainView(root: HTMLDivElement): void {
     cancelPreviewAutoload();
     state.inputCsvPaths = [];
     state.preview = null;
+    state.previewError = null;
     state.columnMapping = {};
     clearTimeSelectorState();
     renderCsvList();
@@ -827,6 +833,7 @@ function mountMainView(root: HTMLDivElement): void {
 
   function invalidateCsvPreviewAfterListChange(): void {
     state.preview = null;
+    state.previewError = null;
     state.columnMapping = {};
     clearTimeSelectorState();
     renderPreview();
@@ -1233,6 +1240,7 @@ function mountMainView(root: HTMLDivElement): void {
       throw new Error("Pridaj aspoň jeden vstupný CSV súbor.");
     }
 
+    state.previewError = null;
     appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
     const preview = (await LoadCSVPreview(paths)) as main.CSVPreview;
     const previousKey = state.preview
@@ -1684,6 +1692,12 @@ function mountMainView(root: HTMLDivElement): void {
   });
   function handlePreviewError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
+    state.preview = null;
+    state.previewError = message;
+    state.columnMapping = {};
+    clearTimeSelectorState();
+    renderPreview();
+    renderMappingGrid();
     setStatus("Chyba pri načítaní CSV", "error");
     appendLog(`Chyba pri načítaní CSV: ${message}`);
   }
