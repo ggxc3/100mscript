@@ -255,13 +255,11 @@ function mountMainView(root: HTMLDivElement): void {
           <article class="card section-card">
             <div class="section-head">
               <h2>Vstupné dáta</h2>
-              <span class="tag">CSV</span>
             </div>
 
             <div class="filters-panel">
               <div class="filters-head">
                 <strong>Vstupné CSV súbory</strong>
-                <span class="tag">poradie = zlúčenie</span>
               </div>
               <p class="section-note csv-input-note">
                 Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí). Po zlúčení sa riadky
@@ -335,7 +333,6 @@ function mountMainView(root: HTMLDivElement): void {
           <article class="card section-card">
             <div class="section-head">
               <h2>Nastavenia spracovania</h2>
-              <span class="tag">Backend</span>
             </div>
 
             <div class="quad-grid">
@@ -389,7 +386,6 @@ function mountMainView(root: HTMLDivElement): void {
           <article class="card section-card">
             <div class="section-head">
               <h2>Mapovanie stĺpcov</h2>
-              <span class="tag">Auto</span>
             </div>
             <p class="section-note">Najprv načítaj CSV (automaticky po pridaní). Stĺpce sa predvyplnia podľa hlavičky; pred spustením skontroluj každé pole.</p>
             <div id="mappingGrid" class="mapping-grid"></div>
@@ -423,7 +419,6 @@ function mountMainView(root: HTMLDivElement): void {
           <article class="card section-card sticky-panel">
             <div class="section-head">
               <h2>Spustenie a priebeh</h2>
-              <span id="runStateBadge" class="tag muted-tag">čaká</span>
             </div>
 
             <div id="readinessPanel" class="readiness-panel" aria-label="Kontrola pred spustením"></div>
@@ -531,7 +526,6 @@ function mountMainView(root: HTMLDivElement): void {
   const statusChip = qs<HTMLDivElement>("#statusChip");
   const statusText = qs<HTMLDivElement>("#statusText");
   const statusElapsed = qs<HTMLDivElement>("#statusElapsed");
-  const runStateBadge = qs<HTMLSpanElement>("#runStateBadge");
   const readinessPanel = qs<HTMLDivElement>("#readinessPanel");
   const aboutBtn = qs<HTMLButtonElement>("#aboutBtn");
   const aboutOverlay = qs<HTMLDivElement>("#aboutOverlay");
@@ -758,9 +752,6 @@ function mountMainView(root: HTMLDivElement): void {
     statusChip.className = `status-chip ${tone}`;
     statusChip.textContent =
       tone === "running" ? "PREBIEHA" : tone === "success" ? "HOTOVÉ" : tone === "error" ? "CHYBA" : "PRIPRAVENÉ";
-    runStateBadge.className = `tag ${tone === "idle" ? "muted-tag" : `${tone}-tag`}`;
-    runStateBadge.textContent =
-      tone === "running" ? "prebieha" : tone === "success" ? "hotovo" : tone === "error" ? "chyba" : "čaká";
   }
 
   function setRunning(running: boolean): void {
