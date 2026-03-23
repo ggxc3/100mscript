@@ -396,8 +396,7 @@
 }
 
 .preview-head,
-.filters-head,
-.log-head {
+.filters-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -406,8 +405,7 @@
 }
 
 .preview-head strong,
-.filters-head strong,
-.log-head strong {
+.filters-head strong {
   font: 700 13px/1.2 "IBM Plex Sans", sans-serif;
   color: #1a2430;
 }
@@ -533,8 +531,15 @@
 
 .run-actions {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 10px;
+}
+
+.run-actions__log {
+  margin-left: auto;
 }
 
 .progress-bar {
@@ -850,31 +855,6 @@
   }
 }
 
-.log-head-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.log-teaser {
-  margin: 0 0 10px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.log-panel {
-  display: grid;
-  gap: 8px;
-}
-
-.log-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -897,6 +877,32 @@
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   box-shadow: 0 10px 40px rgba(15, 23, 42, 0.12);
+}
+
+.modal-dialog--log {
+  max-width: min(720px, 96vw);
+  max-height: min(90vh, 880px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.log-modal-lede {
+  margin: -4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.log-modal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-modal-close {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 .modal-title {
@@ -923,14 +929,11 @@
   word-break: break-word;
 }
 
-.log-box {
-  margin-top: 12px;
-}
-
 .log-output {
   margin: 0;
-  min-height: 220px;
-  max-height: 380px;
+  min-height: 200px;
+  max-height: 52vh;
+  flex: 1 1 auto;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -940,6 +943,12 @@
   color: #e5e7eb;
   border: 1px solid #374151;
   font: 12px/1.4 "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.log-output--modal {
+  flex: 1 1 auto;
+  min-height: 200px;
+  max-height: min(52vh, 480px);
 }
 
 code {
@@ -997,6 +1006,12 @@ code {
 
   .run-actions {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .run-actions__log {
+    margin-left: 0;
+    align-self: flex-end;
   }
 
   .result-grid > div {

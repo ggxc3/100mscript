@@ -70,7 +70,6 @@ type UIState = {
   timeSelectorError: string;
   activeDropdown: { windowId: string; field: DropdownField; query: string } | null;
   processingPhases: PhaseRow[];
-  logExpanded: boolean;
 };
 
 type ReadinessItem = {
@@ -230,7 +229,6 @@ function mountMainView(root: HTMLDivElement): void {
     timeSelectorError: "",
     activeDropdown: null,
     processingPhases: [],
-    logExpanded: false,
   };
 
   root.innerHTML = `
@@ -433,6 +431,7 @@ function mountMainView(root: HTMLDivElement): void {
 
             <div class="run-actions">
               <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
+              <button id="openLogBtn" type="button" class="btn btn-toolbar run-actions__log">Technický log</button>
             </div>
 
             <div id="progressBar" class="progress-bar" aria-hidden="true">
@@ -445,29 +444,6 @@ function mountMainView(root: HTMLDivElement): void {
               </div>
               <div id="resultContent" class="result-body muted">Zatiaľ nebolo spustené spracovanie.</div>
             </div>
-
-            <div class="log-box">
-              <div class="log-head log-head-row">
-                <strong>Technický log</strong>
-                <button
-                  id="toggleLogBtn"
-                  type="button"
-                  class="btn btn-toolbar"
-                  aria-expanded="false"
-                  aria-controls="logPanel"
-                >
-                  Zobraziť log
-                </button>
-              </div>
-              <p class="log-teaser muted">Detailné hlášky sú skryté. Otvor log pri diagnostike alebo podpore.</p>
-              <div id="logPanel" class="log-panel" hidden>
-                <div class="log-toolbar">
-                  <button id="clearLogBtn" class="btn ghost small-btn" type="button">Vyčistiť log</button>
-                  <button id="exportLogBtn" class="btn ghost small-btn" type="button">Exportovať log</button>
-                </div>
-                <pre id="logOutput" class="log-output">Pripravené.</pre>
-              </div>
-            </div>
           </article>
         </section>
       </section>
@@ -477,6 +453,24 @@ function mountMainView(root: HTMLDivElement): void {
           <h3 id="aboutTitle" class="modal-title">100mscript</h3>
           <p id="aboutBody" class="modal-body"></p>
           <button type="button" id="aboutCloseBtn" class="btn primary">Zavrieť</button>
+        </div>
+      </div>
+
+      <div id="logOverlay" class="modal-overlay" hidden>
+        <div
+          class="modal-dialog modal-dialog--log"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="logModalTitle"
+        >
+          <h3 id="logModalTitle" class="modal-title">Technický log</h3>
+          <p class="log-modal-lede muted">Detailné hlášky pri diagnostike alebo podpore.</p>
+          <div class="log-modal-toolbar">
+            <button id="clearLogBtn" class="btn ghost small-btn" type="button">Vyčistiť log</button>
+            <button id="exportLogBtn" class="btn ghost small-btn" type="button">Exportovať log</button>
+          </div>
+          <pre id="logOutput" class="log-output log-output--modal">Pripravené.</pre>
+          <button type="button" id="logCloseBtn" class="btn primary log-modal-close">Zavrieť</button>
         </div>
       </div>
     </main>
@@ -533,8 +527,9 @@ function mountMainView(root: HTMLDivElement): void {
   const aboutCloseBtn = qs<HTMLButtonElement>("#aboutCloseBtn");
   const processingPipelineWrap = qs<HTMLDivElement>("#processingPipelineWrap");
   const processingPipeline = qs<HTMLDivElement>("#processingPipeline");
-  const toggleLogBtn = qs<HTMLButtonElement>("#toggleLogBtn");
-  const logPanel = qs<HTMLDivElement>("#logPanel");
+  const openLogBtn = qs<HTMLButtonElement>("#openLogBtn");
+  const logOverlay = qs<HTMLDivElement>("#logOverlay");
+  const logCloseBtn = qs<HTMLButtonElement>("#logCloseBtn");
 
   let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -700,11 +695,16 @@ function mountMainView(root: HTMLDivElement): void {
     setStatus(label, "running");
   }
 
-  function syncLogPanelUI(): void {
-    const expanded = state.logExpanded;
-    logPanel.hidden = !expanded;
-    toggleLogBtn.textContent = expanded ? "Skryť log" : "Zobraziť log";
-    toggleLogBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+  function openLogModal(): void {
+    logOverlay.hidden = false;
+    logOutput.textContent = state.logs.length > 0 ? state.logs.join("\n") : "Pripravené.";
+    window.requestAnimationFrame(() => {
+      logOutput.scrollTop = logOutput.scrollHeight;
+    });
+  }
+
+  function closeLogModal(): void {
+    logOverlay.hidden = true;
   }
 
   EventsOn("processing:phase", (...args: unknown[]) => {
@@ -1621,6 +1621,10 @@ function mountMainView(root: HTMLDivElement): void {
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !logOverlay.hidden) {
+      closeLogModal();
+      return;
+    }
     if (event.key === "Escape" && !aboutOverlay.hidden) {
       aboutOverlay.hidden = true;
       return;
@@ -1633,9 +1637,16 @@ function mountMainView(root: HTMLDivElement): void {
   runBtn.addEventListener("click", () => {
     void runProcessing();
   });
-  toggleLogBtn.addEventListener("click", () => {
-    state.logExpanded = !state.logExpanded;
-    syncLogPanelUI();
+  openLogBtn.addEventListener("click", () => {
+    openLogModal();
+  });
+  logCloseBtn.addEventListener("click", () => {
+    closeLogModal();
+  });
+  logOverlay.addEventListener("click", (event) => {
+    if (event.target === logOverlay) {
+      closeLogModal();
+    }
   });
   clearLogBtn.addEventListener("click", () => {
     state.logs = [];
@@ -1726,7 +1737,6 @@ function mountMainView(root: HTMLDivElement): void {
   renderTimeSelector();
   updateDependentUI();
   renderReadiness();
-  syncLogPanelUI();
   setStatus("Pripravené", "idle");
 
   function focusActiveDropdownSearch(): void {
