@@ -424,7 +424,6 @@ function mountMainView(root: HTMLDivElement): void {
             <div id="processingPipelineWrap" class="processing-pipeline-wrap" hidden>
               <div class="preview-head pipeline-head">
                 <strong>Priebeh spracovania</strong>
-                <span class="muted pipeline-hint">Aktuálna fáza podľa backendu</span>
               </div>
               <div id="processingPipeline" class="processing-pipeline" role="list" aria-live="polite"></div>
             </div>

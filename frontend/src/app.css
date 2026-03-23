@@ -660,13 +660,6 @@
   gap: 6px 12px;
 }
 
-.pipeline-hint {
-  font-weight: 400;
-  font-size: 11px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
 .processing-pipeline {
   display: grid;
   gap: 4px;
