@@ -278,7 +278,7 @@ function mountMainView(root: HTMLDivElement): void {
                 <button id="loadPreviewBtn" class="btn ghost" type="button">Načítať stĺpce</button>
               </div>
               <select id="csvList" class="listbox" multiple size="5"></select>
-              <p id="csvPreviewStatus" class="csv-preview-inline muted" aria-live="polite">Hlavička ešte nenačítaná.</p>
+              <p id="csvPreviewStatus" class="csv-preview-inline" hidden aria-live="polite"></p>
             </div>
 
             <label class="check-row">
@@ -770,17 +770,20 @@ function mountMainView(root: HTMLDivElement): void {
   function renderPreview(): void {
     updateLoadPreviewButtonLabel();
     if (state.previewError) {
+      csvPreviewStatus.hidden = false;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__err">Chyba: ${escapeHtml(state.previewError)}</span>`;
       renderReadiness();
       return;
     }
     if (!state.preview) {
-      csvPreviewStatus.className = "csv-preview-inline muted";
-      csvPreviewStatus.textContent = "Hlavička ešte nenačítaná.";
+      csvPreviewStatus.hidden = true;
+      csvPreviewStatus.className = "csv-preview-inline";
+      csvPreviewStatus.textContent = "";
       renderReadiness();
       return;
     }
+    csvPreviewStatus.hidden = false;
     csvPreviewStatus.className = "csv-preview-inline";
     csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span>`;
     renderReadiness();
