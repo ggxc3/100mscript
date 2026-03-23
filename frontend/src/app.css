@@ -154,8 +154,8 @@
   padding: 14px;
 }
 
-.section-card > .check-row + .stack,
-.section-card > .stack + .check-row,
+.section-card > .check-row + .collapsible-block,
+.section-card > .collapsible-block + .check-row,
 .section-card > .check-row + .filters-panel,
 .section-card > .filters-panel + .check-row,
 .section-card > .quad-grid + .double-grid,
@@ -234,6 +234,26 @@
 .stack {
   display: grid;
   gap: 10px;
+}
+
+/* Rozbalenie sekcií (Mobile režim) — rovnaký easing ako progress bar */
+.collapsible-block {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  transition: grid-template-rows 0.22s ease-out, opacity 0.18s ease-out;
+}
+
+.collapsible-block.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.collapsible-block__inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .field {
@@ -810,6 +830,21 @@
 
   .phase-pct-fill {
     transition: none;
+  }
+
+  .collapsible-block {
+    transition: none;
+  }
+
+  .collapsible-block:not(.is-open) {
+    display: none;
+  }
+
+  .collapsible-block.is-open {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

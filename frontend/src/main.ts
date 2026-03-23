@@ -286,19 +286,23 @@ function mountMainView(root: HTMLDivElement): void {
               <span>Mobile režim (synchronizácia 5G NR cez LTE súbor)</span>
             </label>
 
-            <div id="mobileFields" class="stack disabled-panel">
-              <label class="field">
-                <span>LTE CSV súbor (iba pre Mobile režim)</span>
-                <div class="inline-row">
-                  <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
-                  <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
-                </div>
-              </label>
+            <div id="mobileFieldsWrap" class="collapsible-block" aria-hidden="true">
+              <div class="collapsible-block__inner">
+                <div id="mobileFields" class="stack">
+                  <label class="field">
+                    <span>LTE CSV súbor (iba pre Mobile režim)</span>
+                    <div class="inline-row">
+                      <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
+                      <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
+                    </div>
+                  </label>
 
-              <label class="field">
-                <span>Tolerancia času (ms)</span>
-                <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
-              </label>
+                  <label class="field">
+                    <span>Tolerancia času (ms)</span>
+                    <input id="mobileTolerance" type="number" min="0" step="1" value="1000" />
+                  </label>
+                </div>
+              </div>
             </div>
 
             <label class="check-row">
@@ -480,6 +484,7 @@ function mountMainView(root: HTMLDivElement): void {
   const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
   const csvPreviewStatus = qs<HTMLParagraphElement>("#csvPreviewStatus");
   const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
+  const mobileFieldsWrap = qs<HTMLDivElement>("#mobileFieldsWrap");
   const mobileFields = qs<HTMLDivElement>("#mobileFields");
   const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
   const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
@@ -1203,7 +1208,8 @@ function mountMainView(root: HTMLDivElement): void {
 
   function updateDependentUI(): void {
     const mobileEnabled = mobileModeCheckbox.checked;
-    mobileFields.classList.toggle("disabled-panel", !mobileEnabled);
+    mobileFieldsWrap.classList.toggle("is-open", mobileEnabled);
+    mobileFieldsWrap.setAttribute("aria-hidden", mobileEnabled ? "false" : "true");
     mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((el) => {
       el.disabled = !mobileEnabled || state.running;
     });
