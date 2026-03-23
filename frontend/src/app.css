@@ -156,7 +156,6 @@
 
 .section-card > .check-row + .check-row,
 .section-card > .check-row + .collapsible-block,
-.section-card > .collapsible-block + .check-row,
 .section-card > .filters-panel + .check-row,
 .section-card > .quad-grid + .double-grid,
 .section-card > .double-grid + .stack,
@@ -249,11 +248,18 @@
   grid-template-rows: 1fr;
   opacity: 1;
   pointer-events: auto;
+  /* Medzera pod rozbaleným blokom namiesto margin-top na ďalšom check-row (inak by bolo 8px+8px) */
+  margin-bottom: 8px;
 }
 
 .collapsible-block__inner {
   min-height: 0;
   overflow: hidden;
+}
+
+/* Jedna medzera medzi check-row a nasledujúcim blokom; predchádzajúci sibling už dal 8px cez check-row + collapsible */
+.section-card > .collapsible-block + .check-row {
+  margin-top: 0;
 }
 
 .field {
@@ -845,6 +851,7 @@
     grid-template-rows: 1fr;
     opacity: 1;
     pointer-events: auto;
+    margin-bottom: 8px;
   }
 }
 
