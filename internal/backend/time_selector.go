@@ -1,6 +1,9 @@
 package backend
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 func LoadTimeSelectorData(paths []string) (TimeSelectorData, error) {
 	paths = NormalizeInputPaths(paths)
@@ -17,7 +20,7 @@ func LoadTimeSelectorData(paths []string) (TimeSelectorData, error) {
 		}
 		data, err = ensureOriginalExcelRowColumn(data)
 	} else {
-		data, err = LoadAndMergeCSVFiles(paths)
+		data, err = LoadAndMergeCSVFiles(context.Background(), paths)
 		if err != nil {
 			return TimeSelectorData{}, err
 		}

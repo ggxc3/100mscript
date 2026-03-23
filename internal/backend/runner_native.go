@@ -17,10 +17,11 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		return ProcessingResult{}, fmt.Errorf("chýba vstupný CSV súbor")
 	}
 	emitProcessingPhase(ctx, "load_csv")
-	data, err := LoadAndMergeCSVFiles(paths)
+	data, err := LoadAndMergeCSVFiles(ctx, paths)
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
 	}
+	emitProcessingProgress(ctx, "load_csv", 100)
 	if len(paths) > 1 {
 		if sorted, ok := sortMergedCSVRowsByTime(data); ok {
 			data = sorted
@@ -48,7 +49,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	}
 	emitProcessingPhase(ctx, "apply_filters")
 	if len(rules) > 0 {
-		data, err = ApplyFiltersCSV(data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
+		data, err = ApplyFiltersCSV(ctx, data, rules, cfg.KeepOriginalRows, cfg.ColumnMapping)
 		if err != nil {
 			return ProcessingResult{}, fmt.Errorf("apply filters: %w", err)
 		}
@@ -59,6 +60,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but mobile_lte_file_path is empty")
 		}
 		data, _, err = syncMobileNRFromLTECSVNative(
+			ctx,
 			data,
 			cfg.ColumnMapping,
 			cfg.MobileLTEFilePath,
@@ -100,6 +102,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err := SaveStatsNative(zoneStats, cfg, statsFile, exportOutcome.UniqueZones); err != nil {
 		return ProcessingResult{}, err
 	}
+	emitProcessingProgress(ctx, "export_files", 100)
 
 	uniqueZones := map[string]struct{}{}
 	uniqueOperators := map[string]struct{}{}

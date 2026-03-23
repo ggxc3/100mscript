@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func TestSyncMobileNRFromLTECSVNative_fillsNRFromLTE(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	out, st, err := syncMobileNRFromLTECSVNative(df5g, mapping, ltePath, "5G NR", 1000, nil, false)
+	out, st, err := syncMobileNRFromLTECSVNative(context.Background(), df5g, mapping, ltePath, "5G NR", 1000, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestSyncMobileNRFromLTECSVNative_requiresNRYesInLTE(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	_, _, err = syncMobileNRFromLTECSVNative(df5g, mapping, ltePath, "5G NR", 1000, nil, false)
+	_, _, err = syncMobileNRFromLTECSVNative(context.Background(), df5g, mapping, ltePath, "5G NR", 1000, nil, false)
 	if err == nil || !strings.Contains(err.Error(), "yes") {
 		t.Fatalf("expected error about missing NR yes, got %v", err)
 	}

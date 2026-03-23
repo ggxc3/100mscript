@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -56,7 +57,7 @@ func TestApplyFiltersCSV_matchExpandsAssignments(t *testing.T) {
 		Assignments:     map[string][]float64{"Frequency": {3500}},
 		ConditionGroups: [][]Condition{{{Field: "MCC", Kind: ConditionEq, Low: 231, High: 231}}},
 	}}
-	out, err := ApplyFiltersCSV(data, rules, false, nil)
+	out, err := ApplyFiltersCSV(context.Background(), data, rules, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestApplyFiltersCSV_tieBreakLexicographicRuleName(t *testing.T) {
 			ConditionGroups: [][]Condition{{{Field: "MCC", Kind: ConditionEq, Low: 231, High: 231}}},
 		},
 	}
-	out, err := ApplyFiltersCSV(data, rules, false, nil)
+	out, err := ApplyFiltersCSV(context.Background(), data, rules, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestApplyFiltersCSV_keepOriginalDuplicatesRow(t *testing.T) {
 		Assignments:     map[string][]float64{"K": {1, 2}},
 		ConditionGroups: [][]Condition{{{Field: "MCC", Kind: ConditionEq, Low: 231, High: 231}}},
 	}}
-	out, err := ApplyFiltersCSV(data, rules, true, nil)
+	out, err := ApplyFiltersCSV(context.Background(), data, rules, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestApplyFiltersCSV_emptyRulesReturnsClone(t *testing.T) {
 		Columns: []string{"a"},
 		Rows:    [][]string{{"1"}},
 	}
-	out, err := ApplyFiltersCSV(data, nil, false, nil)
+	out, err := ApplyFiltersCSV(context.Background(), data, nil, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

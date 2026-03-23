@@ -85,7 +85,7 @@ func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
 	if len(paths) == 1 {
 		data, err = backendpkg.LoadCSVFile(paths[0])
 	} else {
-		data, err = backendpkg.LoadAndMergeCSVFiles(paths)
+		data, err = backendpkg.LoadAndMergeCSVFiles(a.ctx, paths)
 	}
 	if err != nil {
 		return CSVPreview{}, err

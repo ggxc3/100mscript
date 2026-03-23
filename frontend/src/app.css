@@ -631,9 +631,39 @@
   background: rgba(37, 99, 235, 0.18);
 }
 
-.phase-loading-wrap--enter {
+.phase-progress-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.phase-progress-stack--enter {
   animation: phaseLoaderEnter 0.32s ease-out forwards;
   transform-origin: top center;
+}
+
+.phase-pct-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.phase-pct-value {
+  font: 600 11px/1 "IBM Plex Mono", ui-monospace, monospace;
+  color: #1d4ed8;
+}
+
+.phase-pct-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  overflow: hidden;
+}
+
+.phase-pct-fill {
+  height: 100%;
+  max-width: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: width 0.22s ease-out;
 }
 
 .phase-loading-wrap--exit {
@@ -725,8 +755,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .phase-loading-wrap--enter,
-  .phase-loading-wrap--exit {
+  .phase-loading-wrap--exit,
+  .phase-progress-stack--enter {
     animation: none;
   }
 
@@ -734,6 +764,10 @@
     animation: none;
     width: 100%;
     opacity: 0.65;
+  }
+
+  .phase-pct-fill {
+    transition: none;
   }
 }
 

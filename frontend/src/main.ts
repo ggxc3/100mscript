@@ -531,6 +531,7 @@ function mountMainView(root: HTMLDivElement): void {
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
   let pendingLoaderExitId: string | null = null;
   let loaderExitClearTimer: ReturnType<typeof setTimeout> | null = null;
+  const phaseProgressPercent: Record<string, number> = {};
 
   function scheduleLoaderExitCleanup(): void {
     if (loaderExitClearTimer !== null) {
@@ -624,10 +625,15 @@ function mountMainView(root: HTMLDivElement): void {
 
   function phaseLoadingBlock(p: PhaseRow): string {
     if (p.status === "active") {
+      const raw = phaseProgressPercent[p.id];
+      const pct = Math.max(0, Math.min(100, Math.round(typeof raw === "number" && !Number.isNaN(raw) ? raw : 0)));
       return `
-        <div class="phase-loading-wrap phase-loading-wrap--enter" aria-hidden="true">
-          <div class="phase-loading-track">
-            <div class="phase-loading-bar"></div>
+        <div class="phase-progress-stack phase-progress-stack--enter" aria-label="Priebeh: ${pct} percent">
+          <div class="phase-pct-header">
+            <span class="phase-pct-value">${pct}%</span>
+          </div>
+          <div class="phase-pct-track" aria-hidden="true">
+            <div class="phase-pct-fill" style="width: ${pct}%"></div>
           </div>
         </div>`;
     }
@@ -674,6 +680,7 @@ function mountMainView(root: HTMLDivElement): void {
     if (prevActive && prevActive.id !== phaseId) {
       pendingLoaderExitId = prevActive.id;
       scheduleLoaderExitCleanup();
+      delete phaseProgressPercent[prevActive.id];
     }
     state.processingPhases = phases.map((p, i) => ({
       ...p,
@@ -698,6 +705,16 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     applyProcessingPhaseEvent(phaseId);
+  });
+
+  EventsOn("processing:progress", (...args: unknown[]) => {
+    const phase = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
+    const n = typeof args[1] === "number" ? args[1] : Number(args[1]);
+    if (!phase || Number.isNaN(n)) {
+      return;
+    }
+    phaseProgressPercent[phase] = n;
+    renderProcessingPipeline();
   });
 
   ZONE_MODES.forEach((mode) => {
@@ -1347,6 +1364,9 @@ function mountMainView(root: HTMLDivElement): void {
       if (loaderExitClearTimer !== null) {
         clearTimeout(loaderExitClearTimer);
         loaderExitClearTimer = null;
+      }
+      for (const k of Object.keys(phaseProgressPercent)) {
+        delete phaseProgressPercent[k];
       }
       state.processingPhases = [];
       renderProcessingPipeline();

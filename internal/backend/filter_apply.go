@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -217,6 +218,7 @@ type matchingRule struct {
 }
 
 func ApplyFiltersCSV(
+	ctx context.Context,
 	data *CSVData,
 	rules []FilterRule,
 	keepOriginalOnMatch bool,
@@ -249,8 +251,10 @@ func ApplyFiltersCSV(
 
 	headerLine := data.FileInfo.HeaderLine
 	outputRows := make([][]string, 0, len(data.Rows))
+	nRows := len(data.Rows)
 
 	for pos, row := range data.Rows {
+		maybeEmitRowProgress(ctx, "apply_filters", pos, nRows)
 		rowMap := rowValueMap(baseColumns, row)
 		rowNumber := pos + headerLine + 1
 

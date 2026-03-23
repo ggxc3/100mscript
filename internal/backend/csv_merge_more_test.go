@@ -61,7 +61,7 @@ func TestSortMergedCSVRowsByTime_noDateTimeLeavesOrder(t *testing.T) {
 	if err := os.WriteFile(p2, []byte(header+"\n48;17;3600;2;231;02;-101\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	data, err := LoadAndMergeCSVFiles([]string{p1, p2})
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
 	if err != nil {
 		t.Fatalf("merge: %v", err)
 	}

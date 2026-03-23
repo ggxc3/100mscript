@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,6 +27,7 @@ type mobileLookup struct {
 }
 
 func syncMobileNRFromLTECSVNative(
+	ctx context.Context,
 	df5g *CSVData,
 	columnMapping map[string]int,
 	lteFilePath string,
@@ -43,7 +45,7 @@ func syncMobileNRFromLTECSVNative(
 	}
 	if len(filterRules) > 0 {
 		lteMapping := BuildColumnMappingFromHeaders(dfLTE.Columns)
-		dfLTE, err = ApplyFiltersCSV(dfLTE, filterRules, keepOriginalRows, lteMapping)
+		dfLTE, err = ApplyFiltersCSV(ctx, dfLTE, filterRules, keepOriginalRows, lteMapping)
 		if err != nil {
 			return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: apply LTE filters: %w", err)
 		}
@@ -171,7 +173,9 @@ func syncMobileNRFromLTECSVNative(
 	conflictingWindows := 0
 	fallbackTimeOnlyRows := 0
 
-	for _, c := range fivegCandidates {
+	nCand := len(fivegCandidates)
+	for i, c := range fivegCandidates {
+		maybeEmitRowProgress(ctx, "mobile_sync", i, nCand)
 		if c.mcc == "" || c.mnc == "" {
 			continue
 		}
@@ -245,6 +249,7 @@ func syncMobileNRFromLTECSVNative(
 		FallbackTimeOnlyRows: fallbackTimeOnlyRows,
 		WindowMS:             tolerance,
 	}
+	emitProcessingProgress(ctx, "mobile_sync", 100)
 	return out, stats, nil
 }
 
