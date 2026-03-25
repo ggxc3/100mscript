@@ -29,9 +29,10 @@ func (d *CSVData) clone() *CSVData {
 		return nil
 	}
 	out := &CSVData{
-		Columns:  append([]string(nil), d.Columns...),
-		Rows:     make([][]string, len(d.Rows)),
-		FileInfo: d.FileInfo,
+		Columns:        append([]string(nil), d.Columns...),
+		Rows:           make([][]string, len(d.Rows)),
+		FileInfo:       d.FileInfo,
+		InputRadioTech: d.InputRadioTech,
 	}
 	for i := range d.Rows {
 		out.Rows[i] = append([]string(nil), d.Rows[i]...)
@@ -315,9 +316,10 @@ func ApplyFiltersCSV(
 	}
 
 	return &CSVData{
-		Columns:  outputColumns,
-		Rows:     outputRows,
-		FileInfo: data.FileInfo,
+		Columns:        outputColumns,
+		Rows:           outputRows,
+		FileInfo:       data.FileInfo,
+		InputRadioTech: data.InputRadioTech,
 	}, nil
 }
 

@@ -84,9 +84,10 @@ func excludeRowsByOriginalExcelRow(data *CSVData, excluded []int) (*CSVData, int
 	}
 
 	out := &CSVData{
-		Columns:  append([]string(nil), data.Columns...),
-		Rows:     make([][]string, 0, len(data.Rows)),
-		FileInfo: data.FileInfo,
+		Columns:        append([]string(nil), data.Columns...),
+		Rows:           make([][]string, 0, len(data.Rows)),
+		FileInfo:       data.FileInfo,
+		InputRadioTech: data.InputRadioTech,
 	}
 	removed := 0
 

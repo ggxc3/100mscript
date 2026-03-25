@@ -476,9 +476,10 @@ func filterRowsByNRYesNative(data *CSVData, nrColumnName string) (*CSVData, erro
 		return nil, fmt.Errorf("mobile mode: 5G NR column not found after sync")
 	}
 	out := &CSVData{
-		Columns:  append([]string(nil), data.Columns...),
-		Rows:     make([][]string, 0, len(data.Rows)),
-		FileInfo: data.FileInfo,
+		Columns:        append([]string(nil), data.Columns...),
+		Rows:           make([][]string, 0, len(data.Rows)),
+		FileInfo:       data.FileInfo,
+		InputRadioTech: data.InputRadioTech,
 	}
 	for _, row := range data.Rows {
 		if normalizeNRValueNative(cellAt(row, nrIdx)) == "yes" {

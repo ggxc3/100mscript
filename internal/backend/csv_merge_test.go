@@ -35,6 +35,51 @@ func TestLoadAndMergeCSVFilesCompatible(t *testing.T) {
 	if data.Rows[0][3] != "10" || data.Rows[1][3] != "20" {
 		t.Fatalf("unexpected pci values: %#v", data.Rows)
 	}
+	if data.InputRadioTech != InputRadioTechUnknown {
+		t.Fatalf("generic frequency header => unknown tech, got %q", data.InputRadioTech)
+	}
+}
+
+func TestLoadAndMergeCSVFilesPreservesInputRadioTechLTE(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	header := "latitude;longitude;EARFCN;pci;mcc;mnc;rsrp"
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	if err := os.WriteFile(p1, []byte(header+"\n48;17;1;1;231;01;-100\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(header+"\n48;17;2;2;231;02;-101\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if data.InputRadioTech != InputRadioTechLTE {
+		t.Fatalf("expected LTE tech, got %q", data.InputRadioTech)
+	}
+}
+
+func TestLoadAndMergeCSVFilesPreservesInputRadioTech5G(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	header := "latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP"
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	if err := os.WriteFile(p1, []byte(header+"\n48;17;1;1;231;01;-100\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(header+"\n48;17;2;2;231;02;-101\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if data.InputRadioTech != InputRadioTech5G {
+		t.Fatalf("expected 5G tech, got %q", data.InputRadioTech)
+	}
 }
 
 func TestLoadAndMergeCSVFilesIncompatibleHeaders(t *testing.T) {

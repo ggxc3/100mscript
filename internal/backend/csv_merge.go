@@ -158,8 +158,9 @@ func mergeCSVDataRows(first *CSVData, rest []*CSVData) *CSVData {
 		}
 	}
 	return &CSVData{
-		Columns:  append([]string(nil), first.Columns...),
-		Rows:     outRows,
-		FileInfo: first.FileInfo,
+		Columns:        append([]string(nil), first.Columns...),
+		Rows:           outRows,
+		FileInfo:       first.FileInfo,
+		InputRadioTech: first.InputRadioTech,
 	}
 }

@@ -47,6 +47,45 @@ func TestLoadCSVFile_utf8TwoDataRows(t *testing.T) {
 	if data.FileInfo.Encoding != "utf-8" {
 		t.Fatalf("encoding: %q", data.FileInfo.Encoding)
 	}
+	if data.InputRadioTech != InputRadioTechUnknown {
+		t.Fatalf("generic frequency column => unknown tech, got %q", data.InputRadioTech)
+	}
+}
+
+func TestLoadCSVFile_InputRadioTechNR(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "nr.csv")
+	content := "latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP\n" +
+		"48.1;17.1;650000;1;231;01;-100\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := LoadCSVFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.InputRadioTech != InputRadioTech5G {
+		t.Fatalf("got %q", data.InputRadioTech)
+	}
+}
+
+func TestLoadCSVFile_InputRadioTechLTE(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "lte.csv")
+	content := "latitude;longitude;EARFCN;pci;mcc;mnc;RSRP\n" +
+		"48.1;17.1;3500;1;231;01;-100\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data, err := LoadCSVFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.InputRadioTech != InputRadioTechLTE {
+		t.Fatalf("got %q", data.InputRadioTech)
+	}
 }
 
 func TestLoadCSVFile_extraDataColumnsExtendHeader(t *testing.T) {
