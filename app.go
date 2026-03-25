@@ -14,7 +14,7 @@ import (
 )
 
 // AppVersion should stay in sync with wails.json info.productVersion.
-const AppVersion = "0.2.0"
+const AppVersion = "0.2.1"
 
 type App struct {
 	ctx      context.Context
@@ -73,6 +73,8 @@ type CSVPreview struct {
 	HeaderLine       int            `json:"headerLine"`
 	OriginalHeader   string         `json:"originalHeader"`
 	SuggestedMapping map[string]int `json:"suggestedMapping"`
+	// InputRadioTech is backend.InputRadioTech5G, InputRadioTechLTE, or InputRadioTechUnknown.
+	InputRadioTech string `json:"inputRadioTech"`
 }
 
 func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
@@ -98,6 +100,7 @@ func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
 		HeaderLine:       data.FileInfo.HeaderLine,
 		OriginalHeader:   data.FileInfo.OriginalHeader,
 		SuggestedMapping: suggestMappingForUI(data.Columns),
+		InputRadioTech:   data.InputRadioTech,
 	}, nil
 }
 

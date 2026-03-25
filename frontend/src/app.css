@@ -437,6 +437,11 @@
   word-break: break-word;
 }
 
+.csv-preview-inline__muted {
+  color: #64748b;
+  font-weight: 400;
+}
+
 .col-pill {
   display: inline-flex;
   align-items: center;

@@ -146,6 +146,44 @@ func TestApplyFiltersCSV_emptyRulesReturnsClone(t *testing.T) {
 	}
 }
 
+func TestApplyFiltersCSV_preservesInputRadioTech_emptyRules(t *testing.T) {
+	t.Parallel()
+	data := &CSVData{
+		Columns:        []string{"EARFCN"},
+		Rows:           [][]string{{"1"}},
+		InputRadioTech: InputRadioTechLTE,
+	}
+	out, err := ApplyFiltersCSV(context.Background(), data, nil, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.InputRadioTech != InputRadioTechLTE {
+		t.Fatalf("clone lost tech: got %q", out.InputRadioTech)
+	}
+}
+
+func TestApplyFiltersCSV_preservesInputRadioTech_withRules(t *testing.T) {
+	t.Parallel()
+	data := &CSVData{
+		Columns:        []string{"MCC", "RSRP"},
+		Rows:           [][]string{{"231", "-100"}},
+		FileInfo:       CSVFileInfo{HeaderLine: 0},
+		InputRadioTech: InputRadioTech5G,
+	}
+	rules := []FilterRule{{
+		Name:            "r",
+		Assignments:     map[string][]float64{"X": {1}},
+		ConditionGroups: [][]Condition{{{Field: "MCC", Kind: ConditionEq, Low: 231, High: 231}}},
+	}}
+	out, err := ApplyFiltersCSV(context.Background(), data, rules, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.InputRadioTech != InputRadioTech5G {
+		t.Fatalf("filtered output lost tech: got %q", out.InputRadioTech)
+	}
+}
+
 func TestBuildAssignmentCombinations_cartesian(t *testing.T) {
 	t.Parallel()
 

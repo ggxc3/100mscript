@@ -20,6 +20,8 @@ type CSVData struct {
 	Columns  []string
 	Rows     [][]string
 	FileInfo CSVFileInfo
+	// InputRadioTech is DetectInputRadioTech(Columns): "5g", "lte", or "unknown".
+	InputRadioTech string
 }
 
 type textDecoder struct {
@@ -250,8 +252,9 @@ func LoadCSVFile(path string) (*CSVData, error) {
 
 	_ = text // retained for future use/debug parity; parser currently uses split lines.
 	return &CSVData{
-		Columns: columnNames,
-		Rows:    rows,
+		Columns:        columnNames,
+		Rows:           rows,
+		InputRadioTech: DetectInputRadioTech(columnNames),
 		FileInfo: CSVFileInfo{
 			Encoding:       encodingName,
 			HeaderLine:     headerLine,

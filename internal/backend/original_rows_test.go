@@ -57,7 +57,8 @@ func TestExcludeRowsByOriginalExcelRow(t *testing.T) {
 			{"b", "2"},
 			{"c", "3"},
 		},
-		FileInfo: CSVFileInfo{},
+		FileInfo:       CSVFileInfo{},
+		InputRadioTech: InputRadioTechLTE,
 	}
 	out, removed, err := excludeRowsByOriginalExcelRow(data, []int{2})
 	if err != nil || removed != 1 || len(out.Rows) != 2 {
@@ -65,6 +66,9 @@ func TestExcludeRowsByOriginalExcelRow(t *testing.T) {
 	}
 	if out.Rows[0][0] != "a" || out.Rows[1][0] != "c" {
 		t.Fatalf("unexpected rows: %#v", out.Rows)
+	}
+	if out.InputRadioTech != InputRadioTechLTE {
+		t.Fatalf("exclude rows dropped InputRadioTech: got %q", out.InputRadioTech)
 	}
 }
 

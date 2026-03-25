@@ -128,6 +128,18 @@ const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "sinr", label: "SINR" },
 ];
 
+/** Hodnoty z backendu: 5g | lte | unknown */
+function inputRadioTechUiLabel(tech: string | undefined | null): string {
+  switch (tech) {
+    case "5g":
+      return "5G (NR)";
+    case "lte":
+      return "LTE";
+    default:
+      return "neznámy typ";
+  }
+}
+
 function pathsMatchPreview(paths: string[], preview: main.CSVPreview | null): boolean {
   if (!preview || paths.length === 0) {
     return false;
@@ -798,7 +810,8 @@ function mountMainView(root: HTMLDivElement): void {
     }
     csvPreviewStatus.hidden = false;
     csvPreviewStatus.className = "csv-preview-inline";
-    csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span>`;
+    const techLabel = inputRadioTechUiLabel(state.preview.inputRadioTech);
+    csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span><span class="csv-preview-inline__muted"> · Vstup: ${escapeHtml(techLabel)}</span>`;
     renderReadiness();
   }
 
@@ -1264,7 +1277,9 @@ function mountMainView(root: HTMLDivElement): void {
     applySuggestedMapping(preview);
     renderPreview();
     renderMappingGrid();
-    appendLog(`Načítané stĺpce (${preview.columns.length}), encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`);
+    appendLog(
+      `Načítané stĺpce (${preview.columns.length}), vstup: ${inputRadioTechUiLabel(preview.inputRadioTech)}, encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`
+    );
 
     if (newKey !== previousKey || !state.timeSelectorData) {
       await loadTimeSelectorForCurrentCSV(paths);

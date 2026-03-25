@@ -203,6 +203,7 @@ export namespace main {
 	    headerLine: number;
 	    originalHeader: string;
 	    suggestedMapping: Record<string, number>;
+	    inputRadioTech: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CSVPreview(source);
@@ -217,6 +218,7 @@ export namespace main {
 	        this.headerLine = source["headerLine"];
 	        this.originalHeader = source["originalHeader"];
 	        this.suggestedMapping = source["suggestedMapping"];
+	        this.inputRadioTech = source["inputRadioTech"];
 	    }
 	}
 
