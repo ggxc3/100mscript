@@ -30,7 +30,7 @@ func syncMobileNRFromLTECSVNative(
 	ctx context.Context,
 	df5g *CSVData,
 	columnMapping map[string]int,
-	lteFilePath string,
+	ltePaths []string,
 	nrColumnName string,
 	timeToleranceMS int,
 	filterRules []FilterRule,
@@ -39,9 +39,24 @@ func syncMobileNRFromLTECSVNative(
 	if df5g == nil {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: nil 5G dataset")
 	}
-	dfLTE, err := LoadCSVFile(lteFilePath)
+	ltePaths = NormalizeInputPaths(ltePaths)
+	if len(ltePaths) == 0 {
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: žiadna cesta k LTE CSV")
+	}
+	var dfLTE *CSVData
+	var err error
+	if len(ltePaths) == 1 {
+		dfLTE, err = LoadCSVFile(ltePaths[0])
+	} else {
+		dfLTE, err = LoadAndMergeCSVFiles(ctx, ltePaths)
+		if err == nil {
+			if sorted, ok := sortMergedCSVRowsByTime(dfLTE); ok {
+				dfLTE = sorted
+			}
+		}
+	}
 	if err != nil {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: load LTE CSV: %w", err)
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: načítanie LTE CSV: %w", err)
 	}
 	if len(filterRules) > 0 {
 		lteMapping := BuildColumnMappingFromHeaders(dfLTE.Columns)

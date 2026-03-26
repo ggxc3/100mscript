@@ -43,6 +43,20 @@ func InputPathsFromConfig(cfg ProcessingConfig) []string {
 	return nil
 }
 
+// MobileLTEPathsFromConfig returns LTE paths: MobileLTEFilePaths when set, otherwise a single MobileLTEFilePath.
+func MobileLTEPathsFromConfig(cfg ProcessingConfig) []string {
+	if raw := cfg.MobileLTEFilePaths; len(raw) > 0 {
+		out := NormalizeInputPaths(raw)
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if p := strings.TrimSpace(cfg.MobileLTEFilePath); p != "" {
+		return []string{p}
+	}
+	return nil
+}
+
 func columnsMatch(a, b []string) bool {
 	return slices.Equal(a, b)
 }

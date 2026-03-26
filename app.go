@@ -14,7 +14,7 @@ import (
 )
 
 // AppVersion should stay in sync with wails.json info.productVersion.
-const AppVersion = "0.2.2"
+const AppVersion = "0.2.3"
 
 type App struct {
 	ctx      context.Context
@@ -46,6 +46,31 @@ func (a *App) PickInputCSVFile() (string, error) {
 
 func (a *App) PickMobileLTECSVFile() (string, error) {
 	return a.pickCSVFile("Vyber LTE CSV subor (mobile sync)")
+}
+
+// PickMobileLTECSVPaths opens a multi-select dialog for LTE CSV files (mobile sync).
+func (a *App) PickMobileLTECSVPaths() ([]string, error) {
+	if a.ctx == nil {
+		return nil, fmt.Errorf("aplikacia nie je inicializovana")
+	}
+	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Vyber jeden alebo viac LTE CSV súborov (rovnaká štruktúra)",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "CSV files (*.csv)", Pattern: "*.csv"},
+			{DisplayName: "All files", Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		return []string{}, nil
+	}
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = normalizeFilePathForUI(f)
+	}
+	return out, nil
 }
 
 func (a *App) PickFilterFiles() ([]string, error) {

@@ -147,6 +147,50 @@ func TestRunProcessing_mobileModeEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRunProcessing_mobileModeEndToEndMergedLTE(t *testing.T) {
+	tmp := t.TempDir()
+	fiveG := filepath.Join(tmp, "5g.csv")
+	lte1 := filepath.Join(tmp, "lte1.csv")
+	lte2 := filepath.Join(tmp, "lte2.csv")
+
+	fiveGContent := "" +
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time;5G NR\n" +
+		"48.148600;17.107700;3500;10;231;01;-100;05.02.2026;10:00:00;\n"
+	lteHeader := "MCC;MNC;5G NR;Date;Time\n"
+	lte1Content := lteHeader + "231;01;yes;05.02.2026;10:00:00\n"
+	lte2Content := lteHeader + "231;01;no;05.02.2026;09:00:00\n"
+
+	if err := os.WriteFile(fiveG, []byte(fiveGContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lte1, []byte(lte1Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lte2, []byte(lte2Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = fiveG
+	cfg.FilterPaths = []string{}
+	cfg.MobileModeEnabled = true
+	cfg.MobileLTEFilePath = ""
+	cfg.MobileLTEFilePaths = []string{lte1, lte2}
+	cfg.ZoneMode = "center"
+	cfg.ZoneSizeM = 100
+	cfg.ColumnMapping = map[string]int{
+		"latitude": 0, "longitude": 1, "frequency": 2, "pci": 3, "mcc": 4, "mnc": 5, "rsrp": 6,
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.ZonesFile, "_mobile_zones.csv") {
+		t.Fatalf("expected mobile suffix in zones path: %s", result.ZonesFile)
+	}
+}
+
 func TestFilterRowsByNRYesNative_emptyAfterFilter(t *testing.T) {
 	t.Parallel()
 

@@ -156,6 +156,7 @@
 
 .section-card > .check-row + .check-row,
 .section-card > .check-row + .collapsible-block,
+.section-card > .check-row + .mobile-mode-input-warning,
 .section-card > .filters-panel + .check-row,
 .section-card > .quad-grid + .double-grid,
 .section-card > .double-grid + .stack,
@@ -233,8 +234,25 @@
   overflow: hidden;
 }
 
-/* Jedna medzera medzi check-row a nasledujúcim blokom; predchádzajúci sibling už dal 8px cez check-row + collapsible */
-.section-card > .collapsible-block + .check-row {
+/* Po zatvorenom collapsible musí byť medzera (otvorený má margin-bottom 8px) */
+.section-card > .collapsible-block:not(.is-open) + .check-row {
+  margin-top: 8px;
+}
+
+.section-card > .collapsible-block.is-open + .check-row {
+  margin-top: 0;
+}
+
+/* Mobile checkbox → LTE karta: medzi nimi je vždy #mobileLteInputWarning. Medzera 8px len keď je panel rozbalený (.is-open); pri zatvorenom stačí .collapsible-block + .check-row */
+.section-card > .check-row + .mobile-mode-input-warning[hidden] + .collapsible-block.is-open {
+  margin-top: 8px;
+}
+
+.section-card > .check-row + .mobile-mode-input-warning[hidden] + .collapsible-block:not(.is-open) {
+  margin-top: 0;
+}
+
+.section-card > .check-row + .mobile-mode-input-warning:not([hidden]) + .collapsible-block {
   margin-top: 0;
 }
 
@@ -677,12 +695,17 @@
 
 .readiness-row {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
   gap: 10px;
   align-items: start;
 }
 
 .readiness-icon {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  min-height: 1.2em;
   font-weight: 700;
   color: #9ca3af;
   line-height: 1.4;
@@ -1099,6 +1122,21 @@ code {
   background: #fffbeb;
   border-color: #fcd34d;
   color: #92400e;
+}
+
+.mobile-mode-input-warning {
+  margin-top: 0;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  font: 14px/1.45 "IBM Plex Sans", sans-serif;
+  color: #92400e;
+}
+
+.mobile-mode-input-warning[hidden] {
+  display: none !important;
 }
 
 .time-selector-summary {
