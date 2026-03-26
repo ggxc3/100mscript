@@ -21,6 +21,8 @@ type ProcessingConfig struct {
 	CustomOperators       []CustomOperator `json:"custom_operators"`
 	FilterPaths           []string         `json:"filter_paths,omitempty"`
 	OutputSuffix          string           `json:"output_suffix,omitempty"`
+	OutputZonesFilePath   string           `json:"output_zones_file_path,omitempty"`
+	OutputStatsFilePath   string           `json:"output_stats_file_path,omitempty"`
 	MobileModeEnabled     bool             `json:"mobile_mode_enabled"`
 	MobileLTEFilePath     string           `json:"mobile_lte_file_path,omitempty"`
 	MobileTimeToleranceMS int              `json:"mobile_time_tolerance_ms"`

@@ -297,6 +297,18 @@
   color: #7a8694;
 }
 
+/* Dlhé cesty: bez fokusu je viditeľný koniec (názov súbora). Pri úprave je LTR. */
+.field input.input-path-show-end:not(:focus) {
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+
+.field input.input-path-show-end:focus {
+  direction: ltr;
+  unicode-bidi: normal;
+}
+
 /* Nepoužiť background shorthand — zachová sa šípka z .field select */
 .field select:disabled {
   background-color: #f0f3f8;
@@ -306,9 +318,22 @@
 
 .inline-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+}
+
+/* Rovnaká výška ako .field input (40px) — štandardné .btn padding by bolo vyššie */
+.inline-row .btn {
+  box-sizing: border-box;
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .inline-actions {
@@ -547,13 +572,27 @@
   margin-left: auto;
 }
 
+/* Jednoduchá čiara medzi priebehom a výstupnými cestami (nie progress „koľajnica“). */
+.panel-divider {
+  border: none;
+  height: 0;
+  margin: 14px 0 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Animovaný pás len počas behu; inak skrytý (žiadna prázdna šedá lišta). */
 .progress-bar {
+  display: none;
   height: 8px;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(16, 31, 47, 0.07);
   border: 1px solid rgba(16, 31, 47, 0.06);
   margin-bottom: 12px;
+}
+
+.progress-bar.is-running {
+  display: block;
 }
 
 .progress-fill {
@@ -612,6 +651,17 @@
 .result-actions-bar .btn {
   width: 100%;
   justify-content: center;
+}
+
+.output-paths-panel {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.output-paths-note {
+  margin-bottom: 0;
 }
 
 .readiness-panel {

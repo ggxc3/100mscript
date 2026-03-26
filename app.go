@@ -14,7 +14,7 @@ import (
 )
 
 // AppVersion should stay in sync with wails.json info.productVersion.
-const AppVersion = "0.2.1"
+const AppVersion = "0.2.2"
 
 type App struct {
 	ctx      context.Context
@@ -28,6 +28,16 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.rootPath = "."
+}
+
+// normalizeFilePathForUI trims a path and applies filepath.Clean (removes trailing separators
+// after a file name, normalizes separators for the current OS). Same behavior on macOS and Windows.
+func normalizeFilePathForUI(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }
 
 func (a *App) PickInputCSVFile() (string, error) {
@@ -54,7 +64,11 @@ func (a *App) PickFilterFiles() ([]string, error) {
 	if files == nil {
 		return []string{}, nil
 	}
-	return files, nil
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = normalizeFilePathForUI(f)
+	}
+	return out, nil
 }
 
 func (a *App) DiscoverAutoFilterPaths() ([]string, error) {
@@ -63,6 +77,49 @@ func (a *App) DiscoverAutoFilterPaths() ([]string, error) {
 		baseDir = "."
 	}
 	return backendpkg.DiscoverFilterPaths(baseDir)
+}
+
+// DefaultOutputPathsResult holds computed default output paths (same rules as backend outputPathsForConfig).
+type DefaultOutputPathsResult struct {
+	Zones string `json:"zones"`
+	Stats string `json:"stats"`
+}
+
+// DefaultOutputPaths returns default _zones.csv / _stats.csv paths for the given input and options.
+func (a *App) DefaultOutputPaths(filePath string, mobileModeEnabled bool, outputSuffix string) (DefaultOutputPathsResult, error) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return DefaultOutputPathsResult{}, fmt.Errorf("zadaj cestu k vstupnému CSV")
+	}
+	cfg := backendpkg.DefaultProcessingConfig()
+	cfg.FilePath = filePath
+	cfg.MobileModeEnabled = mobileModeEnabled
+	cfg.OutputSuffix = outputSuffix
+	z, s, _ := backendpkg.OutputPathsForProcessing(cfg)
+	return DefaultOutputPathsResult{Zones: z, Stats: s}, nil
+}
+
+// PickOutputCSVFile opens a save dialog for a CSV output path.
+func (a *App) PickOutputCSVFile(title string, defaultDirectory string, defaultFilename string) (string, error) {
+	if a.ctx == nil {
+		return "", fmt.Errorf("aplikacia nie je inicializovana")
+	}
+	opts := wailsruntime.SaveDialogOptions{
+		Title:           title,
+		DefaultFilename: strings.TrimSpace(defaultFilename),
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "CSV (*.csv)", Pattern: "*.csv"},
+			{DisplayName: "Všetky súbory", Pattern: "*"},
+		},
+	}
+	if dd := strings.TrimSpace(defaultDirectory); dd != "" {
+		opts.DefaultDirectory = dd
+	}
+	path, err := wailsruntime.SaveFileDialog(a.ctx, opts)
+	if err != nil {
+		return "", err
+	}
+	return normalizeFilePathForUI(path), nil
 }
 
 type CSVPreview struct {
@@ -125,7 +182,11 @@ func (a *App) PickInputCSVPaths() ([]string, error) {
 	if files == nil {
 		return []string{}, nil
 	}
-	return files, nil
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = normalizeFilePathForUI(f)
+	}
+	return out, nil
 }
 
 func (a *App) RunProcessingWithConfig(cfg backendpkg.ProcessingConfig) (backendpkg.ProcessingResult, error) {
@@ -199,7 +260,7 @@ func (a *App) pickCSVFile(title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return path, nil
+	return normalizeFilePathForUI(path), nil
 }
 
 func suggestMappingForUI(columns []string) map[string]int {

@@ -92,7 +92,10 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		return ProcessingResult{}, err
 	}
 
-	zonesFile, statsFile, _ := outputPathsForConfig(cfg)
+	zonesFile, statsFile, _ := OutputPathsForProcessing(cfg)
+	if zonesFile == statsFile {
+		return ProcessingResult{}, fmt.Errorf("výstup zón a štatistík musí byť do dvoch rôznych súborov")
+	}
 	emitProcessingPhase(ctx, "export_files")
 	exportOutcome, err := SaveZoneResultsNative(ctx, ds, zoneStats, cfg, transformer, zonesFile)
 	if err != nil {
