@@ -23,6 +23,8 @@ export function PickInputCSVPaths():Promise<Array<string>>;
 
 export function PickMobileLTECSVFile():Promise<string>;
 
+export function PickMobileLTECSVPaths():Promise<Array<string>>;
+
 export function PickOutputCSVFile(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RunProcessingWithConfig(arg1:backend.ProcessingConfig):Promise<backend.ProcessingResult>;

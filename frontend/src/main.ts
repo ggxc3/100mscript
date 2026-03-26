@@ -12,6 +12,7 @@ import {
   PickInputCSVFile,
   PickInputCSVPaths,
   PickMobileLTECSVFile,
+  PickMobileLTECSVPaths,
   PickOutputCSVFile,
   RunProcessingWithConfig,
 } from "../wailsjs/go/main/App";
@@ -58,6 +59,8 @@ type UIState = {
   previewError: string | null;
   columnMapping: Partial<Record<ColumnKey, number>>;
   inputCsvPaths: string[];
+  /** LTE CSV súbory pre Mobile režim (zlúčia sa v tom istom poradí ako pri vstupnom CSV). */
+  mobileLtePaths: string[];
   customFilterPaths: string[];
   running: boolean;
   statusText: string;
@@ -168,7 +171,7 @@ function computeReadinessItems(
   paths: string[],
   state: UIState,
   mobileEnabled: boolean,
-  mobileLtePath: string
+  mobileLtePaths: string[]
 ): ReadinessItem[] {
   const items: ReadinessItem[] = [];
   items.push({
@@ -199,13 +202,17 @@ function computeReadinessItems(
     ok: mapOk,
     detail: mapOk ? "Všetky povinné polia." : "Vyber stĺpec pre každé pole.",
   });
-  const lte = mobileLtePath.trim();
-  const mobileOk = !mobileEnabled || lte.length > 0;
+  const lteCount = mobileLtePaths.filter((p) => p.trim().length > 0).length;
+  const mobileOk = !mobileEnabled || lteCount > 0;
   items.push({
     id: "mobile",
     label: "Mobile režim",
     ok: mobileOk,
-    detail: mobileEnabled ? (mobileOk ? "LTE súbor zadaný." : "Vyber LTE CSV.") : "Vypnutý.",
+    detail: mobileEnabled
+      ? mobileOk
+        ? `LTE: ${lteCount} ${lteCount === 1 ? "súbor" : "súbory"} v zozname.`
+        : "Pridaj aspoň jeden LTE CSV."
+      : "Vypnutý.",
   });
   return items;
 }
@@ -229,6 +236,7 @@ function mountMainView(root: HTMLDivElement): void {
     previewError: null,
     columnMapping: {},
     inputCsvPaths: [],
+    mobileLtePaths: [],
     customFilterPaths: [],
     running: false,
     statusText: "Pripravené",
@@ -296,22 +304,30 @@ function mountMainView(root: HTMLDivElement): void {
               <span>Mobile režim (synchronizácia 5G NR cez LTE súbor)</span>
             </label>
 
+            <div id="mobileLteInputWarning" class="mobile-mode-input-warning" role="status" aria-live="polite" hidden>
+              Zapol si Mobile režim (dopĺňanie 5G NR z LTE súboru), ale vstupné CSV sú rozpoznané ako
+              <strong>LTE</strong>, nie 5G (NR). Skontroluj, či je to zámer; hlavný merací súbor má mať
+              typicky stĺpce pre 5G (napr. NR-ARFCN).
+            </div>
+
             <div id="mobileFieldsWrap" class="collapsible-block" aria-hidden="true">
               <div class="collapsible-block__inner">
                 <div id="mobileFields" class="stack">
-                  <label class="field">
-                    <span>LTE CSV súbor (iba pre Mobile režim)</span>
-                    <div class="inline-row">
-                      <input
-                        id="mobileLtePath"
-                        class="input-path-show-end"
-                        type="text"
-                        placeholder="C:\\cesta\\k\\lte.csv"
-                        spellcheck="false"
-                      />
-                      <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
+                  <div class="filters-panel">
+                    <div class="filters-head">
+                      <strong>LTE CSV súbory (iba pre Mobile režim)</strong>
                     </div>
-                  </label>
+                    <p class="section-note csv-input-note">
+                      Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí) ako pri vstupnom CSV. Po zlúčení sa riadky zoradia podľa času (UTC alebo Date+Time).
+                    </p>
+                    <div class="inline-actions">
+                      <button id="addMobileLteBtn" class="btn secondary" type="button">Pridať súbor</button>
+                      <button id="addMobileLteMultiBtn" class="btn secondary" type="button">Pridať viac naraz</button>
+                      <button id="removeMobileLteBtn" class="btn danger" type="button">Odstrániť vybrané</button>
+                      <button id="clearMobileLteBtn" class="btn ghost" type="button">Vyčistiť</button>
+                    </div>
+                    <select id="mobileLteList" class="listbox" multiple size="5"></select>
+                  </div>
 
                   <label class="field">
                     <span>Tolerancia času (ms)</span>
@@ -539,10 +555,14 @@ function mountMainView(root: HTMLDivElement): void {
   const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
   const csvPreviewStatus = qs<HTMLParagraphElement>("#csvPreviewStatus");
   const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
+  const mobileLteInputWarning = qs<HTMLDivElement>("#mobileLteInputWarning");
   const mobileFieldsWrap = qs<HTMLDivElement>("#mobileFieldsWrap");
   const mobileFields = qs<HTMLDivElement>("#mobileFields");
-  const mobileLtePathInput = qs<HTMLInputElement>("#mobileLtePath");
-  const pickMobileLteBtn = qs<HTMLButtonElement>("#pickMobileLteBtn");
+  const mobileLteList = qs<HTMLSelectElement>("#mobileLteList");
+  const addMobileLteBtn = qs<HTMLButtonElement>("#addMobileLteBtn");
+  const addMobileLteMultiBtn = qs<HTMLButtonElement>("#addMobileLteMultiBtn");
+  const removeMobileLteBtn = qs<HTMLButtonElement>("#removeMobileLteBtn");
+  const clearMobileLteBtn = qs<HTMLButtonElement>("#clearMobileLteBtn");
   const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
   const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
   const useAdditionalFiltersCheckbox = qs<HTMLInputElement>("#useAdditionalFilters");
@@ -645,13 +665,13 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function allInputsReady(): boolean {
-    return computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, mobileLtePathInput.value).every(
+    return computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileLtePaths).every(
       (item) => item.ok
     );
   }
 
   function renderReadiness(): void {
-    const items = computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, mobileLtePathInput.value);
+    const items = computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileLtePaths);
     readinessPanel.innerHTML = items
       .map(
         (item) => `
@@ -828,7 +848,12 @@ function mountMainView(root: HTMLDivElement): void {
     removeCsvBtn.disabled = running;
     clearCsvBtn.disabled = running;
     loadPreviewBtn.disabled = running;
-    pickMobileLteBtn.disabled = running || !mobileModeCheckbox.checked;
+    const mobileOn = mobileModeCheckbox.checked;
+    addMobileLteBtn.disabled = running || !mobileOn;
+    addMobileLteMultiBtn.disabled = running || !mobileOn;
+    removeMobileLteBtn.disabled = running || !mobileOn;
+    clearMobileLteBtn.disabled = running || !mobileOn;
+    mobileLteList.disabled = running || !mobileOn;
     const additionalFiltersOn = useAdditionalFiltersCheckbox.checked;
     addFiltersBtn.disabled = running || !additionalFiltersOn;
     removeFilterBtn.disabled = running || !additionalFiltersOn;
@@ -850,6 +875,7 @@ function mountMainView(root: HTMLDivElement): void {
       csvPreviewStatus.hidden = false;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__err">Chyba: ${escapeHtml(state.previewError)}</span>`;
+      updateMobileLteInputWarning();
       renderReadiness();
       return;
     }
@@ -857,6 +883,7 @@ function mountMainView(root: HTMLDivElement): void {
       csvPreviewStatus.hidden = true;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.textContent = "";
+      updateMobileLteInputWarning();
       renderReadiness();
       return;
     }
@@ -864,6 +891,7 @@ function mountMainView(root: HTMLDivElement): void {
     csvPreviewStatus.className = "csv-preview-inline";
     const techLabel = inputRadioTechUiLabel(state.preview.inputRadioTech);
     csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span><span class="csv-preview-inline__muted"> · Vstup: ${escapeHtml(techLabel)}</span>`;
+    updateMobileLteInputWarning();
     renderReadiness();
   }
 
@@ -884,6 +912,16 @@ function mountMainView(root: HTMLDivElement): void {
       opt.value = path;
       opt.textContent = path;
       csvList.appendChild(opt);
+    }
+  }
+
+  function renderMobileLteList(): void {
+    mobileLteList.innerHTML = "";
+    for (const path of state.mobileLtePaths) {
+      const opt = document.createElement("option");
+      opt.value = path;
+      opt.textContent = path;
+      mobileLteList.appendChild(opt);
     }
   }
 
@@ -1340,11 +1378,18 @@ function mountMainView(root: HTMLDivElement): void {
     renderReadiness();
   }
 
+  function updateMobileLteInputWarning(): void {
+    const mobileOn = mobileModeCheckbox.checked;
+    const tech = state.preview?.inputRadioTech;
+    const isLteInput = tech === "lte";
+    mobileLteInputWarning.hidden = !(mobileOn && isLteInput);
+  }
+
   function updateDependentUI(): void {
     const mobileEnabled = mobileModeCheckbox.checked;
     mobileFieldsWrap.classList.toggle("is-open", mobileEnabled);
     mobileFieldsWrap.setAttribute("aria-hidden", mobileEnabled ? "false" : "true");
-    mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((el) => {
+    mobileFields.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input,button,select").forEach((el) => {
       el.disabled = !mobileEnabled || state.running;
     });
 
@@ -1361,6 +1406,7 @@ function mountMainView(root: HTMLDivElement): void {
       customOperatorsTextInput.value = "";
     }
 
+    updateMobileLteInputWarning();
     setRunning(state.running);
   }
 
@@ -1427,9 +1473,9 @@ function mountMainView(root: HTMLDivElement): void {
 
     const column_mapping = buildColumnMapping();
     const mobile_mode_enabled = mobileModeCheckbox.checked;
-    const mobile_lte_file_path = mobileLtePathInput.value.trim();
-    if (mobile_mode_enabled && !mobile_lte_file_path) {
-      throw new Error("Pre Mobile režim vyber LTE CSV súbor.");
+    const ltePaths = dedupePaths(state.mobileLtePaths.map((p) => p.trim()).filter((p) => p.length > 0));
+    if (mobile_mode_enabled && ltePaths.length === 0) {
+      throw new Error("Pre Mobile režim pridaj aspoň jeden LTE CSV súbor.");
     }
 
     const zone_size_m = parseNumberInput(zoneSizeInput, "Veľkosť zóny/úseku");
@@ -1487,7 +1533,8 @@ function mountMainView(root: HTMLDivElement): void {
       ...(output_zones_file_path ? { output_zones_file_path } : {}),
       ...(output_stats_file_path ? { output_stats_file_path } : {}),
       mobile_mode_enabled,
-      mobile_lte_file_path: mobile_mode_enabled ? mobile_lte_file_path : "",
+      mobile_lte_file_path: mobile_mode_enabled && ltePaths.length > 0 ? ltePaths[0] : "",
+      ...(mobile_mode_enabled && ltePaths.length > 1 ? { mobile_lte_file_paths: ltePaths } : {}),
       mobile_time_tolerance_ms,
       mobile_require_nr_yes: false,
       mobile_nr_column_name: "5G NR",
@@ -1590,13 +1637,59 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
-  async function pickMobileLTE(): Promise<void> {
+  async function addOneMobileLteFromPicker(): Promise<void> {
     const path = await PickMobileLTECSVFile();
     if (!path) {
       return;
     }
-    mobileLtePathInput.value = path;
-    appendLog(`Vybraný LTE CSV: ${path}`);
+    if (state.mobileLtePaths.includes(path)) {
+      appendLog(`LTE súbor už je v zozname: ${path}`);
+      return;
+    }
+    state.mobileLtePaths = [...state.mobileLtePaths, path];
+    renderMobileLteList();
+    appendLog(`Pridaný LTE CSV: ${path}`);
+    renderReadiness();
+  }
+
+  async function addMultipleMobileLteFromPicker(): Promise<void> {
+    const paths = (await PickMobileLTECSVPaths()) as string[];
+    if (!paths || paths.length === 0) {
+      return;
+    }
+    let added = 0;
+    for (const p of paths) {
+      if (state.mobileLtePaths.includes(p)) {
+        continue;
+      }
+      state.mobileLtePaths = [...state.mobileLtePaths, p];
+      added++;
+    }
+    renderMobileLteList();
+    const skipped = paths.length - added;
+    appendLog(`Pridané nové LTE CSV: ${added}${skipped > 0 ? ` (preskočené duplicitné: ${skipped})` : ""}`);
+    renderReadiness();
+  }
+
+  function removeSelectedMobileLtePaths(): void {
+    const selected = new Set(Array.from(mobileLteList.selectedOptions).map((opt) => opt.value));
+    if (selected.size === 0) {
+      return;
+    }
+    state.mobileLtePaths = state.mobileLtePaths.filter((path) => !selected.has(path));
+    renderMobileLteList();
+    appendLog(`Odstránené LTE CSV (${selected.size})`);
+    renderReadiness();
+  }
+
+  function clearMobileLtePaths(): void {
+    if (state.mobileLtePaths.length === 0) {
+      return;
+    }
+    const count = state.mobileLtePaths.length;
+    state.mobileLtePaths = [];
+    renderMobileLteList();
+    appendLog(`Vyčistený zoznam LTE CSV (${count})`);
     renderReadiness();
   }
 
@@ -1641,8 +1734,17 @@ function mountMainView(root: HTMLDivElement): void {
   loadPreviewBtn.addEventListener("click", () => {
     void loadPreviewForCurrentCSV().catch(handlePreviewError);
   });
-  pickMobileLteBtn.addEventListener("click", () => {
-    void pickMobileLTE();
+  addMobileLteBtn.addEventListener("click", () => {
+    void addOneMobileLteFromPicker();
+  });
+  addMobileLteMultiBtn.addEventListener("click", () => {
+    void addMultipleMobileLteFromPicker();
+  });
+  removeMobileLteBtn.addEventListener("click", () => {
+    removeSelectedMobileLtePaths();
+  });
+  clearMobileLteBtn.addEventListener("click", () => {
+    clearMobileLtePaths();
   });
   addFiltersBtn.addEventListener("click", () => {
     void addFilterFiles();
@@ -1804,9 +1906,6 @@ function mountMainView(root: HTMLDivElement): void {
     a.click();
     URL.revokeObjectURL(url);
     appendLog("Log exportovaný.");
-  });
-  mobileLtePathInput.addEventListener("input", () => {
-    renderReadiness();
   });
   resultContent.addEventListener("click", (event) => {
     const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-result-action]");

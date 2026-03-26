@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 )
 
 func nativeSupported(cfg ProcessingConfig) bool {
@@ -56,14 +55,15 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	}
 	if cfg.MobileModeEnabled {
 		emitProcessingPhase(ctx, "mobile_sync")
-		if strings.TrimSpace(cfg.MobileLTEFilePath) == "" {
-			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but mobile_lte_file_path is empty")
+		ltePaths := MobileLTEPathsFromConfig(cfg)
+		if len(ltePaths) == 0 {
+			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but no LTE CSV path(s) were provided")
 		}
 		data, _, err = syncMobileNRFromLTECSVNative(
 			ctx,
 			data,
 			cfg.ColumnMapping,
-			cfg.MobileLTEFilePath,
+			ltePaths,
 			cfg.MobileNRColumnName,
 			cfg.MobileTimeToleranceMS,
 			rules,

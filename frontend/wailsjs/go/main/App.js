@@ -42,6 +42,10 @@ export function PickMobileLTECSVFile() {
   return window['go']['main']['App']['PickMobileLTECSVFile']();
 }
 
+export function PickMobileLTECSVPaths() {
+  return window['go']['main']['App']['PickMobileLTECSVPaths']();
+}
+
 export function PickOutputCSVFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['PickOutputCSVFile'](arg1, arg2, arg3);
 }

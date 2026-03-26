@@ -25,6 +25,7 @@ type ProcessingConfig struct {
 	OutputStatsFilePath   string           `json:"output_stats_file_path,omitempty"`
 	MobileModeEnabled     bool             `json:"mobile_mode_enabled"`
 	MobileLTEFilePath     string           `json:"mobile_lte_file_path,omitempty"`
+	MobileLTEFilePaths    []string         `json:"mobile_lte_file_paths,omitempty"`
 	MobileTimeToleranceMS int              `json:"mobile_time_tolerance_ms"`
 	MobileRequireNRYES    bool             `json:"mobile_require_nr_yes"`
 	MobileNRColumnName    string           `json:"mobile_nr_column_name"`
