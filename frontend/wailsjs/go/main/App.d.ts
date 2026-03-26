@@ -3,6 +3,8 @@
 import {main} from '../models';
 import {backend} from '../models';
 
+export function DefaultOutputPaths(arg1:string,arg2:boolean,arg3:string):Promise<main.DefaultOutputPathsResult>;
+
 export function DiscoverAutoFilterPaths():Promise<Array<string>>;
 
 export function GetAppInfo():Promise<main.AppInfo>;
@@ -20,5 +22,7 @@ export function PickInputCSVFile():Promise<string>;
 export function PickInputCSVPaths():Promise<Array<string>>;
 
 export function PickMobileLTECSVFile():Promise<string>;
+
+export function PickOutputCSVFile(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RunProcessingWithConfig(arg1:backend.ProcessingConfig):Promise<backend.ProcessingResult>;

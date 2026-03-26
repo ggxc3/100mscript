@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +58,18 @@ func outputPathsForConfig(cfg ProcessingConfig) (zonesFile, statsFile, suffix st
 		return base + suffix + "_zones.csv", base + suffix + "_stats.csv", suffix
 	}
 	return base + "_zones.csv", base + "_stats.csv", suffix
+}
+
+// OutputPathsForProcessing returns concrete output paths, applying optional overrides from cfg.
+func OutputPathsForProcessing(cfg ProcessingConfig) (zonesFile, statsFile, suffix string) {
+	zonesFile, statsFile, suffix = outputPathsForConfig(cfg)
+	if p := strings.TrimSpace(cfg.OutputZonesFilePath); p != "" {
+		zonesFile = filepath.Clean(p)
+	}
+	if p := strings.TrimSpace(cfg.OutputStatsFilePath); p != "" {
+		statsFile = filepath.Clean(p)
+	}
+	return zonesFile, statsFile, suffix
 }
 
 func SaveStatsNative(zoneStats []ZoneStat, cfg ProcessingConfig, statsFile string, allZones []string) error {

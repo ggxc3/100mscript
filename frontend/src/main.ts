@@ -2,6 +2,7 @@ import "./style.css";
 import "./app.css";
 
 import {
+  DefaultOutputPaths,
   DiscoverAutoFilterPaths,
   GetAppInfo,
   LoadCSVPreview,
@@ -11,6 +12,7 @@ import {
   PickInputCSVFile,
   PickInputCSVPaths,
   PickMobileLTECSVFile,
+  PickOutputCSVFile,
   RunProcessingWithConfig,
 } from "../wailsjs/go/main/App";
 import { backend, main } from "../wailsjs/go/models";
@@ -300,7 +302,13 @@ function mountMainView(root: HTMLDivElement): void {
                   <label class="field">
                     <span>LTE CSV súbor (iba pre Mobile režim)</span>
                     <div class="inline-row">
-                      <input id="mobileLtePath" type="text" placeholder="C:\\cesta\\k\\lte.csv" />
+                      <input
+                        id="mobileLtePath"
+                        class="input-path-show-end"
+                        type="text"
+                        placeholder="C:\\cesta\\k\\lte.csv"
+                        spellcheck="false"
+                      />
                       <button id="pickMobileLteBtn" class="btn secondary" type="button">Vybrať LTE CSV</button>
                     </div>
                   </label>
@@ -440,13 +448,49 @@ function mountMainView(root: HTMLDivElement): void {
               <div id="processingPipeline" class="processing-pipeline" role="list" aria-live="polite"></div>
             </div>
 
-            <div class="run-actions">
-              <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
-              <button id="openLogBtn" type="button" class="btn btn-toolbar run-actions__log">Technický log</button>
+            <hr class="panel-divider" aria-hidden="true" />
+
+            <div class="output-paths-panel">
+              <p class="section-note output-paths-note">
+                Výstupné CSV sú voliteľné. Prázdne polia znamená uloženie vedľa vstupného súboru s rovnakým pravidlom pomenovania ako doteraz (<code>_zones.csv</code>, <code>_stats.csv</code>; pri Mobile režime <code>_mobile</code> v názve).
+              </p>
+              <label class="field">
+                <span>Súbor zón</span>
+                <div class="inline-row">
+                  <input
+                    id="outputZonesPath"
+                    class="input-path-show-end"
+                    type="text"
+                    placeholder=""
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button id="pickOutputZonesBtn" class="btn secondary" type="button">Vybrať…</button>
+                </div>
+              </label>
+              <label class="field">
+                <span>Štatistiky</span>
+                <div class="inline-row">
+                  <input
+                    id="outputStatsPath"
+                    class="input-path-show-end"
+                    type="text"
+                    placeholder=""
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button id="pickOutputStatsBtn" class="btn secondary" type="button">Vybrať…</button>
+                </div>
+              </label>
             </div>
 
             <div id="progressBar" class="progress-bar" aria-hidden="true">
               <div class="progress-fill"></div>
+            </div>
+
+            <div class="run-actions">
+              <button id="runBtn" class="btn primary" type="button">Spustiť spracovanie</button>
+              <button id="openLogBtn" type="button" class="btn btn-toolbar run-actions__log">Technický log</button>
             </div>
 
             <div class="result-box">
@@ -531,6 +575,10 @@ function mountMainView(root: HTMLDivElement): void {
   const statusChip = qs<HTMLDivElement>("#statusChip");
   const statusText = qs<HTMLDivElement>("#statusText");
   const statusElapsed = qs<HTMLDivElement>("#statusElapsed");
+  const outputZonesPathInput = qs<HTMLInputElement>("#outputZonesPath");
+  const outputStatsPathInput = qs<HTMLInputElement>("#outputStatsPath");
+  const pickOutputZonesBtn = qs<HTMLButtonElement>("#pickOutputZonesBtn");
+  const pickOutputStatsBtn = qs<HTMLButtonElement>("#pickOutputStatsBtn");
   const readinessPanel = qs<HTMLDivElement>("#readinessPanel");
   const aboutBtn = qs<HTMLButtonElement>("#aboutBtn");
   const aboutOverlay = qs<HTMLDivElement>("#aboutOverlay");
@@ -788,8 +836,12 @@ function mountMainView(root: HTMLDivElement): void {
     filtersList.disabled = running || !additionalFiltersOn;
     addTimeWindowBtn.disabled = running || state.timeSelectorLoading || !state.timeSelectorData;
     clearTimeWindowsBtn.disabled = running || state.timeWindows.length === 0;
+    outputZonesPathInput.disabled = running;
+    outputStatsPathInput.disabled = running;
     progressBar.classList.toggle("is-running", running);
+    progressBar.setAttribute("aria-hidden", running ? "false" : "true");
     renderReadiness();
+    void refreshOutputPathDefaults();
   }
 
   function renderPreview(): void {
@@ -839,6 +891,67 @@ function mountMainView(root: HTMLDivElement): void {
     return [...state.inputCsvPaths];
   }
 
+  function fileParentDir(filePath: string): string {
+    const i = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+    return i <= 0 ? "" : filePath.slice(0, i);
+  }
+
+  function fileBasename(filePath: string): string {
+    const i = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+    return i < 0 ? filePath : filePath.slice(i + 1);
+  }
+
+  async function refreshOutputPathDefaults(): Promise<void> {
+    const paths = getInputCsvPaths();
+    const hasPaths = paths.length > 0;
+    pickOutputZonesBtn.disabled = state.running || !hasPaths;
+    pickOutputStatsBtn.disabled = state.running || !hasPaths;
+
+    if (!hasPaths) {
+      outputZonesPathInput.placeholder = "";
+      outputStatsPathInput.placeholder = "";
+      return;
+    }
+    try {
+      const defaults = (await DefaultOutputPaths(paths[0], mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
+      outputZonesPathInput.placeholder = defaults.zones;
+      outputStatsPathInput.placeholder = defaults.stats;
+    } catch {
+      outputZonesPathInput.placeholder = "";
+      outputStatsPathInput.placeholder = "";
+    }
+  }
+
+  async function pickOutputZonesPath(): Promise<void> {
+    const paths = getInputCsvPaths();
+    if (paths.length === 0) {
+      appendLog("Najprv pridaj vstupný CSV.");
+      return;
+    }
+    const first = paths[0];
+    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
+    const picked = await PickOutputCSVFile("Uložiť súbor zón", fileParentDir(first), fileBasename(defaults.zones));
+    if (!picked) {
+      return;
+    }
+    outputZonesPathInput.value = picked;
+  }
+
+  async function pickOutputStatsPath(): Promise<void> {
+    const paths = getInputCsvPaths();
+    if (paths.length === 0) {
+      appendLog("Najprv pridaj vstupný CSV.");
+      return;
+    }
+    const first = paths[0];
+    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
+    const picked = await PickOutputCSVFile("Uložiť súbor štatistík", fileParentDir(first), fileBasename(defaults.stats));
+    if (!picked) {
+      return;
+    }
+    outputStatsPathInput.value = picked;
+  }
+
   function clearCsvInputAndPreview(): void {
     cancelPreviewAutoload();
     state.inputCsvPaths = [];
@@ -850,6 +963,7 @@ function mountMainView(root: HTMLDivElement): void {
     renderPreview();
     renderMappingGrid();
     renderResult();
+    void refreshOutputPathDefaults();
   }
 
   function invalidateCsvPreviewAfterListChange(): void {
@@ -860,6 +974,7 @@ function mountMainView(root: HTMLDivElement): void {
     renderPreview();
     renderMappingGrid();
     renderResult();
+    void refreshOutputPathDefaults();
   }
 
   function removeSelectedCsvPaths(): void {
@@ -1284,6 +1399,7 @@ function mountMainView(root: HTMLDivElement): void {
     if (newKey !== previousKey || !state.timeSelectorData) {
       await loadTimeSelectorForCurrentCSV(paths);
     }
+    void refreshOutputPathDefaults();
   }
 
   function buildColumnMapping(): Record<string, number> {
@@ -1332,6 +1448,9 @@ function mountMainView(root: HTMLDivElement): void {
       custom_operators = parseCustomOperatorsText(customOperatorsTextInput.value);
     }
 
+    const output_zones_file_path = outputZonesPathInput.value.trim();
+    const output_stats_file_path = outputStatsPathInput.value.trim();
+
     let filter_paths: string[] | undefined;
     const useAuto = useAutoFiltersCheckbox.checked;
     const useAdditional = useAdditionalFiltersCheckbox.checked;
@@ -1365,6 +1484,8 @@ function mountMainView(root: HTMLDivElement): void {
       custom_operators,
       filter_paths,
       output_suffix: "",
+      ...(output_zones_file_path ? { output_zones_file_path } : {}),
+      ...(output_stats_file_path ? { output_stats_file_path } : {}),
       mobile_mode_enabled,
       mobile_lte_file_path: mobile_mode_enabled ? mobile_lte_file_path : "",
       mobile_time_tolerance_ms,
@@ -1529,6 +1650,12 @@ function mountMainView(root: HTMLDivElement): void {
   removeFilterBtn.addEventListener("click", removeSelectedFilters);
   clearFiltersBtn.addEventListener("click", clearFilters);
   mobileModeCheckbox.addEventListener("change", updateDependentUI);
+  pickOutputZonesBtn.addEventListener("click", () => {
+    void pickOutputZonesPath();
+  });
+  pickOutputStatsBtn.addEventListener("click", () => {
+    void pickOutputStatsPath();
+  });
   useAdditionalFiltersCheckbox.addEventListener("change", updateDependentUI);
   includeEmptyZonesCheckbox.addEventListener("change", updateDependentUI);
   addCustomOperatorsCheckbox.addEventListener("change", updateDependentUI);
@@ -1717,7 +1844,7 @@ function mountMainView(root: HTMLDivElement): void {
     void (async () => {
       try {
         const info = (await GetAppInfo()) as main.AppInfo;
-        aboutBody.textContent = `${info.productName}\nVerzia ${info.version}\n\nVýstupy sa ukladajú vedľa vstupného súboru ako súbory _zones.csv a _stats.csv.`;
+        aboutBody.textContent = `${info.productName}\nVerzia ${info.version}\n\nPredvolene sa výstupy ukladajú vedľa vstupného súboru ako _zones.csv a _stats.csv (pri Mobile režime s príponou _mobile v názve). V pravom paneli môžeš zadať vlastné cesty k obom súborom.`;
       } catch {
         aboutBody.textContent = "100mscript\n\nNepodarilo sa načítať informácie o verzii.";
       }

@@ -31,6 +31,8 @@ export namespace backend {
 	    custom_operators: CustomOperator[];
 	    filter_paths?: string[];
 	    output_suffix?: string;
+	    output_zones_file_path?: string;
+	    output_stats_file_path?: string;
 	    mobile_mode_enabled: boolean;
 	    mobile_lte_file_path?: string;
 	    mobile_time_tolerance_ms: number;
@@ -58,6 +60,8 @@ export namespace backend {
 	        this.custom_operators = this.convertValues(source["custom_operators"], CustomOperator);
 	        this.filter_paths = source["filter_paths"];
 	        this.output_suffix = source["output_suffix"];
+	        this.output_zones_file_path = source["output_zones_file_path"];
+	        this.output_stats_file_path = source["output_stats_file_path"];
 	        this.mobile_mode_enabled = source["mobile_mode_enabled"];
 	        this.mobile_lte_file_path = source["mobile_lte_file_path"];
 	        this.mobile_time_tolerance_ms = source["mobile_time_tolerance_ms"];
@@ -219,6 +223,20 @@ export namespace main {
 	        this.originalHeader = source["originalHeader"];
 	        this.suggestedMapping = source["suggestedMapping"];
 	        this.inputRadioTech = source["inputRadioTech"];
+	    }
+	}
+	export class DefaultOutputPathsResult {
+	    zones: string;
+	    stats: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DefaultOutputPathsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.zones = source["zones"];
+	        this.stats = source["stats"];
 	    }
 	}
 

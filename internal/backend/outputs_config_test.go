@@ -51,3 +51,17 @@ func TestOutputPathsForConfig_plain(t *testing.T) {
 		t.Fatalf("%s %s %s", z, s, suf)
 	}
 }
+
+func TestOutputPathsForProcessing_overrides(t *testing.T) {
+	t.Parallel()
+
+	cfg := ProcessingConfig{
+		FilePath:            filepath.Join("dir", "in.csv"),
+		OutputZonesFilePath: filepath.Join("out", "custom_z.csv"),
+		OutputStatsFilePath: filepath.Join("out", "custom_s.csv"),
+	}
+	z, s, suf := OutputPathsForProcessing(cfg)
+	if z != filepath.Join("out", "custom_z.csv") || s != filepath.Join("out", "custom_s.csv") || suf != "" {
+		t.Fatalf("zones=%s stats=%s suf=%q", z, s, suf)
+	}
+}
