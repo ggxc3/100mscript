@@ -80,8 +80,8 @@ jobs:
           } else {
             $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $patch = [int]$Matches[3]
             switch ($env:BUMP) {
-              "major" { $major++; $minor = 0; $patch = 0 }
-              "minor" { $minor++; $patch = 0 }
+              "major" { $major++; $minor = 1; $patch = 1 }
+              "minor" { $minor++; $patch = 1 }
               "patch" { $patch++ }
               default { throw "Unknown bump: $($env:BUMP)" }
             }
