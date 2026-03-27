@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Typ zvýšenia verzie (semver)"
+        description: "Auto inkrement (patch/minor/major). Ignoruje sa, ak je vyplnené Explicitná verzia."
         type: choice
         required: true
         default: patch
@@ -15,6 +15,11 @@ on:
           - patch
           - minor
           - major
+      version_override:
+        description: "Voliteľné: presná verzia X.Y.Z (prepíše auto inkrement). Musí byť vyššia ako aktuálna v wails.json."
+        type: string
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.repository }}
@@ -43,26 +48,46 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # Názov EXE 100mscript_1.2.3.exe je na Windowse v poriadku — bodka nie je zakázaná v názve súboru.
       - name: Bump version, commit, tag, push
         id: ver
         env:
           BUMP: ${{ inputs.bump }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
         run: |
           $ErrorActionPreference = "Stop"
           git pull origin main --rebase
           $json = Get-Content wails.json -Raw | ConvertFrom-Json
-          $cur = $json.info.productVersion
+          $cur = $json.info.productVersion.Trim()
           if ($cur -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
             throw "wails.json info.productVersion must be semver MAJOR.MINOR.PATCH, got: $cur"
           }
-          $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $patch = [int]$Matches[3]
-          switch ($env:BUMP) {
-            "major" { $major++; $minor = 0; $patch = 0 }
-            "minor" { $minor++; $patch = 0 }
-            "patch" { $patch++ }
-            default { throw "Unknown bump: $($env:BUMP)" }
+          $curVer = [version]$cur
+
+          $rawOverride = $env:VERSION_OVERRIDE
+          if ($null -eq $rawOverride) { $rawOverride = "" }
+          $override = $rawOverride.Trim()
+
+          if ($override -ne "") {
+            if ($override -notmatch '^\d+\.\d+\.\d+$') {
+              throw "Explicitná verzia musí byť MAJOR.MINOR.PATCH (čísla), napr. 2.0.0. Zadane: '$override'"
+            }
+            $new = $override
+            $newVer = [version]$new
+            if ($newVer -le $curVer) {
+              throw "Explicitná verzia musí byť vyššia ako aktuálna v repozitári ($cur). Zadane: $new"
+            }
+          } else {
+            $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $patch = [int]$Matches[3]
+            switch ($env:BUMP) {
+              "major" { $major++; $minor = 0; $patch = 0 }
+              "minor" { $minor++; $patch = 0 }
+              "patch" { $patch++ }
+              default { throw "Unknown bump: $($env:BUMP)" }
+            }
+            $new = "$major.$minor.$patch"
           }
-          $new = "$major.$minor.$patch"
+
           $tag = "v$new"
 
           $remoteTag = git ls-remote origin "refs/tags/$tag"
