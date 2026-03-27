@@ -112,7 +112,7 @@ jobs:
 
           git add wails.json app.go frontend/package.json frontend/package-lock.json
           git status
-          git commit -m "Release $tag"
+          git commit -m "Release $tag [skip ci]"
           git tag -a $tag -m "Release $tag"
           git push origin HEAD:main
           git push origin $tag
