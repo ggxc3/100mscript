@@ -1,0 +1,169 @@
+name: Release (semver)
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Auto inkrement (patch/minor/major). Ignoruje sa, ak je vyplnené Explicitná verzia."
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      version_override:
+        description: "Voliteľné: presná verzia X.Y.Z (prepíše auto inkrement). Musí byť vyššia ako aktuálna v wails.json."
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Názov EXE 100mscript_1.2.3.exe je na Windowse v poriadku — bodka nie je zakázaná v názve súboru.
+      - name: Bump version, commit, tag, push
+        id: ver
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git pull origin main --rebase
+          $json = Get-Content wails.json -Raw | ConvertFrom-Json
+          $cur = $json.info.productVersion.Trim()
+          if ($cur -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
+            throw "wails.json info.productVersion must be semver MAJOR.MINOR.PATCH, got: $cur"
+          }
+          $curVer = [version]$cur
+
+          $rawOverride = $env:VERSION_OVERRIDE
+          if ($null -eq $rawOverride) { $rawOverride = "" }
+          $override = $rawOverride.Trim()
+
+          if ($override -ne "") {
+            if ($override -notmatch '^\d+\.\d+\.\d+$') {
+              throw "Explicitná verzia musí byť MAJOR.MINOR.PATCH (čísla), napr. 2.0.0. Zadane: '$override'"
+            }
+            $new = $override
+            $newVer = [version]$new
+            if ($newVer -le $curVer) {
+              throw "Explicitná verzia musí byť vyššia ako aktuálna v repozitári ($cur). Zadane: $new"
+            }
+          } else {
+            $major = [int]$Matches[1]; $minor = [int]$Matches[2]; $patch = [int]$Matches[3]
+            switch ($env:BUMP) {
+              "major" { $major++; $minor = 0; $patch = 0 }
+              "minor" { $minor++; $patch = 0 }
+              "patch" { $patch++ }
+              default { throw "Unknown bump: $($env:BUMP)" }
+            }
+            $new = "$major.$minor.$patch"
+          }
+
+          $tag = "v$new"
+
+          $remoteTag = git ls-remote origin "refs/tags/$tag"
+          if ($remoteTag) { throw "Tag $tag už existuje na remote. Vyber vyšší bump alebo vymaž starý tag." }
+
+          $wails = Get-Content wails.json -Raw
+          $wails = $wails -replace '("productVersion"\s*:\s*")[^"]+(")', "`$1$new`$2"
+          $utf8 = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText((Resolve-Path wails.json), $wails.TrimEnd() + "`n", $utf8)
+
+          $appGo = Get-Content app.go -Raw
+          $appGo = $appGo -replace 'const AppVersion = "[^"]+"', "const AppVersion = `"$new`""
+          if (-not $appGo.EndsWith("`n")) { $appGo += "`n" }
+          [System.IO.File]::WriteAllText((Resolve-Path app.go), $appGo.TrimEnd() + "`n", $utf8)
+
+          Push-Location frontend
+          npm version $new --no-git-tag-version
+          Pop-Location
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add wails.json app.go frontend/package.json frontend/package-lock.json
+          git status
+          git commit -m "Release $tag"
+          git tag -a $tag -m "Release $tag"
+          git push origin HEAD:main
+          git push origin $tag
+
+          "version=$new" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        shell: pwsh
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Compile-check Go packages
+        run: go test ./...
+
+      - name: Build Wails app (Windows)
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -platform windows/amd64 -clean
+
+      - name: Rename EXE with release version
+        id: exe_meta
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $exeName = "100mscript_${v}.exe"
+          $exe = Get-ChildItem -Path build/bin -File -Filter "100mscript.exe" | Select-Object -First 1
+          if (-not $exe) { throw "EXE not found: build/bin/100mscript.exe" }
+          Rename-Item -Path $exe.FullName -NewName $exeName
+          "exe_name=$exeName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        shell: pwsh
+
+      - name: List build outputs
+        run: Get-ChildItem -Path build/bin -File | Format-Table Name, Length
+        shell: pwsh
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Release ${{ steps.ver.outputs.tag }}
+          body: |
+            Verzia ${{ steps.ver.outputs.version }} — Windows portable EXE.
+
+            Súbor: `${{ steps.exe_meta.outputs.exe_name }}`
+          files: build/bin/${{ steps.exe_meta.outputs.exe_name }}
+
+      - name: Upload portable EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 100mscript-windows-${{ steps.ver.outputs.version }}
+          path: build/bin/${{ steps.exe_meta.outputs.exe_name }}
+          if-no-files-found: error
