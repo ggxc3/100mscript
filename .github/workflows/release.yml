@@ -94,8 +94,13 @@ jobs:
           if ($remoteTag) { throw "Tag $tag už existuje na remote. Vyber vyšší bump alebo vymaž starý tag." }
 
           $wails = Get-Content wails.json -Raw
-          # Use single-quoted '$1'/'$2' so PowerShell does not treat them as variables; double-quoted "`$1" can break and corrupt JSON.
-          $wails = $wails -replace '("productVersion"\s*:\s*")[^"]+(")', ('$1' + $new + '$2')
+          # Do not build the replacement as '$1' + $new + '$2': if $new starts with a digit (e.g. 10.2.5),
+          # it becomes "$110.2.5$2" and .NET Regex treats "$11" as group 11, corrupting wails.json.
+          $wails = [regex]::Replace(
+            $wails,
+            '("productVersion"\s*:\s*")[^"]+(")',
+            { param($m) $m.Groups[1].Value + $new + $m.Groups[2].Value }
+          )
           $utf8 = [System.Text.UTF8Encoding]::new($false)
           [System.IO.File]::WriteAllText((Resolve-Path wails.json), $wails.TrimEnd() + "`n", $utf8)
 
