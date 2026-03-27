@@ -154,11 +154,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: Release ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
           body: |
-            Verzia ${{ steps.ver.outputs.version }} — Windows portable EXE.
-
-            Súbor: `${{ steps.exe_meta.outputs.exe_name }}`
+            **Stiahnuť:** `${{ steps.exe_meta.outputs.exe_name }}` (Assets).
           files: build/bin/${{ steps.exe_meta.outputs.exe_name }}
 
       - name: Upload portable EXE artifact
