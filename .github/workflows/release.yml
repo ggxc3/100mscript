@@ -94,7 +94,8 @@ jobs:
           if ($remoteTag) { throw "Tag $tag už existuje na remote. Vyber vyšší bump alebo vymaž starý tag." }
 
           $wails = Get-Content wails.json -Raw
-          $wails = $wails -replace '("productVersion"\s*:\s*")[^"]+(")', "`$1$new`$2"
+          # Use single-quoted '$1'/'$2' so PowerShell does not treat them as variables; double-quoted "`$1" can break and corrupt JSON.
+          $wails = $wails -replace '("productVersion"\s*:\s*")[^"]+(")', ('$1' + $new + '$2')
           $utf8 = [System.Text.UTF8Encoding]::new($false)
           [System.IO.File]::WriteAllText((Resolve-Path wails.json), $wails.TrimEnd() + "`n", $utf8)
 
