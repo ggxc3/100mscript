@@ -57,8 +57,43 @@ func MobileLTEPathsFromConfig(cfg ProcessingConfig) []string {
 	return nil
 }
 
+func isAutoExtraColumn(name string) bool {
+	return strings.HasPrefix(name, "extra_col_")
+}
+
+func trimTrailingAutoExtraColumns(columns []string) []string {
+	end := len(columns)
+	for end > 0 && isAutoExtraColumn(columns[end-1]) {
+		end--
+	}
+	return columns[:end]
+}
+
 func columnsMatch(a, b []string) bool {
-	return slices.Equal(a, b)
+	return slices.Equal(trimTrailingAutoExtraColumns(a), trimTrailingAutoExtraColumns(b))
+}
+
+func mergeColumnsSchema(loaded []*CSVData) []string {
+	best := []string(nil)
+	for _, d := range loaded {
+		if len(d.Columns) > len(best) {
+			best = d.Columns
+		}
+	}
+	return append([]string(nil), best...)
+}
+
+func normalizeRowWidth(row []string, width int) []string {
+	switch {
+	case len(row) == width:
+		return append([]string(nil), row...)
+	case len(row) > width:
+		return append([]string(nil), row[:width]...)
+	default:
+		out := make([]string, width)
+		copy(out, row)
+		return out
+	}
 }
 
 // sortMergedCSVRowsByTime reorders rows by ascending timestamp when UTC or Date+Time is available
@@ -152,27 +187,28 @@ func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error)
 		}
 	}
 
-	out := mergeCSVDataRows(loaded[0], loaded[1:])
+	mergedColumns := mergeColumnsSchema(loaded)
+	out := mergeCSVDataRows(mergedColumns, loaded[0], loaded[1:])
 	out.FileInfo = loaded[0].FileInfo
 	return out, nil
 }
 
-func mergeCSVDataRows(first *CSVData, rest []*CSVData) *CSVData {
+func mergeCSVDataRows(columns []string, first *CSVData, rest []*CSVData) *CSVData {
 	totalRows := len(first.Rows)
 	for _, d := range rest {
 		totalRows += len(d.Rows)
 	}
 	outRows := make([][]string, 0, totalRows)
 	for _, row := range first.Rows {
-		outRows = append(outRows, append([]string(nil), row...))
+		outRows = append(outRows, normalizeRowWidth(row, len(columns)))
 	}
 	for _, d := range rest {
 		for _, row := range d.Rows {
-			outRows = append(outRows, append([]string(nil), row...))
+			outRows = append(outRows, normalizeRowWidth(row, len(columns)))
 		}
 	}
 	return &CSVData{
-		Columns:        append([]string(nil), first.Columns...),
+		Columns:        append([]string(nil), columns...),
 		Rows:           outRows,
 		FileInfo:       first.FileInfo,
 		InputRadioTech: first.InputRadioTech,

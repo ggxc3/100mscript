@@ -101,6 +101,65 @@ func TestLoadAndMergeCSVFilesIncompatibleHeaders(t *testing.T) {
 	}
 }
 
+func TestLoadAndMergeCSVFilesIgnoresTrailingAutoExtraColumns(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "base.csv")
+	p2 := filepath.Join(tmpDir, "with_extra.csv")
+	if err := os.WriteFile(p1, []byte("latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP\n48;17;640704;1;231;01;-100\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP\n48;17;640704;2;231;01;-101;231/2\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(data.Columns) != 8 {
+		t.Fatalf("expected merged schema with extra column, got %d columns: %#v", len(data.Columns), data.Columns)
+	}
+	if data.Columns[7] != "extra_col_1" {
+		t.Fatalf("expected trailing auto extra column, got %#v", data.Columns)
+	}
+	if len(data.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(data.Rows))
+	}
+	if got := data.Rows[0][7]; got != "" {
+		t.Fatalf("expected padded empty extra column in first row, got %q", got)
+	}
+	if got := data.Rows[1][7]; got != "231/2" {
+		t.Fatalf("expected preserved extra value in second row, got %q", got)
+	}
+}
+
+func TestLoadAndMergeCSVFilesIgnoresTrailingAutoExtraColumnsRegardlessOfOrder(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "with_extra.csv")
+	p2 := filepath.Join(tmpDir, "base.csv")
+	if err := os.WriteFile(p1, []byte("latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP\n48;17;640704;1;231;01;-100;231/2\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("latitude;longitude;NR-ARFCN;pci;mcc;mnc;SSS-RSRP\n48;17;640704;2;231;01;-101\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(data.Columns) != 8 {
+		t.Fatalf("expected merged schema with extra column, got %d columns: %#v", len(data.Columns), data.Columns)
+	}
+	if got := data.Rows[1][7]; got != "" {
+		t.Fatalf("expected padded empty extra column in second row, got %q", got)
+	}
+}
+
 func TestLoadTimeSelectorDataMergedRenumbersOriginalRows(t *testing.T) {
 	t.Parallel()
 
