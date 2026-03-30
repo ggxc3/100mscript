@@ -31,6 +31,7 @@ type ColumnKey =
 
 type Tone = "idle" | "running" | "success" | "error";
 type DropdownField = "startDate" | "startTime" | "endDate" | "endTime";
+type CsvLoadStage = "preview" | "time";
 
 type TimeValueOption = {
   timeLabel: string;
@@ -57,6 +58,7 @@ type UIState = {
   preview: main.CSVPreview | null;
   /** Posledná chyba načítania náhľadu (hlavičky); pri úspechu null. */
   previewError: string | null;
+  previewLoading: boolean;
   columnMapping: Partial<Record<ColumnKey, number>>;
   inputCsvPaths: string[];
   /** LTE CSV súbory pre Mobile režim (zlúčia sa v tom istom poradí ako pri vstupnom CSV). */
@@ -73,6 +75,12 @@ type UIState = {
   timeWindows: TimeWindowDraft[];
   timeSelectorLoading: boolean;
   timeSelectorError: string;
+  csvLoadDialog: {
+    visible: boolean;
+    stage: CsvLoadStage;
+    showTimeStep: boolean;
+    fileCount: number;
+  };
   activeDropdown: { windowId: string; field: DropdownField; query: string } | null;
   processingPhases: PhaseRow[];
 };
@@ -181,12 +189,13 @@ function computeReadinessItems(
     detail: paths.length === 0 ? "Pridaj aspoň jeden súbor." : `${paths.length} v zozname`,
   });
   const previewSync = pathsMatchPreview(paths, state.preview);
+  const csvDataLoading = state.previewLoading || state.timeSelectorLoading;
   items.push({
     id: "preview",
     label: "Náhľad a časové dáta",
-    ok: previewSync && !state.timeSelectorLoading,
-    detail: state.timeSelectorLoading
-      ? "Načítavam…"
+    ok: previewSync && !csvDataLoading,
+    detail: csvDataLoading
+      ? "Načítavam náhľad a časové údaje…"
       : state.previewError
         ? state.previewError
         : previewSync
@@ -234,6 +243,7 @@ function mountMainView(root: HTMLDivElement): void {
   const state: UIState = {
     preview: null,
     previewError: null,
+    previewLoading: false,
     columnMapping: {},
     inputCsvPaths: [],
     mobileLtePaths: [],
@@ -249,6 +259,12 @@ function mountMainView(root: HTMLDivElement): void {
     timeWindows: [],
     timeSelectorLoading: false,
     timeSelectorError: "",
+    csvLoadDialog: {
+      visible: false,
+      stage: "preview",
+      showTimeStep: true,
+      fileCount: 0,
+    },
     activeDropdown: null,
     processingPhases: [],
   };
@@ -544,6 +560,22 @@ function mountMainView(root: HTMLDivElement): void {
           <button type="button" id="logCloseBtn" class="btn primary log-modal-close">Zavrieť</button>
         </div>
       </div>
+
+      <div id="csvLoadOverlay" class="modal-overlay modal-overlay--blocking" hidden>
+        <div
+          class="modal-dialog modal-dialog--loading"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="csvLoadTitle"
+          aria-describedby="csvLoadBody"
+        >
+          <div class="loading-dialog-kicker">Načítanie</div>
+          <h3 id="csvLoadTitle" class="modal-title loading-dialog-title">Pripravujem vstupné dáta</h3>
+          <p id="csvLoadBody" class="modal-body loading-dialog-body"></p>
+          <div id="csvLoadMeta" class="loading-dialog-meta"></div>
+          <div id="csvLoadSteps" class="loading-steps" role="list"></div>
+        </div>
+      </div>
     </main>
   `;
 
@@ -609,12 +641,115 @@ function mountMainView(root: HTMLDivElement): void {
   const openLogBtn = qs<HTMLButtonElement>("#openLogBtn");
   const logOverlay = qs<HTMLDivElement>("#logOverlay");
   const logCloseBtn = qs<HTMLButtonElement>("#logCloseBtn");
+  const csvLoadOverlay = qs<HTMLDivElement>("#csvLoadOverlay");
+  const csvLoadBody = qs<HTMLParagraphElement>("#csvLoadBody");
+  const csvLoadMeta = qs<HTMLDivElement>("#csvLoadMeta");
+  const csvLoadSteps = qs<HTMLDivElement>("#csvLoadSteps");
 
   let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
   let pendingLoaderExitId: string | null = null;
   let loaderExitClearTimer: ReturnType<typeof setTimeout> | null = null;
   const phaseProgressPercent: Record<string, number> = {};
+
+  function updateModalScrollLock(): void {
+    const shouldLock =
+      !aboutOverlay.hidden || !logOverlay.hidden || !csvLoadOverlay.hidden;
+    document.documentElement.classList.toggle("scroll-locked", shouldLock);
+    document.body.classList.toggle("scroll-locked", shouldLock);
+  }
+
+  function pluralizeFiles(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (count === 1) {
+      return "súbor";
+    }
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return "súbory";
+    }
+    return "súborov";
+  }
+
+  function renderCsvLoadDialog(): void {
+    const dialog = state.csvLoadDialog;
+    csvLoadOverlay.hidden = !dialog.visible;
+    updateModalScrollLock();
+    if (!dialog.visible) {
+      return;
+    }
+
+    csvLoadBody.textContent = dialog.showTimeStep
+      ? "Načítavam náhľad CSV a pripravujem časové údaje. Dialóg sa zavrie automaticky po dokončení."
+      : "Načítavam náhľad CSV. Dialóg sa zavrie automaticky po dokončení.";
+    csvLoadMeta.textContent = `Spracúvam ${dialog.fileCount} ${pluralizeFiles(dialog.fileCount)}.`;
+
+    const steps = [
+      {
+        label: "Načítanie náhľadu stĺpcov",
+        status: dialog.stage === "preview" ? "active" : "done",
+      },
+      ...(dialog.showTimeStep
+        ? [
+            {
+              label: "Načítanie časových údajov",
+              status: dialog.stage === "time" ? "active" : "pending",
+            },
+          ]
+        : []),
+    ];
+
+    csvLoadSteps.innerHTML = steps
+      .map(
+        (step) => `
+          <div class="loading-step loading-step--${step.status}" role="listitem">
+            <span class="loading-step__icon" aria-hidden="true">${step.status === "done" ? "✓" : step.status === "active" ? "•" : "·"}</span>
+            <span class="loading-step__label">${escapeHtml(step.label)}</span>
+          </div>`
+      )
+      .join("");
+  }
+
+  function showCsvLoadDialog(fileCount: number, showTimeStep: boolean): void {
+    state.csvLoadDialog = {
+      visible: true,
+      stage: "preview",
+      showTimeStep,
+      fileCount,
+    };
+    renderCsvLoadDialog();
+  }
+
+  function setCsvLoadDialogStage(stage: CsvLoadStage): void {
+    if (!state.csvLoadDialog.visible) {
+      return;
+    }
+    state.csvLoadDialog = {
+      ...state.csvLoadDialog,
+      showTimeStep: stage === "time" ? true : state.csvLoadDialog.showTimeStep,
+      stage,
+    };
+    renderCsvLoadDialog();
+  }
+
+  function hideCsvLoadDialog(): void {
+    if (!state.csvLoadDialog.visible) {
+      return;
+    }
+    state.csvLoadDialog = {
+      ...state.csvLoadDialog,
+      visible: false,
+    };
+    renderCsvLoadDialog();
+  }
+
+  function waitForNextPaint(): Promise<void> {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(resolve, 0);
+      });
+    });
+  }
 
   function scheduleLoaderExitCleanup(): void {
     if (loaderExitClearTimer !== null) {
@@ -776,6 +911,7 @@ function mountMainView(root: HTMLDivElement): void {
 
   function openLogModal(): void {
     logOverlay.hidden = false;
+    updateModalScrollLock();
     logOutput.textContent = state.logs.length > 0 ? state.logs.join("\n") : "Pripravené.";
     window.requestAnimationFrame(() => {
       logOutput.scrollTop = logOutput.scrollHeight;
@@ -784,6 +920,7 @@ function mountMainView(root: HTMLDivElement): void {
 
   function closeLogModal(): void {
     logOverlay.hidden = true;
+    updateModalScrollLock();
   }
 
   EventsOn("processing:phase", (...args: unknown[]) => {
@@ -871,6 +1008,14 @@ function mountMainView(root: HTMLDivElement): void {
 
   function renderPreview(): void {
     updateLoadPreviewButtonLabel();
+    if (state.previewLoading) {
+      csvPreviewStatus.hidden = false;
+      csvPreviewStatus.className = "csv-preview-inline";
+      csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__muted">Načítavam hlavičku CSV…</span>`;
+      updateMobileLteInputWarning();
+      renderReadiness();
+      return;
+    }
     if (state.previewError) {
       csvPreviewStatus.hidden = false;
       csvPreviewStatus.className = "csv-preview-inline";
@@ -1153,7 +1298,10 @@ function mountMainView(root: HTMLDivElement): void {
       <div><span>Pokrytie</span><strong>${coveredPercent} %</strong></div>
     `;
 
-    if (!state.preview) {
+    if (state.previewLoading) {
+      timeSelectorInfo.className = "time-selector-info muted";
+      timeSelectorInfo.textContent = "Načítavam náhľad CSV a pripravujem časové údaje...";
+    } else if (!state.preview) {
       timeSelectorInfo.className = "time-selector-info muted";
       timeSelectorInfo.textContent = "Najprv načítaj CSV.";
     } else if (state.timeSelectorLoading) {
@@ -1311,6 +1459,7 @@ function mountMainView(root: HTMLDivElement): void {
     state.excludedOriginalRows = [];
     renderTimeSelector();
     renderResult();
+    renderReadiness();
 
     appendLog("Načítavam časové údaje pre výber úsekov");
     try {
@@ -1327,6 +1476,7 @@ function mountMainView(root: HTMLDivElement): void {
       recomputeTimeWindowSelection();
       renderTimeSelector();
       renderResult();
+      renderReadiness();
     }
   }
 
@@ -1426,26 +1576,52 @@ function mountMainView(root: HTMLDivElement): void {
     if (paths.length === 0) {
       throw new Error("Pridaj aspoň jeden vstupný CSV súbor.");
     }
-
-    state.previewError = null;
-    appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
-    const preview = (await LoadCSVPreview(paths)) as main.CSVPreview;
-    const previousKey = state.preview
-      ? (state.preview.filePaths ?? []).join("\n") || state.preview.filePath || ""
-      : "";
-    const newKey = (preview.filePaths ?? []).join("\n") || preview.filePath || "";
-    state.preview = preview;
-    applySuggestedMapping(preview);
-    renderPreview();
-    renderMappingGrid();
-    appendLog(
-      `Načítané stĺpce (${preview.columns.length}), vstup: ${inputRadioTechUiLabel(preview.inputRadioTech)}, encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`
-    );
-
-    if (newKey !== previousKey || !state.timeSelectorData) {
-      await loadTimeSelectorForCurrentCSV(paths);
+    if (state.previewLoading || state.timeSelectorLoading) {
+      return;
     }
-    void refreshOutputPathDefaults();
+
+    const shouldLoadTimeSelector = !pathsMatchPreview(paths, state.preview) || !state.timeSelectorData;
+    state.previewLoading = true;
+    state.previewError = null;
+    showCsvLoadDialog(paths.length, shouldLoadTimeSelector);
+    renderPreview();
+    renderTimeSelector();
+    renderReadiness();
+    await waitForNextPaint();
+
+    try {
+      appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
+      const preview = (await LoadCSVPreview(paths)) as main.CSVPreview;
+      const previousKey = state.preview
+        ? (state.preview.filePaths ?? []).join("\n") || state.preview.filePath || ""
+        : "";
+      const newKey = (preview.filePaths ?? []).join("\n") || preview.filePath || "";
+      state.preview = preview;
+      applySuggestedMapping(preview);
+      state.previewLoading = false;
+      renderPreview();
+      renderMappingGrid();
+      renderTimeSelector();
+      appendLog(
+        `Načítané stĺpce (${preview.columns.length}), vstup: ${inputRadioTechUiLabel(preview.inputRadioTech)}, encoding=${preview.encoding}, headerLine=${preview.headerLine + 1}`
+      );
+
+      if (newKey !== previousKey || !state.timeSelectorData) {
+        setCsvLoadDialogStage("time");
+        await waitForNextPaint();
+        await loadTimeSelectorForCurrentCSV(paths);
+      }
+      void refreshOutputPathDefaults();
+    } catch (err) {
+      state.previewLoading = false;
+      throw err;
+    } finally {
+      state.previewLoading = false;
+      hideCsvLoadDialog();
+      renderPreview();
+      renderTimeSelector();
+      renderReadiness();
+    }
   }
 
   function buildColumnMapping(): Record<string, number> {
@@ -1871,6 +2047,7 @@ function mountMainView(root: HTMLDivElement): void {
     }
     if (event.key === "Escape" && !aboutOverlay.hidden) {
       aboutOverlay.hidden = true;
+      updateModalScrollLock();
       return;
     }
     if (event.key === "Escape" && state.activeDropdown) {
@@ -1948,14 +2125,17 @@ function mountMainView(root: HTMLDivElement): void {
         aboutBody.textContent = "100mscript\n\nNepodarilo sa načítať informácie o verzii.";
       }
       aboutOverlay.hidden = false;
+      updateModalScrollLock();
     })();
   });
   aboutCloseBtn.addEventListener("click", () => {
     aboutOverlay.hidden = true;
+    updateModalScrollLock();
   });
   aboutOverlay.addEventListener("click", (event) => {
     if (event.target === aboutOverlay) {
       aboutOverlay.hidden = true;
+      updateModalScrollLock();
     }
   });
   function handlePreviewError(err: unknown): void {
@@ -1976,8 +2156,10 @@ function mountMainView(root: HTMLDivElement): void {
   renderMappingGrid();
   renderResult();
   renderTimeSelector();
+  renderCsvLoadDialog();
   updateDependentUI();
   renderReadiness();
+  updateModalScrollLock();
   setStatus("Pripravené", "idle");
 
   function focusActiveDropdownSearch(): void {

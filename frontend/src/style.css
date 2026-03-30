@@ -15,6 +15,12 @@ body,
   min-height: 100%;
 }
 
+html.scroll-locked,
+body.scroll-locked {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   background: #f0f1f3;
   color: #1a1d21;
