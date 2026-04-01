@@ -14,7 +14,8 @@ func TestExcludeRowsByTimeWindows_RemovesRowsInsideConfiguredInterval(t *testing
 	}
 
 	out, removed, err := excludeRowsByTimeWindows(data, []TimeWindow{
-		{Start: "2024-05-01T11:00:00", End: "2024-05-01T11:30:00"},
+		// 1714561200 is 2024-05-01 11:00:00 UTC, which is 13:00 in Europe/Bratislava.
+		{Start: "2024-05-01T13:00:00", End: "2024-05-01T13:30:00"},
 	})
 	if err != nil {
 		t.Fatalf("exclude rows by time windows: %v", err)
