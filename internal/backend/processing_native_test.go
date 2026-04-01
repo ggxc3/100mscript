@@ -61,6 +61,37 @@ func TestProcessDataNative_invalidLatitudeError(t *testing.T) {
 	}
 }
 
+func TestProcessDataNative_skipsRowsWithEmptyCoordinates(t *testing.T) {
+	t.Parallel()
+
+	tr, err := NewPyProjTransformer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := &CSVData{
+		Columns: []string{"latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp"},
+		Rows: [][]string{
+			{"", "", "3500", "1", "231", "01", "-100"},
+			{"48.1486", "17.1077", "3500", "2", "231", "01", "-101"},
+		},
+		FileInfo: CSVFileInfo{HeaderLine: 0},
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ColumnMapping = map[string]int{
+		"latitude": 0, "longitude": 1, "frequency": 2, "pci": 3, "mcc": 4, "mnc": 5, "rsrp": 6,
+	}
+	ds, err := ProcessDataNative(context.Background(), data, cfg, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ds.Rows) != 1 {
+		t.Fatalf("expected 1 processed row after dropping empty coordinates, got %d", len(ds.Rows))
+	}
+	if ds.Rows[0].PCI != "2" {
+		t.Fatalf("expected surviving row to be PCI 2, got %q", ds.Rows[0].PCI)
+	}
+}
+
 func TestCalculateZoneStatsNative_picksHigherRSRPFrequency(t *testing.T) {
 	t.Parallel()
 

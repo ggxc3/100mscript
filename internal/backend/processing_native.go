@@ -113,11 +113,16 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		if !ok {
 			continue // mirror Python: drop rows with missing RSRP
 		}
-		lat, ok := parseNumberString(cellAt(rowCopy, latIdx))
+		rawLat := strings.TrimSpace(cellAt(rowCopy, latIdx))
+		rawLon := strings.TrimSpace(cellAt(rowCopy, lonIdx))
+		if rawLat == "" || rawLon == "" {
+			continue // rows without coordinates are not spatially relevant
+		}
+		lat, ok := parseNumberString(rawLat)
 		if !ok {
 			return nil, fmt.Errorf("invalid latitude at row %d", originalExcelRow)
 		}
-		lon, ok := parseNumberString(cellAt(rowCopy, lonIdx))
+		lon, ok := parseNumberString(rawLon)
 		if !ok {
 			return nil, fmt.Errorf("invalid longitude at row %d", originalExcelRow)
 		}
