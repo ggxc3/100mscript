@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 func LoadTimeSelectorData(paths []string) (TimeSelectorData, error) {
@@ -133,4 +134,78 @@ func buildTimeSelectorSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) 
 		return dateTimeSeries, "date_time_with_utc_fallback"
 	}
 	return dateTimeSeries, dateTimeStrategy
+}
+
+func excludeRowsByTimeWindows(data *CSVData, windows []TimeWindow) (*CSVData, int, error) {
+	if data == nil {
+		return nil, 0, fmt.Errorf("nil CSVData")
+	}
+	intervals, err := parseConfiguredTimeWindows(windows)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(intervals) == 0 {
+		return data.clone(), 0, nil
+	}
+
+	series, strategy := timeSeriesForSorting(data)
+	if strategy == "missing" {
+		return nil, 0, fmt.Errorf("v súbore sa nenašli použiteľné časové údaje (UTC alebo Date + Time)")
+	}
+
+	out := &CSVData{
+		Columns:        append([]string(nil), data.Columns...),
+		Rows:           make([][]string, 0, len(data.Rows)),
+		FileInfo:       data.FileInfo,
+		InputRadioTech: data.InputRadioTech,
+	}
+	removed := 0
+
+	for i, row := range data.Rows {
+		if i < len(series.Valid) && series.Valid[i] && timeInAnyWindow(series.Values[i], intervals) {
+			removed++
+			continue
+		}
+		out.Rows = append(out.Rows, append([]string(nil), row...))
+	}
+
+	return out, removed, nil
+}
+
+type parsedTimeWindow struct {
+	startMS int64
+	endMS   int64
+}
+
+func parseConfiguredTimeWindows(windows []TimeWindow) ([]parsedTimeWindow, error) {
+	parsed := make([]parsedTimeWindow, 0, len(windows))
+	for _, window := range windows {
+		start := strings.TrimSpace(window.Start)
+		end := strings.TrimSpace(window.End)
+		if start == "" || end == "" {
+			continue
+		}
+		startMS, ok := parseDateTimeToMillis(start)
+		if !ok {
+			return nil, fmt.Errorf("neplatný začiatok časového úseku: %q", start)
+		}
+		endMS, ok := parseDateTimeToMillis(end)
+		if !ok {
+			return nil, fmt.Errorf("neplatný koniec časového úseku: %q", end)
+		}
+		if endMS < startMS {
+			return nil, fmt.Errorf("koniec časového úseku musí byť po začiatku")
+		}
+		parsed = append(parsed, parsedTimeWindow{startMS: startMS, endMS: endMS})
+	}
+	return parsed, nil
+}
+
+func timeInAnyWindow(timestampMS int64, windows []parsedTimeWindow) bool {
+	for _, window := range windows {
+		if timestampMS >= window.startMS && timestampMS <= window.endMS {
+			return true
+		}
+	}
+	return false
 }

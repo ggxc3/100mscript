@@ -34,6 +34,12 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("original excel row: %w", err)
 	}
+	if len(cfg.TimeWindows) > 0 {
+		data, _, err = excludeRowsByTimeWindows(data, cfg.TimeWindows)
+		if err != nil {
+			return ProcessingResult{}, fmt.Errorf("exclude time windows: %w", err)
+		}
+	}
 	if len(cfg.ExcludedOriginalRows) > 0 {
 		data, _, err = excludeRowsByOriginalExcelRow(data, cfg.ExcludedOriginalRows)
 		if err != nil {

@@ -18,10 +18,6 @@ export function LoadCSVPreview(arg1) {
   return window['go']['main']['App']['LoadCSVPreview'](arg1);
 }
 
-export function LoadTimeSelectorData(arg1) {
-  return window['go']['main']['App']['LoadTimeSelectorData'](arg1);
-}
-
 export function OpenContainingFolder(arg1) {
   return window['go']['main']['App']['OpenContainingFolder'](arg1);
 }
@@ -52,4 +48,8 @@ export function PickOutputCSVFile(arg1, arg2, arg3) {
 
 export function RunProcessingWithConfig(arg1) {
   return window['go']['main']['App']['RunProcessingWithConfig'](arg1);
+}
+
+export function StartLoadCSVPreview(arg1, arg2) {
+  return window['go']['main']['App']['StartLoadCSVPreview'](arg1, arg2);
 }

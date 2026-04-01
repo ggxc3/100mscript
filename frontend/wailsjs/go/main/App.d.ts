@@ -11,8 +11,6 @@ export function GetAppInfo():Promise<main.AppInfo>;
 
 export function LoadCSVPreview(arg1:Array<string>):Promise<main.CSVPreview>;
 
-export function LoadTimeSelectorData(arg1:Array<string>):Promise<backend.TimeSelectorData>;
-
 export function OpenContainingFolder(arg1:string):Promise<void>;
 
 export function PickFilterFiles():Promise<Array<string>>;
@@ -28,3 +26,5 @@ export function PickMobileLTECSVPaths():Promise<Array<string>>;
 export function PickOutputCSVFile(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RunProcessingWithConfig(arg1:backend.ProcessingConfig):Promise<backend.ProcessingResult>;
+
+export function StartLoadCSVPreview(arg1:number,arg2:Array<string>):Promise<void>;

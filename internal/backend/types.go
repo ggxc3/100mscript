@@ -6,12 +6,18 @@ type CustomOperator struct {
 	PCI string `json:"pci"`
 }
 
+type TimeWindow struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
 type ProcessingConfig struct {
 	FilePath              string           `json:"file_path"`
 	InputFilePaths        []string         `json:"input_file_paths,omitempty"`
 	ColumnMapping         map[string]int   `json:"column_mapping"`
 	KeepOriginalRows      bool             `json:"keep_original_rows"`
 	ExcludedOriginalRows  []int            `json:"excluded_original_rows"`
+	TimeWindows           []TimeWindow     `json:"time_windows,omitempty"`
 	ZoneMode              string           `json:"zone_mode"` // center | original | segments
 	ZoneSizeM             float64          `json:"zone_size_m"`
 	RSRPThreshold         float64          `json:"rsrp_threshold"`

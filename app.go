@@ -21,6 +21,14 @@ type App struct {
 	rootPath string
 }
 
+const csvPreviewLoadedEvent = "csv-preview:loaded"
+
+type CSVPreviewLoadResult struct {
+	RequestID int         `json:"requestId"`
+	Preview   *CSVPreview `json:"preview,omitempty"`
+	Error     string      `json:"error,omitempty"`
+}
+
 func NewApp() *App {
 	return &App{}
 }
@@ -159,7 +167,7 @@ type CSVPreview struct {
 	InputRadioTech string `json:"inputRadioTech"`
 }
 
-func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
+func (a *App) loadCSVPreview(paths []string) (CSVPreview, error) {
 	paths = backendpkg.NormalizeInputPaths(paths)
 	if len(paths) == 0 {
 		return CSVPreview{}, fmt.Errorf("zadaj aspoň jednu cestu k CSV súboru")
@@ -186,8 +194,27 @@ func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
 	}, nil
 }
 
-func (a *App) LoadTimeSelectorData(paths []string) (backendpkg.TimeSelectorData, error) {
-	return backendpkg.LoadTimeSelectorData(paths)
+func (a *App) LoadCSVPreview(paths []string) (CSVPreview, error) {
+	return a.loadCSVPreview(paths)
+}
+
+func (a *App) StartLoadCSVPreview(requestID int, paths []string) error {
+	if a.ctx == nil {
+		return fmt.Errorf("aplikacia nie je inicializovana")
+	}
+	normalizedPaths := append([]string(nil), paths...)
+	ctx := a.ctx
+	go func() {
+		payload := CSVPreviewLoadResult{RequestID: requestID}
+		preview, err := a.loadCSVPreview(normalizedPaths)
+		if err != nil {
+			payload.Error = err.Error()
+		} else {
+			payload.Preview = &preview
+		}
+		wailsruntime.EventsEmit(ctx, csvPreviewLoadedEvent, payload)
+	}()
+	return nil
 }
 
 func (a *App) PickInputCSVPaths() ([]string, error) {
