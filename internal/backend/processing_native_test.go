@@ -124,6 +124,77 @@ func TestCalculateZoneStatsNative_picksHigherRSRPFrequency(t *testing.T) {
 	}
 }
 
+func TestCalculateZoneStatsNative_prefersFirstCandidateMeetingRSRPAndSINRThresholds(t *testing.T) {
+	t.Parallel()
+
+	tr, err := NewPyProjTransformer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zk := "1000_2000"
+	ds := &ProcessedDataset{
+		Rows: []ProcessedRow{
+			{ZonaKey: zk, OperatorKey: "231_01", MCC: "231", MNC: "01", PCI: "10", Frequency: "3500", RSRP: -80, SINR: -10, HasSINR: true, ZonaX: 1000, ZonaY: 2000},
+			{ZonaKey: zk, OperatorKey: "231_01", MCC: "231", MNC: "01", PCI: "20", Frequency: "3600", RSRP: -90, SINR: 5, HasSINR: true, ZonaX: 1000, ZonaY: 2000},
+		},
+		Columns: []string{"x"},
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ZoneMode = "center"
+	cfg.ZoneSizeM = 100
+	cfg.RSRPThreshold = -100
+	cfg.SINRThreshold = 0
+
+	stats, err := CalculateZoneStatsNative(context.Background(), ds, cfg, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat, got %d", len(stats))
+	}
+	if stats[0].NajcastejsiaFrekvencia != "3600" || stats[0].PCI != "20" {
+		t.Fatalf("expected threshold-qualified candidate 3600/20, got %q/%q", stats[0].NajcastejsiaFrekvencia, stats[0].PCI)
+	}
+	if stats[0].RSRPKategoria != "RSRP_GOOD" {
+		t.Fatalf("expected selected candidate to be GOOD, got %q", stats[0].RSRPKategoria)
+	}
+}
+
+func TestCalculateZoneStatsNative_fallsBackToHighestRSRPWhenNoCandidateMeetsBothThresholds(t *testing.T) {
+	t.Parallel()
+
+	tr, err := NewPyProjTransformer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zk := "1000_2000"
+	ds := &ProcessedDataset{
+		Rows: []ProcessedRow{
+			{ZonaKey: zk, OperatorKey: "231_01", MCC: "231", MNC: "01", PCI: "10", Frequency: "3500", RSRP: -80, SINR: -10, HasSINR: true, ZonaX: 1000, ZonaY: 2000},
+			{ZonaKey: zk, OperatorKey: "231_01", MCC: "231", MNC: "01", PCI: "20", Frequency: "3600", RSRP: -90, SINR: -20, HasSINR: true, ZonaX: 1000, ZonaY: 2000},
+		},
+		Columns: []string{"x"},
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ZoneMode = "center"
+	cfg.ZoneSizeM = 100
+	cfg.RSRPThreshold = -100
+	cfg.SINRThreshold = 0
+
+	stats, err := CalculateZoneStatsNative(context.Background(), ds, cfg, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat, got %d", len(stats))
+	}
+	if stats[0].NajcastejsiaFrekvencia != "3500" || stats[0].PCI != "10" {
+		t.Fatalf("expected fallback highest-RSRP candidate 3500/10, got %q/%q", stats[0].NajcastejsiaFrekvencia, stats[0].PCI)
+	}
+}
+
 func TestProcessDataNative_nilData(t *testing.T) {
 	t.Parallel()
 

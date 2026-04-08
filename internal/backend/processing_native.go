@@ -390,7 +390,15 @@ func CalculateZoneStatsNative(
 		MCC         string
 		MNC         string
 	}
-	chosen := map[chosenKey]zoneFreqStat{}
+	type chosenSelection struct {
+		Fallback     zoneFreqStat
+		Selected     zoneFreqStat
+		HasQualified bool
+	}
+	meetsThresholds := func(z zoneFreqStat) bool {
+		return z.RSRPAvg >= cfg.RSRPThreshold && z.HasSINR && z.SINRAvg >= cfg.SINRThreshold
+	}
+	chosen := map[chosenKey]chosenSelection{}
 	chosenOrder := make([]chosenKey, 0, len(zoneFreqStats))
 	nZf := len(zoneFreqStats)
 	for zi, z := range zoneFreqStats {
@@ -403,11 +411,19 @@ func CalculateZoneStatsNative(
 			MCC:         z.Key.MCC,
 			MNC:         z.Key.MNC,
 		}
-		if _, exists := chosen[key]; exists {
-			continue
+		selection, exists := chosen[key]
+		if !exists {
+			selection = chosenSelection{
+				Fallback: z,
+				Selected: z,
+			}
+			chosenOrder = append(chosenOrder, key)
 		}
-		chosen[key] = z
-		chosenOrder = append(chosenOrder, key)
+		if !selection.HasQualified && meetsThresholds(z) {
+			selection.Selected = z
+			selection.HasQualified = true
+		}
+		chosen[key] = selection
 	}
 
 	points := make([]Point, 0, len(chosenOrder))
@@ -415,7 +431,7 @@ func CalculateZoneStatsNative(
 	nChosen := len(chosenOrder)
 	for pi, key := range chosenOrder {
 		maybeEmitProgressInRange(ctx, "zone_stats", pi, nChosen, 38, 52)
-		z := chosen[key]
+		z := chosen[key].Selected
 		var center Point
 		if cfg.ZoneMode == "segments" {
 			center = Point{A: z.Key.ZonaX, B: z.Key.ZonaY}
@@ -435,7 +451,7 @@ func CalculateZoneStatsNative(
 	stats := make([]ZoneStat, 0, len(chosenOrder))
 	for i, key := range chosenOrder {
 		maybeEmitProgressInRange(ctx, "zone_stats", i, nChosen, 72, 99)
-		z := chosen[key]
+		z := chosen[key].Selected
 		stat := ZoneStat{
 			ZonaKey:                z.Key.ZonaKey,
 			OperatorKey:            z.Key.OperatorKey,
