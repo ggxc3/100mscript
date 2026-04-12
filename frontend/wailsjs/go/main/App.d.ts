@@ -5,11 +5,19 @@ import {backend} from '../models';
 
 export function DefaultOutputPaths(arg1:string,arg2:boolean,arg3:string):Promise<main.DefaultOutputPathsResult>;
 
+export function DeletePreset(arg1:string):Promise<void>;
+
 export function DiscoverAutoFilterPaths():Promise<Array<string>>;
 
 export function GetAppInfo():Promise<main.AppInfo>;
 
 export function LoadCSVPreview(arg1:Array<string>):Promise<main.CSVPreview>;
+
+export function SavePreset(arg1:any):Promise<main.ProcessingPreset>;
+
+export function LoadPreset(arg1:string):Promise<main.ProcessingPreset>;
+
+export function ListPresets():Promise<Array<main.ProcessingPreset>>;
 
 export function OpenContainingFolder(arg1:string):Promise<void>;
 

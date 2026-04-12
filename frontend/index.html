@@ -7,6 +7,127 @@
 </head>
 <body>
 <div id="app"></div>
+<script>
+  // Browser fallback for local UI testing (outside Wails runtime).
+  (function () {
+    if (window.go && window.runtime) {
+      return;
+    }
+
+    const listeners = new Map();
+    const on = (eventName, cb) => {
+      if (!listeners.has(eventName)) {
+        listeners.set(eventName, []);
+      }
+      listeners.get(eventName).push(cb);
+      return function off() {
+        const arr = listeners.get(eventName) || [];
+        const idx = arr.indexOf(cb);
+        if (idx >= 0) {
+          arr.splice(idx, 1);
+        }
+      };
+    };
+    const emit = (eventName, ...args) => {
+      const arr = listeners.get(eventName) || [];
+      arr.forEach((cb) => cb(...args));
+    };
+
+    const nowIso = () => new Date().toISOString();
+    const presetStore = [];
+
+    const appApi = {
+      DefaultOutputPaths: async (filePath) => ({
+        zones: `${filePath || "output"}_zones.csv`,
+        stats: `${filePath || "output"}_stats.csv`,
+      }),
+      DeletePreset: async (id) => {
+        const idx = presetStore.findIndex((p) => p.id === id);
+        if (idx >= 0) {
+          presetStore.splice(idx, 1);
+        }
+      },
+      DiscoverAutoFilterPaths: async () => [],
+      GetAppInfo: async () => ({ productName: "100mscript", version: "mock" }),
+      ListPresets: async () => [...presetStore],
+      LoadCSVPreview: async () => ({
+        filePaths: ["/mock/input.csv"],
+        filePath: "/mock/input.csv",
+        columns: ["Latitude", "Longitude", "Frequency", "PCI", "MCC", "MNC", "RSRP", "SINR"],
+        encoding: "utf-8",
+        headerLine: 0,
+        originalHeader: "",
+        suggestedMapping: { latitude: 0, longitude: 1, frequency: 2, pci: 3, mcc: 4, mnc: 5, rsrp: 6, sinr: 7 },
+        inputRadioTech: "5g",
+      }),
+      LoadPreset: async (id) => {
+        const found = presetStore.find((p) => p.id === id);
+        if (!found) throw new Error("Preset not found");
+        return found;
+      },
+      OpenContainingFolder: async () => {},
+      PickFilterFiles: async () => [],
+      PickInputCSVFile: async () => "/mock/input.csv",
+      PickInputCSVPaths: async () => ["/mock/input.csv"],
+      PickMobileLTECSVFile: async () => "/mock/lte.csv",
+      PickMobileLTECSVPaths: async () => ["/mock/lte.csv"],
+      PickOutputCSVFile: async (_title, _dir, filename) => `/mock/${filename || "output.csv"}`,
+      RunProcessingWithConfig: async () => ({
+        zones_file: "/mock/output_zones.csv",
+        stats_file: "/mock/output_stats.csv",
+        include_empty_zones: false,
+        unique_zones: 10,
+        unique_operators: 3,
+        total_zone_rows: 100,
+      }),
+      SavePreset: async (payload) => {
+        const id = payload.id || `preset-${Date.now()}`;
+        const existingIdx = presetStore.findIndex((p) => p.id === id);
+        const createdAt = existingIdx >= 0 ? presetStore[existingIdx].createdAt : nowIso();
+        const next = {
+          schemaVersion: 1,
+          id,
+          name: payload.name,
+          inputRadioTech: payload.inputRadioTech || "unknown",
+          createdAt,
+          updatedAt: nowIso(),
+          config: payload.config,
+          uiState: payload.uiState,
+        };
+        if (existingIdx >= 0) {
+          presetStore[existingIdx] = next;
+        } else {
+          presetStore.unshift(next);
+        }
+        return next;
+      },
+      StartLoadCSVPreview: async (requestId, _paths) => {
+        emit("csv-preview:loaded", {
+          requestId,
+          preview: await appApi.LoadCSVPreview(),
+        });
+      },
+    };
+
+    window.go = { main: { App: appApi } };
+    window.runtime = {
+      EventsOnMultiple: (eventName, callback) => on(eventName, callback),
+      EventsOn: (eventName, callback) => on(eventName, callback),
+      EventsOff: () => {},
+      EventsOffAll: () => listeners.clear(),
+      EventsEmit: emit,
+      ClipboardSetText: async () => {},
+      ClipboardGetText: async () => "",
+      LogPrint: () => {},
+      LogTrace: () => {},
+      LogDebug: () => {},
+      LogInfo: () => {},
+      LogWarning: () => {},
+      LogError: () => {},
+      LogFatal: () => {},
+    };
+  })();
+</script>
 <script src="./src/main.ts" type="module"></script>
 </body>
 </html>
