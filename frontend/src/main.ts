@@ -3,8 +3,11 @@ import "./app.css";
 
 import {
   DefaultOutputPaths,
+  DeletePreset,
   DiscoverAutoFilterPaths,
   GetAppInfo,
+  ListPresets,
+  LoadPreset,
   OpenContainingFolder,
   PickFilterFiles,
   PickInputCSVFile,
@@ -13,6 +16,7 @@ import {
   PickMobileLTECSVPaths,
   PickOutputCSVFile,
   RunProcessingWithConfig,
+  SavePreset,
   StartLoadCSVPreview,
 } from "../wailsjs/go/main/App";
 import { backend, main } from "../wailsjs/go/models";
@@ -82,6 +86,29 @@ type CSVPreviewLoadEvent = {
   requestId?: number;
   preview?: main.CSVPreview;
   error?: string;
+};
+
+type PresetUIState = {
+  input_csv_paths: string[];
+  mobile_lte_paths: string[];
+  custom_filter_paths: string[];
+  use_auto_filters: boolean;
+  use_additional_filters: boolean;
+  enable_time_selector: boolean;
+  custom_operators_text: string;
+  column_mapping: Record<string, number>;
+  time_windows: Array<{ start: string; end: string }>;
+};
+
+type ProcessingPreset = {
+  schemaVersion: number;
+  id: string;
+  name: string;
+  inputRadioTech: string;
+  createdAt: string;
+  updatedAt: string;
+  config: backend.ProcessingConfig;
+  uiState: PresetUIState;
 };
 
 const PROCESSING_PHASE_LABELS: Record<string, string> = {
@@ -249,6 +276,7 @@ function mountMainView(root: HTMLDivElement): void {
           <p class="lede">Spracovanie CSV meraní do zón a štatistík. Mapovanie stĺpcov a voliteľné časové výnimky.</p>
         </div>
         <div class="topbar-aside">
+          <button id="presetsBtn" type="button" class="btn btn-toolbar">Presety</button>
           <button id="aboutBtn" type="button" class="btn btn-toolbar">O aplikácii</button>
           <div class="status-stack">
             <div id="statusChip" class="status-chip idle">PRIPRAVENÉ</div>
@@ -523,6 +551,22 @@ function mountMainView(root: HTMLDivElement): void {
         </div>
       </div>
 
+      <div id="presetOverlay" class="preset-overlay" hidden>
+        <aside class="preset-drawer" role="dialog" aria-modal="true" aria-labelledby="presetTitle">
+          <div class="preset-head">
+            <h3 id="presetTitle" class="modal-title">Presety</h3>
+            <button id="presetCloseBtn" type="button" class="btn ghost small-btn">Zavrieť</button>
+          </div>
+          <p class="muted">Ulož aktuálne nastavenia alebo načítaj uložený preset.</p>
+          <div class="preset-save-row">
+            <input id="presetNameInput" type="text" placeholder="Názov presetu" />
+            <button id="presetSaveBtn" type="button" class="btn primary">Uložiť</button>
+          </div>
+          <div id="presetStatus" class="csv-preview-inline" hidden></div>
+          <div id="presetList" class="preset-list" aria-live="polite"></div>
+        </aside>
+      </div>
+
       <div id="logOverlay" class="modal-overlay" hidden>
         <div
           class="modal-dialog modal-dialog--log"
@@ -598,6 +642,13 @@ function mountMainView(root: HTMLDivElement): void {
   const pickOutputZonesBtn = qs<HTMLButtonElement>("#pickOutputZonesBtn");
   const pickOutputStatsBtn = qs<HTMLButtonElement>("#pickOutputStatsBtn");
   const readinessPanel = qs<HTMLDivElement>("#readinessPanel");
+  const presetsBtn = qs<HTMLButtonElement>("#presetsBtn");
+  const presetOverlay = qs<HTMLDivElement>("#presetOverlay");
+  const presetCloseBtn = qs<HTMLButtonElement>("#presetCloseBtn");
+  const presetSaveBtn = qs<HTMLButtonElement>("#presetSaveBtn");
+  const presetNameInput = qs<HTMLInputElement>("#presetNameInput");
+  const presetList = qs<HTMLDivElement>("#presetList");
+  const presetStatus = qs<HTMLDivElement>("#presetStatus");
   const aboutBtn = qs<HTMLButtonElement>("#aboutBtn");
   const aboutOverlay = qs<HTMLDivElement>("#aboutOverlay");
   const aboutBody = qs<HTMLParagraphElement>("#aboutBody");
@@ -608,6 +659,8 @@ function mountMainView(root: HTMLDivElement): void {
   const logOverlay = qs<HTMLDivElement>("#logOverlay");
   const logCloseBtn = qs<HTMLButtonElement>("#logCloseBtn");
 
+  let presetsCache: ProcessingPreset[] = [];
+  let activePresetId: string | null = null;
   let previewAutoloadTimer: ReturnType<typeof setTimeout> | null = null;
   let runElapsedTimer: ReturnType<typeof setInterval> | null = null;
   let pendingLoaderExitId: string | null = null;
@@ -618,7 +671,7 @@ function mountMainView(root: HTMLDivElement): void {
   const phaseProgressPercent: Record<string, number> = {};
 
   function updateModalScrollLock(): void {
-    const shouldLock = !aboutOverlay.hidden || !logOverlay.hidden;
+    const shouldLock = !aboutOverlay.hidden || !logOverlay.hidden || !presetOverlay.hidden;
     document.documentElement.classList.toggle("scroll-locked", shouldLock);
     document.body.classList.toggle("scroll-locked", shouldLock);
   }
@@ -1632,6 +1685,178 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
+  function showPresetStatus(message: string, isError = false): void {
+    presetStatus.hidden = false;
+    presetStatus.textContent = message;
+    presetStatus.classList.toggle("preset-status-error", isError);
+  }
+
+  function hidePresetStatus(): void {
+    presetStatus.hidden = true;
+    presetStatus.textContent = "";
+    presetStatus.classList.remove("preset-status-error");
+  }
+
+  function parsePresetDateToLocalLabel(value: string): string {
+    if (!value) {
+      return "";
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return value;
+    }
+    return d.toLocaleString("sk-SK", { hour12: false });
+  }
+
+  function renderPresetList(): void {
+    if (presetsCache.length === 0) {
+      presetList.innerHTML = '<p class="muted">Zatiaľ nie je uložený žiadny preset.</p>';
+      return;
+    }
+    presetList.innerHTML = presetsCache
+      .map(
+        (preset) => `
+        <article class="preset-item ${activePresetId === preset.id ? "is-active" : ""}">
+          <div class="preset-item__title">${escapeHtml(preset.name)}</div>
+          <div class="preset-item__meta">Typ vstupu: ${escapeHtml(inputRadioTechUiLabel(preset.inputRadioTech))}</div>
+          <div class="preset-item__meta">Upravené: ${escapeHtml(parsePresetDateToLocalLabel(preset.updatedAt))}</div>
+          <div class="preset-item__actions">
+            <button type="button" class="btn secondary small-btn" data-preset-action="apply" data-preset-id="${escapeHtml(preset.id)}">Načítať</button>
+            <button type="button" class="btn danger small-btn" data-preset-action="delete" data-preset-id="${escapeHtml(preset.id)}">Zmazať</button>
+          </div>
+        </article>`
+      )
+      .join("");
+  }
+
+  async function reloadPresets(): Promise<void> {
+    presetsCache = ((await ListPresets()) as ProcessingPreset[]) ?? [];
+    renderPresetList();
+  }
+
+  function toDraftFromTimeWindow(index: number, tw: { start: string; end: string }): TimeWindowDraft {
+    const start = tw.start || "";
+    const end = tw.end || "";
+    const [startDateInput = "", startTimeRaw = ""] = start.split("T");
+    const [endDateInput = "", endTimeRaw = ""] = end.split("T");
+    const startTimeInput = normalizeTimeInput(startTimeRaw || "").slice(0, 8);
+    const endTimeInput = normalizeTimeInput(endTimeRaw || "").slice(0, 8);
+    return {
+      id: `preset-window-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      startDateInput,
+      startTimeInput,
+      endDateInput,
+      endTimeInput,
+      startTimestampMS: resolveDraftTimestamp(startDateInput, startTimeInput),
+      endTimestampMS: resolveDraftTimestamp(endDateInput, endTimeInput),
+      applied: true,
+      excludedRows: 0,
+    };
+  }
+
+  function applyPresetToUI(preset: ProcessingPreset): void {
+    const ui = preset.uiState || ({} as PresetUIState);
+    const cfg = preset.config || ({} as backend.ProcessingConfig);
+
+    state.inputCsvPaths = dedupePaths((ui.input_csv_paths && ui.input_csv_paths.length > 0 ? ui.input_csv_paths : cfg.input_file_paths || (cfg.file_path ? [cfg.file_path] : [])).map((p) => (p || "").trim()).filter((p) => p.length > 0));
+    state.mobileLtePaths = dedupePaths((ui.mobile_lte_paths && ui.mobile_lte_paths.length > 0 ? ui.mobile_lte_paths : cfg.mobile_lte_file_paths || (cfg.mobile_lte_file_path ? [cfg.mobile_lte_file_path] : [])).map((p) => (p || "").trim()).filter((p) => p.length > 0));
+    state.customFilterPaths = dedupePaths((ui.custom_filter_paths || []).map((p) => (p || "").trim()).filter((p) => p.length > 0));
+
+    mobileModeCheckbox.checked = !!cfg.mobile_mode_enabled;
+    useAutoFiltersCheckbox.checked = typeof ui.use_auto_filters === "boolean" ? ui.use_auto_filters : cfg.filter_paths === undefined;
+    useAdditionalFiltersCheckbox.checked = typeof ui.use_additional_filters === "boolean" ? ui.use_additional_filters : state.customFilterPaths.length > 0;
+    enableTimeSelectorCheckbox.checked = typeof ui.enable_time_selector === "boolean" ? ui.enable_time_selector : (cfg.time_windows?.length ?? 0) > 0;
+
+    zoneModeSelect.value = cfg.zone_mode || "segments";
+    zoneSizeInput.value = String(cfg.zone_size_m ?? 100);
+    rsrpThresholdInput.value = String(cfg.rsrp_threshold ?? -110);
+    sinrThresholdInput.value = String(cfg.sinr_threshold ?? -5);
+    keepOriginalRowsCheckbox.checked = !!cfg.keep_original_rows;
+    includeEmptyZonesCheckbox.checked = !!cfg.include_empty_zones;
+    addCustomOperatorsCheckbox.checked = !!cfg.add_custom_operators;
+    customOperatorsTextInput.value = ui.custom_operators_text || "";
+    mobileToleranceInput.value = String(cfg.mobile_time_tolerance_ms ?? 1000);
+    outputZonesPathInput.value = cfg.output_zones_file_path || "";
+    outputStatsPathInput.value = cfg.output_stats_file_path || "";
+
+    state.columnMapping = { ...(ui.column_mapping || cfg.column_mapping || {}) };
+
+    const presetTimeWindows = ui.time_windows && ui.time_windows.length > 0 ? ui.time_windows : cfg.time_windows || [];
+    state.timeWindows = presetTimeWindows.map((tw, index) => toDraftFromTimeWindow(index, tw));
+
+    if (state.preview && preset.inputRadioTech && state.preview.inputRadioTech && preset.inputRadioTech !== state.preview.inputRadioTech) {
+      throw new Error(`Preset je pre vstup ${inputRadioTechUiLabel(preset.inputRadioTech)}, ale aktuálny náhľad je ${inputRadioTechUiLabel(state.preview.inputRadioTech)}.`);
+    }
+
+    renderCsvList();
+    renderMobileLteList();
+    renderFilterList();
+    renderMappingGrid();
+    recomputeTimeWindowSelection();
+    renderTimeSelector();
+    renderResult();
+    updateDependentUI();
+    renderReadiness();
+    if (state.inputCsvPaths.length > 0) {
+      scheduleAutoLoadPreview();
+    }
+  }
+
+  async function buildPresetPayload(name: string, id?: string): Promise<{ id?: string; name: string; inputRadioTech: string; config: backend.ProcessingConfig; uiState: PresetUIState }> {
+    const cfg = await buildProcessingConfig();
+    const uiState: PresetUIState = {
+      input_csv_paths: [...state.inputCsvPaths],
+      mobile_lte_paths: [...state.mobileLtePaths],
+      custom_filter_paths: [...state.customFilterPaths],
+      use_auto_filters: useAutoFiltersCheckbox.checked,
+      use_additional_filters: useAdditionalFiltersCheckbox.checked,
+      enable_time_selector: enableTimeSelectorCheckbox.checked,
+      custom_operators_text: customOperatorsTextInput.value,
+      column_mapping: { ...(state.columnMapping as Record<string, number>) },
+      time_windows: buildConfiguredTimeWindows(state.timeWindows),
+    };
+    return {
+      ...(id ? { id } : {}),
+      name,
+      inputRadioTech: state.preview?.inputRadioTech || "unknown",
+      config: cfg,
+      uiState,
+    };
+  }
+
+  async function saveCurrentPreset(): Promise<void> {
+    const name = presetNameInput.value.trim();
+    if (!name) {
+      showPresetStatus("Zadaj názov presetu.", true);
+      return;
+    }
+    hidePresetStatus();
+    try {
+      const payload = await buildPresetPayload(name, activePresetId ?? undefined);
+      const saved = (await SavePreset(payload)) as ProcessingPreset;
+      activePresetId = saved.id;
+      await reloadPresets();
+      showPresetStatus(`Preset '${saved.name}' bol uložený.`);
+      appendLog(`Uložený preset: ${saved.name}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      showPresetStatus(`Uloženie presetu zlyhalo: ${message}`, true);
+    }
+  }
+
+  async function openPresetDrawer(): Promise<void> {
+    presetOverlay.hidden = false;
+    updateModalScrollLock();
+    hidePresetStatus();
+    await reloadPresets();
+  }
+
+  function closePresetDrawer(): void {
+    presetOverlay.hidden = true;
+    updateModalScrollLock();
+    hidePresetStatus();
+  }
+
   async function addOneMobileLteFromPicker(): Promise<void> {
     const path = await PickMobileLTECSVFile();
     if (!path) {
@@ -1746,6 +1971,52 @@ function mountMainView(root: HTMLDivElement): void {
   });
   removeFilterBtn.addEventListener("click", removeSelectedFilters);
   clearFiltersBtn.addEventListener("click", clearFilters);
+  presetsBtn.addEventListener("click", () => {
+    void openPresetDrawer();
+  });
+  presetCloseBtn.addEventListener("click", () => {
+    closePresetDrawer();
+  });
+  presetSaveBtn.addEventListener("click", () => {
+    void saveCurrentPreset();
+  });
+  presetList.addEventListener("click", (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-preset-action]");
+    if (!btn?.dataset.presetAction || !btn.dataset.presetId) {
+      return;
+    }
+    const action = btn.dataset.presetAction;
+    const presetId = btn.dataset.presetId;
+    void (async () => {
+      try {
+        if (action === "delete") {
+          await DeletePreset(presetId);
+          if (activePresetId === presetId) {
+            activePresetId = null;
+          }
+          await reloadPresets();
+          showPresetStatus("Preset bol zmazaný.");
+          appendLog(`Zmazaný preset: ${presetId}`);
+          return;
+        }
+        const preset = (await LoadPreset(presetId)) as ProcessingPreset;
+        applyPresetToUI(preset);
+        activePresetId = preset.id;
+        presetNameInput.value = preset.name;
+        renderPresetList();
+        showPresetStatus(`Načítaný preset '${preset.name}'.`);
+        appendLog(`Načítaný preset: ${preset.name}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showPresetStatus(`Operácia s presetom zlyhala: ${message}`, true);
+      }
+    })();
+  });
+  presetOverlay.addEventListener("click", (event) => {
+    if (event.target === presetOverlay) {
+      closePresetDrawer();
+    }
+  });
   mobileModeCheckbox.addEventListener("change", updateDependentUI);
   pickOutputZonesBtn.addEventListener("click", () => {
     void pickOutputZonesPath();
@@ -1863,6 +2134,10 @@ function mountMainView(root: HTMLDivElement): void {
       updateModalScrollLock();
       return;
     }
+    if (event.key === "Escape" && !presetOverlay.hidden) {
+      closePresetDrawer();
+      return;
+    }
   });
   runBtn.addEventListener("click", () => {
     void runProcessing();
@@ -1967,6 +2242,7 @@ function mountMainView(root: HTMLDivElement): void {
   renderTimeSelector();
   updateDependentUI();
   renderReadiness();
+  renderPresetList();
   updateModalScrollLock();
   setStatus("Pripravené", "idle");
 }

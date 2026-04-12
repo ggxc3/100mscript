@@ -6,6 +6,10 @@ export function DefaultOutputPaths(arg1, arg2, arg3) {
   return window['go']['main']['App']['DefaultOutputPaths'](arg1, arg2, arg3);
 }
 
+export function DeletePreset(arg1) {
+  return window['go']['main']['App']['DeletePreset'](arg1);
+}
+
 export function DiscoverAutoFilterPaths() {
   return window['go']['main']['App']['DiscoverAutoFilterPaths']();
 }
@@ -16,6 +20,14 @@ export function GetAppInfo() {
 
 export function LoadCSVPreview(arg1) {
   return window['go']['main']['App']['LoadCSVPreview'](arg1);
+}
+
+export function ListPresets() {
+  return window['go']['main']['App']['ListPresets']();
+}
+
+export function LoadPreset(arg1) {
+  return window['go']['main']['App']['LoadPreset'](arg1);
 }
 
 export function OpenContainingFolder(arg1) {
@@ -48,6 +60,10 @@ export function PickOutputCSVFile(arg1, arg2, arg3) {
 
 export function RunProcessingWithConfig(arg1) {
   return window['go']['main']['App']['RunProcessingWithConfig'](arg1);
+}
+
+export function SavePreset(arg1) {
+  return window['go']['main']['App']['SavePreset'](arg1);
 }
 
 export function StartLoadCSVPreview(arg1, arg2) {
