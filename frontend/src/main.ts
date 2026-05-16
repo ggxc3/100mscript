@@ -9,8 +9,8 @@ import {
   PickFilterFiles,
   PickInputCSVFile,
   PickInputCSVPaths,
-  PickMobileLTECSVFile,
-  PickMobileLTECSVPaths,
+  PickMobileNSALTECSVFile,
+  PickMobileNSALTECSVPaths,
   PickOutputCSVFile,
   RunProcessingWithConfig,
   StartLoadCSVPreview,
@@ -49,8 +49,8 @@ type UIState = {
   previewLoading: boolean;
   columnMapping: Partial<Record<ColumnKey, number>>;
   inputCsvPaths: string[];
-  /** LTE CSV súbory pre Mobile režim (zlúčia sa v tom istom poradí ako pri vstupnom CSV). */
-  mobileLtePaths: string[];
+  /** NSA LTE CSV súbory pre Mobile režim (zlúčia sa v tom istom poradí ako pri vstupnom CSV). */
+  mobileNsaLtePaths: string[];
   customFilterPaths: string[];
   running: boolean;
   statusText: string;
@@ -88,7 +88,7 @@ const PROCESSING_PHASE_LABELS: Record<string, string> = {
   load_csv: "Načítanie a zlúčenie CSV",
   prepare_rows: "Príprava riadkov a časové výnimky",
   apply_filters: "Aplikácia filtrov",
-  mobile_sync: "Synchronizácia 5G / LTE",
+  mobile_sync: "Synchronizácia 5G / NSA LTE",
   compute_zones: "Výpočet zón",
   zone_stats: "Štatistiky zón",
   export_files: "Zápis výstupných súborov",
@@ -161,7 +161,7 @@ function computeReadinessItems(
   paths: string[],
   state: UIState,
   mobileEnabled: boolean,
-  mobileLtePaths: string[]
+  mobileNsaLtePaths: string[]
 ): ReadinessItem[] {
   const items: ReadinessItem[] = [];
   items.push({
@@ -193,16 +193,16 @@ function computeReadinessItems(
     ok: mapOk,
     detail: mapOk ? "Všetky povinné polia." : "Vyber stĺpec pre každé pole.",
   });
-  const lteCount = mobileLtePaths.filter((p) => p.trim().length > 0).length;
-  const mobileOk = !mobileEnabled || lteCount > 0;
+  const nsaLteCount = mobileNsaLtePaths.filter((p) => p.trim().length > 0).length;
+  const mobileOk = !mobileEnabled || nsaLteCount > 0;
   items.push({
     id: "mobile",
     label: "Mobile režim",
     ok: mobileOk,
     detail: mobileEnabled
       ? mobileOk
-        ? `LTE: ${lteCount} ${lteCount === 1 ? "súbor" : "súbory"} v zozname.`
-        : "Pridaj aspoň jeden LTE CSV."
+        ? `NSA LTE: ${nsaLteCount} ${nsaLteCount === 1 ? "súbor" : "súbory"} v zozname.`
+        : "Pridaj aspoň jeden NSA LTE CSV."
       : "Vypnutý.",
   });
   return items;
@@ -228,7 +228,7 @@ function mountMainView(root: HTMLDivElement): void {
     previewLoading: false,
     columnMapping: {},
     inputCsvPaths: [],
-    mobileLtePaths: [],
+    mobileNsaLtePaths: [],
     customFilterPaths: [],
     running: false,
     statusText: "Pripravené",
@@ -289,11 +289,11 @@ function mountMainView(root: HTMLDivElement): void {
 
             <label class="check-row">
               <input id="mobileMode" type="checkbox" />
-              <span>Mobile režim (synchronizácia 5G NR cez LTE súbor)</span>
+              <span>Mobile režim (synchronizácia 5G NR cez NSA LTE súbor)</span>
             </label>
 
-            <div id="mobileLteInputWarning" class="mobile-mode-input-warning" role="status" aria-live="polite" hidden>
-              Zapol si Mobile režim (dopĺňanie 5G NR z LTE súboru), ale vstupné CSV sú rozpoznané ako
+            <div id="mobileNsaLteInputWarning" class="mobile-mode-input-warning" role="status" aria-live="polite" hidden>
+              Zapol si Mobile režim (dopĺňanie 5G NR z NSA LTE súboru), ale vstupné CSV sú rozpoznané ako
               <strong>LTE</strong>, nie 5G (NR). Skontroluj, či je to zámer; hlavný merací súbor má mať
               typicky stĺpce pre 5G (napr. NR-ARFCN).
             </div>
@@ -303,18 +303,18 @@ function mountMainView(root: HTMLDivElement): void {
                 <div id="mobileFields" class="stack">
                   <div class="filters-panel">
                     <div class="filters-head">
-                      <strong>LTE CSV súbory (iba pre Mobile režim)</strong>
+                      <strong>NSA LTE CSV súbory (iba pre Mobile režim)</strong>
                     </div>
                     <p class="section-note csv-input-note">
                       Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí) ako pri vstupnom CSV. Po zlúčení sa riadky zoradia podľa času (UTC alebo Date+Time).
                     </p>
                     <div class="inline-actions">
-                      <button id="addMobileLteBtn" class="btn secondary" type="button">Pridať súbor</button>
-                      <button id="addMobileLteMultiBtn" class="btn secondary" type="button">Pridať viac naraz</button>
-                      <button id="removeMobileLteBtn" class="btn danger" type="button">Odstrániť vybrané</button>
-                      <button id="clearMobileLteBtn" class="btn ghost" type="button">Vyčistiť</button>
+                      <button id="addMobileNsaLteBtn" class="btn secondary" type="button">Pridať súbor</button>
+                      <button id="addMobileNsaLteMultiBtn" class="btn secondary" type="button">Pridať viac naraz</button>
+                      <button id="removeMobileNsaLteBtn" class="btn danger" type="button">Odstrániť vybrané</button>
+                      <button id="clearMobileNsaLteBtn" class="btn ghost" type="button">Vyčistiť</button>
                     </div>
-                    <select id="mobileLteList" class="listbox" multiple size="5"></select>
+                    <select id="mobileNsaLteList" class="listbox" multiple size="5"></select>
                   </div>
 
                   <label class="field">
@@ -551,14 +551,14 @@ function mountMainView(root: HTMLDivElement): void {
   const loadPreviewBtn = qs<HTMLButtonElement>("#loadPreviewBtn");
   const csvPreviewStatus = qs<HTMLParagraphElement>("#csvPreviewStatus");
   const mobileModeCheckbox = qs<HTMLInputElement>("#mobileMode");
-  const mobileLteInputWarning = qs<HTMLDivElement>("#mobileLteInputWarning");
+  const mobileNsaLteInputWarning = qs<HTMLDivElement>("#mobileNsaLteInputWarning");
   const mobileFieldsWrap = qs<HTMLDivElement>("#mobileFieldsWrap");
   const mobileFields = qs<HTMLDivElement>("#mobileFields");
-  const mobileLteList = qs<HTMLSelectElement>("#mobileLteList");
-  const addMobileLteBtn = qs<HTMLButtonElement>("#addMobileLteBtn");
-  const addMobileLteMultiBtn = qs<HTMLButtonElement>("#addMobileLteMultiBtn");
-  const removeMobileLteBtn = qs<HTMLButtonElement>("#removeMobileLteBtn");
-  const clearMobileLteBtn = qs<HTMLButtonElement>("#clearMobileLteBtn");
+  const mobileNsaLteList = qs<HTMLSelectElement>("#mobileNsaLteList");
+  const addMobileNsaLteBtn = qs<HTMLButtonElement>("#addMobileNsaLteBtn");
+  const addMobileNsaLteMultiBtn = qs<HTMLButtonElement>("#addMobileNsaLteMultiBtn");
+  const removeMobileNsaLteBtn = qs<HTMLButtonElement>("#removeMobileNsaLteBtn");
+  const clearMobileNsaLteBtn = qs<HTMLButtonElement>("#clearMobileNsaLteBtn");
   const mobileToleranceInput = qs<HTMLInputElement>("#mobileTolerance");
   const useAutoFiltersCheckbox = qs<HTMLInputElement>("#useAutoFilters");
   const useAdditionalFiltersCheckbox = qs<HTMLInputElement>("#useAdditionalFilters");
@@ -680,13 +680,13 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function allInputsReady(): boolean {
-    return computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileLtePaths).every(
+    return computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileNsaLtePaths).every(
       (item) => item.ok
     );
   }
 
   function renderReadiness(): void {
-    const items = computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileLtePaths);
+    const items = computeReadinessItems(getInputCsvPaths(), state, mobileModeCheckbox.checked, state.mobileNsaLtePaths);
     readinessPanel.innerHTML = items
       .map(
         (item) => `
@@ -931,11 +931,11 @@ function mountMainView(root: HTMLDivElement): void {
     clearCsvBtn.disabled = running;
     loadPreviewBtn.disabled = running;
     const mobileOn = mobileModeCheckbox.checked;
-    addMobileLteBtn.disabled = running || !mobileOn;
-    addMobileLteMultiBtn.disabled = running || !mobileOn;
-    removeMobileLteBtn.disabled = running || !mobileOn;
-    clearMobileLteBtn.disabled = running || !mobileOn;
-    mobileLteList.disabled = running || !mobileOn;
+    addMobileNsaLteBtn.disabled = running || !mobileOn;
+    addMobileNsaLteMultiBtn.disabled = running || !mobileOn;
+    removeMobileNsaLteBtn.disabled = running || !mobileOn;
+    clearMobileNsaLteBtn.disabled = running || !mobileOn;
+    mobileNsaLteList.disabled = running || !mobileOn;
     const additionalFiltersOn = useAdditionalFiltersCheckbox.checked;
     addFiltersBtn.disabled = running || !additionalFiltersOn;
     removeFilterBtn.disabled = running || !additionalFiltersOn;
@@ -957,7 +957,7 @@ function mountMainView(root: HTMLDivElement): void {
       csvPreviewStatus.hidden = false;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__muted">Načítavam hlavičku CSV…</span>`;
-      updateMobileLteInputWarning();
+      updateMobileNsaLteInputWarning();
       renderReadiness();
       return;
     }
@@ -965,7 +965,7 @@ function mountMainView(root: HTMLDivElement): void {
       csvPreviewStatus.hidden = false;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__err">Chyba: ${escapeHtml(state.previewError)}</span>`;
-      updateMobileLteInputWarning();
+      updateMobileNsaLteInputWarning();
       renderReadiness();
       return;
     }
@@ -973,7 +973,7 @@ function mountMainView(root: HTMLDivElement): void {
       csvPreviewStatus.hidden = true;
       csvPreviewStatus.className = "csv-preview-inline";
       csvPreviewStatus.textContent = "";
-      updateMobileLteInputWarning();
+      updateMobileNsaLteInputWarning();
       renderReadiness();
       return;
     }
@@ -981,7 +981,7 @@ function mountMainView(root: HTMLDivElement): void {
     csvPreviewStatus.className = "csv-preview-inline";
     const techLabel = inputRadioTechUiLabel(state.preview.inputRadioTech);
     csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span><span class="csv-preview-inline__muted"> · Vstup: ${escapeHtml(techLabel)}</span>`;
-    updateMobileLteInputWarning();
+    updateMobileNsaLteInputWarning();
     renderReadiness();
   }
 
@@ -1005,13 +1005,13 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
-  function renderMobileLteList(): void {
-    mobileLteList.innerHTML = "";
-    for (const path of state.mobileLtePaths) {
+  function renderMobileNsaLteList(): void {
+    mobileNsaLteList.innerHTML = "";
+    for (const path of state.mobileNsaLtePaths) {
       const opt = document.createElement("option");
       opt.value = path;
       opt.textContent = path;
-      mobileLteList.appendChild(opt);
+      mobileNsaLteList.appendChild(opt);
     }
   }
 
@@ -1370,11 +1370,11 @@ function mountMainView(root: HTMLDivElement): void {
     renderReadiness();
   }
 
-  function updateMobileLteInputWarning(): void {
+  function updateMobileNsaLteInputWarning(): void {
     const mobileOn = mobileModeCheckbox.checked;
     const tech = state.preview?.inputRadioTech;
     const isLteInput = tech === "lte";
-    mobileLteInputWarning.hidden = !(mobileOn && isLteInput);
+    mobileNsaLteInputWarning.hidden = !(mobileOn && isLteInput);
   }
 
   function updateDependentUI(): void {
@@ -1402,7 +1402,7 @@ function mountMainView(root: HTMLDivElement): void {
       customOperatorsTextInput.value = "";
     }
 
-    updateMobileLteInputWarning();
+    updateMobileNsaLteInputWarning();
     setRunning(state.running);
   }
 
@@ -1479,9 +1479,9 @@ function mountMainView(root: HTMLDivElement): void {
 
     const column_mapping = buildColumnMapping();
     const mobile_mode_enabled = mobileModeCheckbox.checked;
-    const ltePaths = dedupePaths(state.mobileLtePaths.map((p) => p.trim()).filter((p) => p.length > 0));
-    if (mobile_mode_enabled && ltePaths.length === 0) {
-      throw new Error("Pre Mobile režim pridaj aspoň jeden LTE CSV súbor.");
+    const nsaLtePaths = dedupePaths(state.mobileNsaLtePaths.map((p) => p.trim()).filter((p) => p.length > 0));
+    if (mobile_mode_enabled && nsaLtePaths.length === 0) {
+      throw new Error("Pre Mobile režim pridaj aspoň jeden NSA LTE CSV súbor.");
     }
 
     const zone_size_m = parseNumberInput(zoneSizeInput, "Veľkosť zóny/úseku");
@@ -1540,8 +1540,8 @@ function mountMainView(root: HTMLDivElement): void {
       ...(output_zones_file_path ? { output_zones_file_path } : {}),
       ...(output_stats_file_path ? { output_stats_file_path } : {}),
       mobile_mode_enabled,
-      mobile_lte_file_path: mobile_mode_enabled && ltePaths.length > 0 ? ltePaths[0] : "",
-      ...(mobile_mode_enabled && ltePaths.length > 1 ? { mobile_lte_file_paths: ltePaths } : {}),
+      mobile_nsa_lte_file_path: mobile_mode_enabled && nsaLtePaths.length > 0 ? nsaLtePaths[0] : "",
+      ...(mobile_mode_enabled && nsaLtePaths.length > 1 ? { mobile_nsa_lte_file_paths: nsaLtePaths } : {}),
       mobile_time_tolerance_ms,
       mobile_require_nr_yes: false,
       mobile_nr_column_name: "5G NR",
@@ -1632,59 +1632,59 @@ function mountMainView(root: HTMLDivElement): void {
     }
   }
 
-  async function addOneMobileLteFromPicker(): Promise<void> {
-    const path = await PickMobileLTECSVFile();
+  async function addOneMobileNsaLteFromPicker(): Promise<void> {
+    const path = await PickMobileNSALTECSVFile();
     if (!path) {
       return;
     }
-    if (state.mobileLtePaths.includes(path)) {
-      appendLog(`LTE súbor už je v zozname: ${path}`);
+    if (state.mobileNsaLtePaths.includes(path)) {
+      appendLog(`NSA LTE súbor už je v zozname: ${path}`);
       return;
     }
-    state.mobileLtePaths = [...state.mobileLtePaths, path];
-    renderMobileLteList();
-    appendLog(`Pridaný LTE CSV: ${path}`);
+    state.mobileNsaLtePaths = [...state.mobileNsaLtePaths, path];
+    renderMobileNsaLteList();
+    appendLog(`Pridaný NSA LTE CSV: ${path}`);
     renderReadiness();
   }
 
-  async function addMultipleMobileLteFromPicker(): Promise<void> {
-    const paths = (await PickMobileLTECSVPaths()) as string[];
+  async function addMultipleMobileNsaLteFromPicker(): Promise<void> {
+    const paths = (await PickMobileNSALTECSVPaths()) as string[];
     if (!paths || paths.length === 0) {
       return;
     }
     let added = 0;
     for (const p of paths) {
-      if (state.mobileLtePaths.includes(p)) {
+      if (state.mobileNsaLtePaths.includes(p)) {
         continue;
       }
-      state.mobileLtePaths = [...state.mobileLtePaths, p];
+      state.mobileNsaLtePaths = [...state.mobileNsaLtePaths, p];
       added++;
     }
-    renderMobileLteList();
+    renderMobileNsaLteList();
     const skipped = paths.length - added;
-    appendLog(`Pridané nové LTE CSV: ${added}${skipped > 0 ? ` (preskočené duplicitné: ${skipped})` : ""}`);
+    appendLog(`Pridané nové NSA LTE CSV: ${added}${skipped > 0 ? ` (preskočené duplicitné: ${skipped})` : ""}`);
     renderReadiness();
   }
 
-  function removeSelectedMobileLtePaths(): void {
-    const selected = new Set(Array.from(mobileLteList.selectedOptions).map((opt) => opt.value));
+  function removeSelectedMobileNsaLtePaths(): void {
+    const selected = new Set(Array.from(mobileNsaLteList.selectedOptions).map((opt) => opt.value));
     if (selected.size === 0) {
       return;
     }
-    state.mobileLtePaths = state.mobileLtePaths.filter((path) => !selected.has(path));
-    renderMobileLteList();
-    appendLog(`Odstránené LTE CSV (${selected.size})`);
+    state.mobileNsaLtePaths = state.mobileNsaLtePaths.filter((path) => !selected.has(path));
+    renderMobileNsaLteList();
+    appendLog(`Odstránené NSA LTE CSV (${selected.size})`);
     renderReadiness();
   }
 
-  function clearMobileLtePaths(): void {
-    if (state.mobileLtePaths.length === 0) {
+  function clearMobileNsaLtePaths(): void {
+    if (state.mobileNsaLtePaths.length === 0) {
       return;
     }
-    const count = state.mobileLtePaths.length;
-    state.mobileLtePaths = [];
-    renderMobileLteList();
-    appendLog(`Vyčistený zoznam LTE CSV (${count})`);
+    const count = state.mobileNsaLtePaths.length;
+    state.mobileNsaLtePaths = [];
+    renderMobileNsaLteList();
+    appendLog(`Vyčistený zoznam NSA LTE CSV (${count})`);
     renderReadiness();
   }
 
@@ -1729,17 +1729,17 @@ function mountMainView(root: HTMLDivElement): void {
   loadPreviewBtn.addEventListener("click", () => {
     void loadPreviewForCurrentCSV().catch(handlePreviewError);
   });
-  addMobileLteBtn.addEventListener("click", () => {
-    void addOneMobileLteFromPicker();
+  addMobileNsaLteBtn.addEventListener("click", () => {
+    void addOneMobileNsaLteFromPicker();
   });
-  addMobileLteMultiBtn.addEventListener("click", () => {
-    void addMultipleMobileLteFromPicker();
+  addMobileNsaLteMultiBtn.addEventListener("click", () => {
+    void addMultipleMobileNsaLteFromPicker();
   });
-  removeMobileLteBtn.addEventListener("click", () => {
-    removeSelectedMobileLtePaths();
+  removeMobileNsaLteBtn.addEventListener("click", () => {
+    removeSelectedMobileNsaLtePaths();
   });
-  clearMobileLteBtn.addEventListener("click", () => {
-    clearMobileLtePaths();
+  clearMobileNsaLteBtn.addEventListener("click", () => {
+    clearMobileNsaLtePaths();
   });
   addFiltersBtn.addEventListener("click", () => {
     void addFilterFiles();

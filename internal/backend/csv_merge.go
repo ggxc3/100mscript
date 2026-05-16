@@ -43,15 +43,15 @@ func InputPathsFromConfig(cfg ProcessingConfig) []string {
 	return nil
 }
 
-// MobileLTEPathsFromConfig returns LTE paths: MobileLTEFilePaths when set, otherwise a single MobileLTEFilePath.
-func MobileLTEPathsFromConfig(cfg ProcessingConfig) []string {
-	if raw := cfg.MobileLTEFilePaths; len(raw) > 0 {
+// MobileNSALTEPathsFromConfig returns NSA LTE paths: MobileNSALTEFilePaths when set, otherwise a single MobileNSALTEFilePath.
+func MobileNSALTEPathsFromConfig(cfg ProcessingConfig) []string {
+	if raw := cfg.MobileNSALTEFilePaths; len(raw) > 0 {
 		out := NormalizeInputPaths(raw)
 		if len(out) > 0 {
 			return out
 		}
 	}
-	if p := strings.TrimSpace(cfg.MobileLTEFilePath); p != "" {
+	if p := strings.TrimSpace(cfg.MobileNSALTEFilePath); p != "" {
 		return []string{p}
 	}
 	return nil

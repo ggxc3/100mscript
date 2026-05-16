@@ -49,8 +49,8 @@ export namespace backend {
 	    output_zones_file_path?: string;
 	    output_stats_file_path?: string;
 	    mobile_mode_enabled: boolean;
-	    mobile_lte_file_path?: string;
-	    mobile_lte_file_paths?: string[];
+	    mobile_nsa_lte_file_path?: string;
+	    mobile_nsa_lte_file_paths?: string[];
 	    mobile_time_tolerance_ms: number;
 	    mobile_require_nr_yes: boolean;
 	    mobile_nr_column_name: string;
@@ -80,8 +80,8 @@ export namespace backend {
 	        this.output_zones_file_path = source["output_zones_file_path"];
 	        this.output_stats_file_path = source["output_stats_file_path"];
 	        this.mobile_mode_enabled = source["mobile_mode_enabled"];
-	        this.mobile_lte_file_path = source["mobile_lte_file_path"];
-	        this.mobile_lte_file_paths = source["mobile_lte_file_paths"];
+	        this.mobile_nsa_lte_file_path = source["mobile_nsa_lte_file_path"];
+	        this.mobile_nsa_lte_file_paths = source["mobile_nsa_lte_file_paths"];
 	        this.mobile_time_tolerance_ms = source["mobile_time_tolerance_ms"];
 	        this.mobile_require_nr_yes = source["mobile_require_nr_yes"];
 	        this.mobile_nr_column_name = source["mobile_nr_column_name"];

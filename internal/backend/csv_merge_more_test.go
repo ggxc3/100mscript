@@ -48,26 +48,26 @@ func TestInputPathsFromConfig(t *testing.T) {
 	}
 }
 
-func TestMobileLTEPathsFromConfig(t *testing.T) {
+func TestMobileNSALTEPathsFromConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := ProcessingConfig{
-		MobileLTEFilePath:  "/legacy.csv",
-		MobileLTEFilePaths: []string{"  ", "/a.csv", "/b.csv"},
+		MobileNSALTEFilePath:  "/legacy.csv",
+		MobileNSALTEFilePaths: []string{"  ", "/a.csv", "/b.csv"},
 	}
-	got := MobileLTEPathsFromConfig(cfg)
+	got := MobileNSALTEPathsFromConfig(cfg)
 	want := []string{"/a.csv", "/b.csv"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("MobileLTEPathsFromConfig (with mobile_lte_file_paths): got %#v want %#v", got, want)
+		t.Fatalf("MobileNSALTEPathsFromConfig (with mobile_nsa_lte_file_paths): got %#v want %#v", got, want)
 	}
 
-	cfg2 := ProcessingConfig{MobileLTEFilePath: "/only.csv"}
-	if !reflect.DeepEqual(MobileLTEPathsFromConfig(cfg2), []string{"/only.csv"}) {
-		t.Fatalf("MobileLTEPathsFromConfig (file path only)")
+	cfg2 := ProcessingConfig{MobileNSALTEFilePath: "/only.csv"}
+	if !reflect.DeepEqual(MobileNSALTEPathsFromConfig(cfg2), []string{"/only.csv"}) {
+		t.Fatalf("MobileNSALTEPathsFromConfig (file path only)")
 	}
 
-	cfg3 := ProcessingConfig{MobileLTEFilePaths: []string{}}
-	if MobileLTEPathsFromConfig(cfg3) != nil {
+	cfg3 := ProcessingConfig{MobileNSALTEFilePaths: []string{}}
+	if MobileNSALTEPathsFromConfig(cfg3) != nil {
 		t.Fatalf("expected nil when both empty")
 	}
 }

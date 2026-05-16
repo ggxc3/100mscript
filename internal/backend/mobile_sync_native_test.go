@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestSyncMobileNRFromLTECSVNative_fillsNRFromLTE(t *testing.T) {
+func TestSyncMobileNRFromNSALTECSVNative_fillsNRFromLTE(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
@@ -39,7 +39,7 @@ func TestSyncMobileNRFromLTECSVNative_fillsNRFromLTE(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	out, st, err := syncMobileNRFromLTECSVNative(context.Background(), df5g, mapping, []string{ltePath}, "5G NR", 1000, nil, false)
+	out, st, err := syncMobileNRFromNSALTECSVNative(context.Background(), df5g, mapping, []string{ltePath}, "5G NR", 1000, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestSyncMobileNRFromLTECSVNative_fillsNRFromLTE(t *testing.T) {
 	}
 }
 
-func TestSyncMobileNRFromLTECSVNative_mergedTwoLTEFiles(t *testing.T) {
+func TestSyncMobileNRFromNSALTECSVNative_mergedTwoLTEFiles(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
@@ -91,7 +91,7 @@ func TestSyncMobileNRFromLTECSVNative_mergedTwoLTEFiles(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	out, st, err := syncMobileNRFromLTECSVNative(
+	out, st, err := syncMobileNRFromNSALTECSVNative(
 		context.Background(),
 		df5g,
 		mapping,
@@ -116,7 +116,7 @@ func TestSyncMobileNRFromLTECSVNative_mergedTwoLTEFiles(t *testing.T) {
 	}
 }
 
-func TestSyncMobileNRFromLTECSVNative_mergedIncompatibleHeaders(t *testing.T) {
+func TestSyncMobileNRFromNSALTECSVNative_mergedIncompatibleHeaders(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
@@ -148,7 +148,7 @@ func TestSyncMobileNRFromLTECSVNative_mergedIncompatibleHeaders(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	_, _, err = syncMobileNRFromLTECSVNative(
+	_, _, err = syncMobileNRFromNSALTECSVNative(
 		context.Background(),
 		df5g,
 		mapping,
@@ -163,7 +163,7 @@ func TestSyncMobileNRFromLTECSVNative_mergedIncompatibleHeaders(t *testing.T) {
 	}
 }
 
-func TestSyncMobileNRFromLTECSVNative_requiresNRYesInLTE(t *testing.T) {
+func TestSyncMobileNRFromNSALTECSVNative_requiresNRYesInLTE(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
@@ -190,7 +190,7 @@ func TestSyncMobileNRFromLTECSVNative_requiresNRYesInLTE(t *testing.T) {
 	}
 	mapping := BuildColumnMappingFromHeaders(df5g.Columns)
 
-	_, _, err = syncMobileNRFromLTECSVNative(context.Background(), df5g, mapping, []string{ltePath}, "5G NR", 1000, nil, false)
+	_, _, err = syncMobileNRFromNSALTECSVNative(context.Background(), df5g, mapping, []string{ltePath}, "5G NR", 1000, nil, false)
 	if err == nil || !strings.Contains(err.Error(), "yes") {
 		t.Fatalf("expected error about missing NR yes, got %v", err)
 	}

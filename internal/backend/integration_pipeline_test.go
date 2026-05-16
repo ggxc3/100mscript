@@ -124,7 +124,7 @@ func TestRunProcessing_mobileModeEndToEnd(t *testing.T) {
 	cfg.FilePath = fiveG
 	cfg.FilterPaths = []string{}
 	cfg.MobileModeEnabled = true
-	cfg.MobileLTEFilePath = lte
+	cfg.MobileNSALTEFilePath = lte
 	cfg.ZoneMode = "center"
 	cfg.ZoneSizeM = 100
 	cfg.ColumnMapping = map[string]int{
@@ -174,8 +174,8 @@ func TestRunProcessing_mobileModeEndToEndMergedLTE(t *testing.T) {
 	cfg.FilePath = fiveG
 	cfg.FilterPaths = []string{}
 	cfg.MobileModeEnabled = true
-	cfg.MobileLTEFilePath = ""
-	cfg.MobileLTEFilePaths = []string{lte1, lte2}
+	cfg.MobileNSALTEFilePath = ""
+	cfg.MobileNSALTEFilePaths = []string{lte1, lte2}
 	cfg.ZoneMode = "center"
 	cfg.ZoneSizeM = 100
 	cfg.ColumnMapping = map[string]int{

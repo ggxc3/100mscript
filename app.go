@@ -52,17 +52,17 @@ func (a *App) PickInputCSVFile() (string, error) {
 	return a.pickCSVFile("Vyber vstupny CSV subor")
 }
 
-func (a *App) PickMobileLTECSVFile() (string, error) {
-	return a.pickCSVFile("Vyber LTE CSV subor (mobile sync)")
+func (a *App) PickMobileNSALTECSVFile() (string, error) {
+	return a.pickCSVFile("Vyber NSA LTE CSV súbor (mobile sync)")
 }
 
-// PickMobileLTECSVPaths opens a multi-select dialog for LTE CSV files (mobile sync).
-func (a *App) PickMobileLTECSVPaths() ([]string, error) {
+// PickMobileNSALTECSVPaths opens a multi-select dialog for NSA LTE CSV files (mobile sync).
+func (a *App) PickMobileNSALTECSVPaths() ([]string, error) {
 	if a.ctx == nil {
 		return nil, fmt.Errorf("aplikacia nie je inicializovana")
 	}
 	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Vyber jeden alebo viac LTE CSV súborov (rovnaká štruktúra)",
+		Title: "Vyber jeden alebo viac NSA LTE CSV súborov (rovnaká štruktúra)",
 		Filters: []wailsruntime.FileFilter{
 			{DisplayName: "CSV files (*.csv)", Pattern: "*.csv"},
 			{DisplayName: "All files", Pattern: "*"},

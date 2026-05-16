@@ -19,9 +19,9 @@ export function PickInputCSVFile():Promise<string>;
 
 export function PickInputCSVPaths():Promise<Array<string>>;
 
-export function PickMobileLTECSVFile():Promise<string>;
+export function PickMobileNSALTECSVFile():Promise<string>;
 
-export function PickMobileLTECSVPaths():Promise<Array<string>>;
+export function PickMobileNSALTECSVPaths():Promise<Array<string>>;
 
 export function PickOutputCSVFile(arg1:string,arg2:string,arg3:string):Promise<string>;
 

@@ -61,15 +61,15 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	}
 	if cfg.MobileModeEnabled {
 		emitProcessingPhase(ctx, "mobile_sync")
-		ltePaths := MobileLTEPathsFromConfig(cfg)
-		if len(ltePaths) == 0 {
-			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but no LTE CSV path(s) were provided")
+		nsaLtePaths := MobileNSALTEPathsFromConfig(cfg)
+		if len(nsaLtePaths) == 0 {
+			return ProcessingResult{}, fmt.Errorf("mobile mode is enabled but no NSA LTE CSV path(s) were provided")
 		}
-		data, _, err = syncMobileNRFromLTECSVNative(
+		data, _, err = syncMobileNRFromNSALTECSVNative(
 			ctx,
 			data,
 			cfg.ColumnMapping,
-			ltePaths,
+			nsaLtePaths,
 			cfg.MobileNRColumnName,
 			cfg.MobileTimeToleranceMS,
 			rules,

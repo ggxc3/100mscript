@@ -249,7 +249,7 @@
   margin-top: 0;
 }
 
-/* Mobile checkbox → LTE karta: medzi nimi je vždy #mobileLteInputWarning. Medzera 8px len keď je panel rozbalený (.is-open); pri zatvorenom stačí .collapsible-block + .check-row */
+/* Mobile checkbox → NSA LTE karta: medzi nimi je vždy #mobileNsaLteInputWarning. Medzera 8px len keď je panel rozbalený (.is-open); pri zatvorenom stačí .collapsible-block + .check-row */
 .section-card > .check-row + .mobile-mode-input-warning[hidden] + .collapsible-block.is-open {
   margin-top: 8px;
 }

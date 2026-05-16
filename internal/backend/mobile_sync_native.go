@@ -26,7 +26,7 @@ type mobileLookup struct {
 	noPrefix  []int
 }
 
-func syncMobileNRFromLTECSVNative(
+func syncMobileNRFromNSALTECSVNative(
 	ctx context.Context,
 	df5g *CSVData,
 	columnMapping map[string]int,
@@ -41,7 +41,7 @@ func syncMobileNRFromLTECSVNative(
 	}
 	ltePaths = NormalizeInputPaths(ltePaths)
 	if len(ltePaths) == 0 {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: žiadna cesta k LTE CSV")
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: žiadna cesta k NSA LTE CSV")
 	}
 	var dfLTE *CSVData
 	var err error
@@ -56,13 +56,13 @@ func syncMobileNRFromLTECSVNative(
 		}
 	}
 	if err != nil {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: načítanie LTE CSV: %w", err)
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: načítanie NSA LTE CSV: %w", err)
 	}
 	if len(filterRules) > 0 {
 		lteMapping := BuildColumnMappingFromHeaders(dfLTE.Columns)
 		dfLTE, err = ApplyFiltersCSV(ctx, dfLTE, filterRules, keepOriginalRows, lteMapping)
 		if err != nil {
-			return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: apply LTE filters: %w", err)
+			return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: apply NSA LTE filters: %w", err)
 		}
 	}
 
@@ -70,7 +70,7 @@ func syncMobileNRFromLTECSVNative(
 	lteMNCCol := findColumnNameNative(dfLTE.Columns, []string{"MNC"})
 	lteNRCol := findColumnNameNative(dfLTE.Columns, []string{"5G NR", "5GNR", "NR"})
 	if lteMCCCol == "" || lteMNCCol == "" || lteNRCol == "" {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: LTE súbor musí obsahovať stĺpce MCC, MNC a 5G NR")
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: NSA LTE súbor musí obsahovať stĺpce MCC, MNC a 5G NR")
 	}
 	lteUTCCol := findColumnNameNative(dfLTE.Columns, []string{"UTC"})
 	lteDateCol := findColumnNameNative(dfLTE.Columns, []string{"Date"})
@@ -125,7 +125,7 @@ func syncMobileNRFromLTECSVNative(
 		lteRows = append(lteRows, lteRow{mcc: mcc, mnc: mnc, timeMS: lteTimeMS.Values[i], score: score})
 	}
 	if len(lteRows) == 0 {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: LTE súbor neobsahuje použiteľné MCC/MNC hodnoty")
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: NSA LTE súbor neobsahuje použiteľné MCC/MNC hodnoty")
 	}
 	yesCountLTE := 0
 	for _, r := range lteRows {
@@ -134,7 +134,7 @@ func syncMobileNRFromLTECSVNative(
 		}
 	}
 	if yesCountLTE == 0 {
-		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: v LTE súbore sa nenašli žiadne riadky s 5G NR = yes")
+		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: v NSA LTE súbore sa nenašli žiadne riadky s 5G NR = yes")
 	}
 
 	type fivegCandidate struct {

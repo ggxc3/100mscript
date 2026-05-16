@@ -34,7 +34,7 @@ func TestRunProcessing_mobileModeMissingLTE(t *testing.T) {
 	cfg := DefaultProcessingConfig()
 	cfg.FilePath = inputPath
 	cfg.MobileModeEnabled = true
-	cfg.MobileLTEFilePath = ""
+	cfg.MobileNSALTEFilePath = ""
 	cfg.FilterPaths = []string{}
 	cfg.ColumnMapping = map[string]int{
 		"latitude": 0, "longitude": 1, "frequency": 2, "pci": 3, "mcc": 4, "mnc": 5, "rsrp": 6,

@@ -34,12 +34,12 @@ export function PickInputCSVPaths() {
   return window['go']['main']['App']['PickInputCSVPaths']();
 }
 
-export function PickMobileLTECSVFile() {
-  return window['go']['main']['App']['PickMobileLTECSVFile']();
+export function PickMobileNSALTECSVFile() {
+  return window['go']['main']['App']['PickMobileNSALTECSVFile']();
 }
 
-export function PickMobileLTECSVPaths() {
-  return window['go']['main']['App']['PickMobileLTECSVPaths']();
+export function PickMobileNSALTECSVPaths() {
+  return window['go']['main']['App']['PickMobileNSALTECSVPaths']();
 }
 
 export function PickOutputCSVFile(arg1, arg2, arg3) {
