@@ -289,7 +289,7 @@ function mountMainView(root: HTMLDivElement): void {
 
             <label class="check-row">
               <input id="mobileMode" type="checkbox" />
-              <span>Mobile režim (synchronizácia 5G NR cez NSA LTE súbor)</span>
+              <span>NSA sieť (synchronizácia 5G NR cez LTE súbor)</span>
             </label>
 
             <div id="mobileNsaLteInputWarning" class="mobile-mode-input-warning" role="status" aria-live="polite" hidden>
