@@ -207,3 +207,105 @@ func TestRunProcessing_excludeOriginalRowAfterMergeAndTimeSort(t *testing.T) {
 		}
 	}
 }
+
+func TestRunProcessingWithReorderedMultiCSV(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "first.csv")
+	p2 := filepath.Join(tmpDir, "second.csv")
+	if err := os.WriteFile(p1, []byte(strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(strings.Join([]string{
+		"pci;rsrp;mnc;longitude;frequency;mcc;latitude",
+		"20;-102;02;17.108700;3600;231;48.149600",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = p1
+	cfg.InputFilePaths = []string{p1, p2}
+	cfg.ZoneMode = "center"
+	cfg.ZoneSizeM = 100
+	cfg.FilterPaths = []string{}
+	cfg.ColumnMappingNames = map[string]string{
+		"latitude":  "latitude",
+		"longitude": "longitude",
+		"frequency": "frequency",
+		"pci":       "pci",
+		"mcc":       "mcc",
+		"mnc":       "mnc",
+		"rsrp":      "rsrp",
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing: %v", err)
+	}
+	contentBytes, err := os.ReadFile(result.ZonesFile)
+	if err != nil {
+		t.Fatalf("read zones: %v", err)
+	}
+	content := string(contentBytes)
+	if !strings.Contains(content, ";20;231;2;") {
+		t.Fatalf("expected remapped second CSV values in output, got:\n%s", content)
+	}
+}
+
+func TestRunProcessingWithUnionExtraColumnsExportsUnionHeader(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "first.csv")
+	p2 := filepath.Join(tmpDir, "second.csv")
+	if err := os.WriteFile(p1, []byte(strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;SINR",
+		"48.149600;17.108700;3600;20;231;02;-102;11",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = p1
+	cfg.InputFilePaths = []string{p1, p2}
+	cfg.ZoneMode = "center"
+	cfg.ZoneSizeM = 100
+	cfg.FilterPaths = []string{}
+	cfg.ColumnMappingNames = map[string]string{
+		"latitude":  "latitude",
+		"longitude": "longitude",
+		"frequency": "frequency",
+		"pci":       "pci",
+		"mcc":       "mcc",
+		"mnc":       "mnc",
+		"rsrp":      "rsrp",
+		"sinr":      "SINR",
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing: %v", err)
+	}
+	contentBytes, err := os.ReadFile(result.ZonesFile)
+	if err != nil {
+		t.Fatalf("read zones: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(contentBytes), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("unexpected zones output: %q", string(contentBytes))
+	}
+	if !strings.Contains(lines[1], ";SINR") {
+		t.Fatalf("expected SINR in export header, got %q", lines[1])
+	}
+}

@@ -16,10 +16,11 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		return ProcessingResult{}, fmt.Errorf("chýba vstupný CSV súbor")
 	}
 	emitProcessingPhase(ctx, "load_csv")
-	data, err := LoadAndMergeCSVFiles(ctx, paths)
+	data, resolvedMapping, err := LoadAndMergeCSVFilesForProcessing(ctx, paths, cfg)
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("načítanie CSV: %w", err)
 	}
+	cfg.ColumnMapping = resolvedMapping
 	emitProcessingProgress(ctx, "load_csv", 100)
 	if len(paths) > 1 {
 		if sorted, ok := sortMergedCSVRowsByTime(data); ok {

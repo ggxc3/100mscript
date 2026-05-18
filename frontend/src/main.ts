@@ -49,7 +49,7 @@ type UIState = {
   previewLoading: boolean;
   columnMapping: Partial<Record<ColumnKey, number>>;
   inputCsvPaths: string[];
-  /** NSA LTE CSV súbory pre Mobile režim (zlúčia sa v tom istom poradí ako pri vstupnom CSV). */
+  /** NSA LTE CSV súbory pre Mobile režim (zlúčia sa podľa názvov stĺpcov). */
   mobileNsaLtePaths: string[];
   customFilterPaths: string[];
   running: boolean;
@@ -122,6 +122,7 @@ const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "rsrp", label: "RSRP" },
   { key: "sinr", label: "SINR" },
 ];
+const REQUIRED_COLUMN_FIELDS = COLUMN_FIELDS.filter((field) => field.key !== "sinr");
 
 /** Hodnoty z backendu: 5g | lte | unknown */
 function inputRadioTechUiLabel(tech: string | undefined | null): string {
@@ -147,14 +148,74 @@ function pathsMatchPreview(paths: string[], preview: main.CSVPreview | null): bo
   return paths.every((p, i) => p === fromPreview[i]);
 }
 
+function normalizeColumnNameForMatch(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function shortPathName(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() ?? filePath;
+}
+
 function mappingComplete(ui: UIState): boolean {
   if (!ui.preview) {
     return false;
   }
-  return COLUMN_FIELDS.every((f) => {
+  return REQUIRED_COLUMN_FIELDS.every((f) => {
     const idx = ui.columnMapping[f.key];
     return typeof idx === "number" && !Number.isNaN(idx) && idx >= 0 && idx < ui.preview!.columns.length;
   });
+}
+
+type MappingValidationResult = {
+  ok: boolean;
+  detail: string;
+};
+
+function validateMappedColumnsAcrossFiles(state: UIState): MappingValidationResult {
+  if (!state.preview || !mappingComplete(state)) {
+    return { ok: false, detail: "Najprv dokonči mapovanie povinných polí." };
+  }
+  const fileSchemas =
+    ((state.preview as main.CSVPreview & { fileSchemas?: Array<{ filePath: string; columns: string[] }> }).fileSchemas ??
+      []) as Array<{ filePath: string; columns: string[] }>;
+  if (fileSchemas.length === 0) {
+    return { ok: true, detail: "Kontrola podľa jednotlivých súborov nie je dostupná." };
+  }
+
+  const missingRequired: string[] = [];
+  const missingOptional: string[] = [];
+  for (const schema of fileSchemas) {
+    const normalized = new Set(schema.columns.map(normalizeColumnNameForMatch).filter((name) => name.length > 0));
+    for (const field of REQUIRED_COLUMN_FIELDS) {
+      const idx = state.columnMapping[field.key];
+      if (typeof idx !== "number" || Number.isNaN(idx) || idx < 0 || idx >= state.preview.columns.length) {
+        continue;
+      }
+      const selectedName = state.preview.columns[idx];
+      if (!normalized.has(normalizeColumnNameForMatch(selectedName))) {
+        missingRequired.push(`${shortPathName(schema.filePath)}: ${field.label} (${selectedName})`);
+      }
+    }
+    const sinrIdx = state.columnMapping.sinr;
+    if (typeof sinrIdx === "number" && !Number.isNaN(sinrIdx) && sinrIdx >= 0 && sinrIdx < state.preview.columns.length) {
+      const selectedName = state.preview.columns[sinrIdx];
+      if (!normalized.has(normalizeColumnNameForMatch(selectedName))) {
+        missingOptional.push(`${shortPathName(schema.filePath)}: SINR (${selectedName})`);
+      }
+    }
+  }
+
+  if (missingRequired.length > 0) {
+    return { ok: false, detail: `Chýba povinný stĺpec: ${missingRequired.slice(0, 2).join("; ")}${missingRequired.length > 2 ? "…" : ""}` };
+  }
+  if (missingOptional.length > 0) {
+    return { ok: true, detail: `Voliteľný SINR chýba v ${missingOptional.length} súboroch; doplní sa prázdne.` };
+  }
+  return { ok: true, detail: "Povinné mapované stĺpce sú vo všetkých CSV." };
 }
 
 function computeReadinessItems(
@@ -191,8 +252,17 @@ function computeReadinessItems(
     id: "mapping",
     label: "Mapovanie stĺpcov",
     ok: mapOk,
-    detail: mapOk ? "Všetky povinné polia." : "Vyber stĺpec pre každé pole.",
+    detail: mapOk ? "Všetky povinné polia." : "Vyber stĺpec pre každé povinné pole.",
   });
+  if (state.preview) {
+    const schemaValidation = validateMappedColumnsAcrossFiles(state);
+    items.push({
+      id: "mapping_schema",
+      label: "Súlad CSV stĺpcov",
+      ok: schemaValidation.ok,
+      detail: schemaValidation.detail,
+    });
+  }
   const nsaLteCount = mobileNsaLtePaths.filter((p) => p.trim().length > 0).length;
   const mobileOk = !mobileEnabled || nsaLteCount > 0;
   items.push({
@@ -270,8 +340,8 @@ function mountMainView(root: HTMLDivElement): void {
                 <strong>Vstupné CSV súbory</strong>
               </div>
               <p class="section-note csv-input-note">
-                Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí). Po zlúčení sa riadky
-                zoradia podľa času (UTC alebo Date+Time), aby sedeli s časovými oknami.
+                Pri viacerých súboroch môžu byť stĺpce v inom poradí. Appka ich zladí podľa názvov stĺpcov. Povinné namapované stĺpce musia existovať v každom CSV.
+                Po zlúčení sa riadky zoradia podľa času (UTC alebo Date+Time), aby sedeli s časovými oknami.
               </p>
               <p class="section-note csv-autoload-note">
                 Po pridaní súborov sa náhľad <strong>načíta automaticky</strong>. Tlačidlo nižšie použite na obnovenie po zmene súborov na disku.
@@ -306,7 +376,8 @@ function mountMainView(root: HTMLDivElement): void {
                       <strong>NSA LTE CSV súbory (iba pre Mobile režim)</strong>
                     </div>
                     <p class="section-note csv-input-note">
-                      Pri viacerých súboroch musí byť <strong>rovnaká celá hlavička</strong> (všetky názvy stĺpcov v tom istom poradí) ako pri vstupnom CSV. Po zlúčení sa riadky zoradia podľa času (UTC alebo Date+Time).
+                      Pri viacerých NSA LTE CSV môžu byť stĺpce v inom poradí. Každý súbor musí obsahovať MCC, MNC, 5G NR a časový stĺpec UTC alebo Date + Time.
+                      Po zlúčení sa riadky zoradia podľa času.
                     </p>
                     <div class="inline-actions">
                       <button id="addMobileNsaLteBtn" class="btn secondary" type="button">Pridať súbor</button>
@@ -1459,14 +1530,31 @@ function mountMainView(root: HTMLDivElement): void {
       throw new Error("Najprv načítaj stĺpce zo vstupného CSV.");
     }
     const columnMapping: Record<string, number> = {};
-    for (const field of COLUMN_FIELDS) {
+    for (const field of REQUIRED_COLUMN_FIELDS) {
       const idx = state.columnMapping[field.key];
       if (typeof idx !== "number" || Number.isNaN(idx)) {
         throw new Error(`Chýba mapovanie stĺpca pre '${field.label}'.`);
       }
       columnMapping[field.key] = idx;
     }
+    const sinrIdx = state.columnMapping.sinr;
+    if (typeof sinrIdx === "number" && !Number.isNaN(sinrIdx)) {
+      columnMapping.sinr = sinrIdx;
+    }
     return columnMapping;
+  }
+
+  function buildColumnMappingNames(): Record<string, string> {
+    if (!state.preview) {
+      throw new Error("Najprv načítaj stĺpce zo vstupného CSV.");
+    }
+    const names: Record<string, string> = {};
+    for (const [key, idx] of Object.entries(state.columnMapping)) {
+      if (typeof idx === "number" && !Number.isNaN(idx) && idx >= 0 && idx < state.preview.columns.length) {
+        names[key] = state.preview.columns[idx];
+      }
+    }
+    return names;
   }
 
   async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
@@ -1478,6 +1566,7 @@ function mountMainView(root: HTMLDivElement): void {
     const input_file_paths = paths.length > 1 ? paths : undefined;
 
     const column_mapping = buildColumnMapping();
+    const column_mapping_names = buildColumnMappingNames();
     const mobile_mode_enabled = mobileModeCheckbox.checked;
     const nsaLtePaths = dedupePaths(state.mobileNsaLtePaths.map((p) => p.trim()).filter((p) => p.length > 0));
     if (mobile_mode_enabled && nsaLtePaths.length === 0) {
@@ -1525,6 +1614,7 @@ function mountMainView(root: HTMLDivElement): void {
       file_path: filePath,
       input_file_paths,
       column_mapping,
+      column_mapping_names,
       keep_original_rows: keepOriginalRowsCheckbox.checked,
       excluded_original_rows: [],
       time_windows: buildConfiguredTimeWindows(state.timeWindows),

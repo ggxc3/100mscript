@@ -51,7 +51,7 @@ go test ./...
 
 ## Vstupné a výstupné súbory
 
-**Vstup:** Jeden alebo viac CSV súborov oddelených bodkočiarkou (`;`). Pri viacerých súboroch musia mať identickú hlavičku (názvy stĺpcov v rovnakom poradí). Po zlúčení sa riadky zoradia podľa časovej značky, ak je dostupná.
+**Vstup:** Jeden alebo viac CSV súborov oddelených bodkočiarkou (`;`). Pri viacerých súboroch sa stĺpce zladia podľa názvov, takže nemusia byť v rovnakom poradí. Povinné namapované stĺpce musia existovať v každom vstupnom CSV. Po zlúčení sa riadky zoradia podľa časovej značky, ak je dostupná.
 
 **Výstupy:**
 
@@ -68,7 +68,7 @@ V mobile režime sa do názvu výstupov automaticky pridáva `_mobile`. Výstupn
 
 Celé spracovanie prebieha v jednom sekvenčnom pipeline v tomto poradí:
 
-1. **Načítanie CSV** -- Detekcia kódovania, nájdenie hlavičky, normalizácia stĺpcov. Pri viacerých súboroch zlúčenie riadkov a zoradenie podľa času.
+1. **Načítanie CSV** -- Detekcia kódovania, nájdenie hlavičky, normalizácia stĺpcov a zjednotenie schémy podľa názvov. Pri viacerých súboroch zlúčenie riadkov a zoradenie podľa času.
 2. **Príprava riadkov** -- Doplnenie stĺpca `original_excel_row` pre trasovateľnosť. Voliteľné vylúčenie riadkov podľa časových okien alebo podľa čísla riadku.
 3. **Aplikácia filtrov** -- Načítanie pravidiel z `.txt` súborov, priradenie k riadkom podľa podmienok, duplikácia riadkov podľa assignment kombinácií.
 4. **Mobile sync** *(voliteľný)* -- Načítanie NSA LTE CSV, synchronizácia stĺpca `5G NR` do 5G datasetu na základe časovej zhody.
@@ -99,7 +99,27 @@ Za hlavičku sa považuje prvý riadok s minimálne 6 stĺpcami (oddelených bod
 
 ### Zlúčenie viacerých súborov
 
-Všetky súbory musia mať zhodné názvy stĺpcov v rovnakom poradí (po normalizácii). Riadky sa spoja do jedného datasetu. Ak súbory obsahujú časové údaje (UTC alebo Date + Time), riadky sa po zlúčení zoradia chronologicky.
+Pri viacerých vstupných CSV sa vytvorí kanonická schéma ako únia stĺpcov zo všetkých súborov. Prvý súbor určí základné poradie stĺpcov, nové stĺpce z ďalších súborov sa pridajú na koniec v poradí prvého výskytu. Riadky z každého súboru sa pred zlúčením preusporiadajú podľa názvov stĺpcov.
+
+Porovnávanie názvov je normalizované: ignoruje sa veľkosť písmen, medzery a znaky ako `-` alebo `_`. Napríklad `Longi-tude`, `longi_tude` a `LONGITUDE` sa považujú za rovnaký stĺpec. Ak jeden súbor obsahuje dva stĺpce, ktoré sú po normalizácii rovnaké, spracovanie skončí chybou, aby sa nevybral nesprávny zdroj hodnoty.
+
+Povinné mapované stĺpce (`latitude`, `longitude`, `frequency`, `pci`, `mcc`, `mnc`, `rsrp`) musia byť dostupné v každom vstupnom CSV. Voliteľné stĺpce a ostatné stĺpce z union schémy môžu v niektorom súbore chýbať; vtedy sa do výsledného datasetu doplní prázdna hodnota. Ak súbory obsahujú časové údaje (UTC alebo Date + Time), riadky sa po zlúčení zoradia chronologicky.
+
+Príklad pre rôzne poradie:
+
+```text
+a.csv: Latitude;Longitude;RSRP;PCI
+b.csv: PCI;RSRP;Longitude;Latitude
+
+Výsledná schéma: Latitude;Longitude;RSRP;PCI
+```
+
+Príklad pre nový stĺpec:
+
+```text
+Ak ďalší súbor obsahuje navyše SINR, výsledná schéma ho pridá na koniec.
+Súbory bez SINR dostanú v tomto stĺpci prázdnu hodnotu.
+```
 
 ### Detekcia typu rádiového prístupu
 
@@ -114,7 +134,7 @@ Táto informácia sa zobrazuje v UI a slúži na varovanie, ak je v mobile reži
 
 ## Mapovanie stĺpcov
 
-Používateľ mapuje logické kľúče na indexy stĺpcov z hlavičky CSV:
+Používateľ mapuje logické kľúče na názvy stĺpcov z kanonickej schémy CSV. Pri viacerých súboroch je táto schéma výsledkom union zlúčenia podľa názvov. Indexy stĺpcov sú len interná reprezentácia tejto kanonickej schémy.
 
 | Kľúč | Povinný | Typické názvy stĺpcov |
 |---|---|---|
@@ -127,7 +147,7 @@ Používateľ mapuje logické kľúče na indexy stĺpcov z hlavičky CSV:
 | `rsrp` | áno | SSS-RSRP, RSRP, NR-SS-RSRP |
 | `sinr` | nie | SSS-SINR, SINR, NR-SS-SINR |
 
-Program sa pokúsi automaticky predvyplniť mapovanie na základe hlavičky. Používateľ môže každé pole manuálne upraviť.
+Program sa pokúsi automaticky predvyplniť mapovanie na základe hlavičky. Používateľ môže každé pole manuálne upraviť. Kontrola pripravenosti v UI overí, či sú povinné mapované stĺpce dostupné vo všetkých vstupných CSV ešte pred spustením spracovania.
 
 Parsovanie číselných hodnôt vo všetkých stĺpcoch: orezanie medzier, nahradenie čiarky bodkou, prevod na float64.
 
@@ -176,7 +196,7 @@ Mobile režim slúži na doplnenie informácie o 5G NR pokrytí do 5G datasetu n
 
 ### Postup synchronizácie
 
-1. **Načítanie NSA LTE CSV** -- rovnaká logika ako pre hlavný súbor, voliteľná aplikácia filtrov.
+1. **Načítanie NSA LTE CSV** -- rovnaká logika zlúčenia podľa názvov ako pre hlavný súbor, voliteľná aplikácia filtrov. NSA LTE súbory nemusia mať rovnakú hlavičku ako hlavný 5G vstup, ale každý musí obsahovať MCC, MNC, 5G NR a časový stĺpec UTC alebo dvojicu Date + Time.
 2. **Zostrojenie časovej osi** -- pre oba datasety sa z riadkov extrahuje čas v milisekundách.
 3. **Vybudovanie lookup tabuliek** -- NSA LTE riadky sa zoskupia podľa MCC+MNC a zoradia podľa času. Pre každú skupinu sa prebuduje prefixový súčet YES a NO skóre pre efektívne dotazovanie okien.
 4. **Pre každý 5G riadok** -- v NSA LTE dátach sa nájde okno `[čas - tolerancia, čas + tolerancia]` a vyhodnotí sa skóre.
@@ -479,7 +499,7 @@ Aplikácia má jedno okno rozdelené na ľavý a pravý panel.
 - **Časové úseky** -- definícia časových okien pre vylúčenie meraní.
 
 **Pravý panel (sticky):**
-- **Kontrola pripravenosti** -- prehľad, či sú splnené všetky podmienky pre spustenie.
+- **Kontrola pripravenosti** -- prehľad, či sú splnené všetky podmienky pre spustenie vrátane dostupnosti povinných mapovaných stĺpcov vo všetkých CSV.
 - **Priebeh spracovania** -- krokový indikátor fázy pipeline s progress barom.
 - **Výstupné cesty** -- voliteľné prepísanie výstupných súborov.
 - **Tlačidlo Spustiť** -- spustí spracovanie.

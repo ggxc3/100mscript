@@ -3,7 +3,6 @@ package backend
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -69,18 +68,80 @@ func trimTrailingAutoExtraColumns(columns []string) []string {
 	return columns[:end]
 }
 
-func columnsMatch(a, b []string) bool {
-	return slices.Equal(trimTrailingAutoExtraColumns(a), trimTrailingAutoExtraColumns(b))
+func normalizedColumnKey(name string) string {
+	return normalizeHeaderToken(name)
 }
 
-func mergeColumnsSchema(loaded []*CSVData) []string {
-	best := []string(nil)
+func buildColumnIndexByNormalizedName(columns []string) (map[string]int, error) {
+	out := make(map[string]int, len(columns))
+	original := make(map[string]string, len(columns))
+	for i, col := range columns {
+		key := normalizedColumnKey(col)
+		if key == "" {
+			continue
+		}
+		if prev, exists := original[key]; exists {
+			return nil, fmt.Errorf("nejednoznačné stĺpce %q a %q", prev, col)
+		}
+		original[key] = col
+		out[key] = i
+	}
+	return out, nil
+}
+
+type CSVMergeOptions struct {
+	RequiredColumnNames  map[string]string
+	DisplayNameOverrides map[string]string
+}
+
+func buildUnionColumns(loaded []*CSVData, displayOverrides map[string]string) ([]string, error) {
+	columns := []string(nil)
+	seen := map[string]struct{}{}
 	for _, d := range loaded {
-		if len(d.Columns) > len(best) {
-			best = d.Columns
+		if d == nil {
+			continue
+		}
+		if _, err := buildColumnIndexByNormalizedName(d.Columns); err != nil {
+			return nil, err
+		}
+		for _, col := range d.Columns {
+			key := normalizedColumnKey(col)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			displayName := col
+			if override := strings.TrimSpace(displayOverrides[key]); override != "" {
+				displayName = override
+			}
+			columns = append(columns, displayName)
 		}
 	}
-	return append([]string(nil), best...)
+	return columns, nil
+}
+
+func validateRequiredColumnsInEveryFile(paths []string, loaded []*CSVData, required map[string]string) error {
+	if len(required) == 0 {
+		return nil
+	}
+	for i, data := range loaded {
+		index, err := buildColumnIndexByNormalizedName(data.Columns)
+		if err != nil {
+			return fmt.Errorf("CSV %q má nejednoznačnú hlavičku: %w", paths[i], err)
+		}
+		for logicalKey, name := range required {
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+			if _, ok := index[normalizedColumnKey(name)]; !ok {
+				return fmt.Errorf("CSV %q neobsahuje povinný mapovaný stĺpec %s: %q", paths[i], logicalKey, name)
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeRowWidth(row []string, width int) []string {
@@ -155,15 +216,10 @@ func sortMergedCSVRowsByTime(data *CSVData) (*CSVData, bool) {
 	return out, true
 }
 
-// LoadAndMergeCSVFiles loads one or more semicolon CSV files and appends rows when len(paths) > 1.
-// All files must have identical column names in the same order (after loader normalization).
-func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error) {
+func loadCSVFilesForMerge(ctx context.Context, paths []string) ([]string, []*CSVData, error) {
 	paths = NormalizeInputPaths(paths)
 	if len(paths) == 0 {
-		return nil, fmt.Errorf("žiadna cesta k CSV súboru")
-	}
-	if len(paths) == 1 {
-		return LoadCSVFile(paths[0])
+		return nil, nil, fmt.Errorf("žiadna cesta k CSV súboru")
 	}
 
 	loaded := make([]*CSVData, 0, len(paths))
@@ -171,46 +227,190 @@ func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error)
 	for i, p := range paths {
 		d, err := LoadCSVFile(p)
 		if err != nil {
-			return nil, fmt.Errorf("načítanie %q: %w", p, err)
+			return nil, nil, fmt.Errorf("načítanie %q: %w", p, err)
 		}
 		loaded = append(loaded, d)
 		emitProcessingProgress(ctx, "load_csv", float64(i+1)/float64(nPaths)*100)
 	}
-
-	base := loaded[0].Columns
-	for i := 1; i < len(loaded); i++ {
-		if !columnsMatch(base, loaded[i].Columns) {
-			return nil, fmt.Errorf(
-				"CSV súbory nie sú kompatibilné: celá hlavička (všetky stĺpce v rovnakom poradí) sa musí zhodovať medzi %q a %q — napr. iné názvy frekvencie (EARFCN vs NR-ARFCN) sú už rozlišné stĺpce",
-				paths[0], paths[i],
-			)
-		}
-	}
-
-	mergedColumns := mergeColumnsSchema(loaded)
-	out := mergeCSVDataRows(mergedColumns, loaded[0], loaded[1:])
-	out.FileInfo = loaded[0].FileInfo
-	return out, nil
+	return paths, loaded, nil
 }
 
-func mergeCSVDataRows(columns []string, first *CSVData, rest []*CSVData) *CSVData {
+func loadAndMergeCSVFilesWithOptions(ctx context.Context, paths []string, opts CSVMergeOptions) ([]string, []*CSVData, *CSVData, error) {
+	paths, loaded, err := loadCSVFilesForMerge(ctx, paths)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(loaded) == 1 {
+		if _, err := buildColumnIndexByNormalizedName(loaded[0].Columns); err != nil {
+			return nil, nil, nil, fmt.Errorf("CSV %q má nejednoznačnú hlavičku: %w", paths[0], err)
+		}
+		if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+			return nil, nil, nil, err
+		}
+		out := loaded[0].clone()
+		return paths, loaded, out, nil
+	}
+	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+		return nil, nil, nil, err
+	}
+	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
+	}
+	out, err := mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:])
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	out.FileInfo = loaded[0].FileInfo
+	out.FileInfo.OriginalHeader = strings.Join(out.Columns, ";")
+	out.InputRadioTech = DetectInputRadioTech(out.Columns)
+	return paths, loaded, out, nil
+}
+
+// LoadAndMergeCSVFiles loads one or more semicolon CSV files and appends rows when len(paths) > 1.
+// Multiple files are aligned by normalized column name and merged into a union schema.
+func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error) {
+	_, _, out, err := loadAndMergeCSVFilesWithOptions(ctx, paths, CSVMergeOptions{})
+	return out, err
+}
+
+func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData) (*CSVData, error) {
 	totalRows := len(first.Rows)
 	for _, d := range rest {
 		totalRows += len(d.Rows)
 	}
-	outRows := make([][]string, 0, totalRows)
-	for _, row := range first.Rows {
-		outRows = append(outRows, normalizeRowWidth(row, len(columns)))
+	loaded := append([]*CSVData{first}, rest...)
+	targetKeys := make([]string, len(columns))
+	for i, col := range columns {
+		targetKeys[i] = normalizedColumnKey(col)
 	}
-	for _, d := range rest {
+	outRows := make([][]string, 0, totalRows)
+	for _, d := range loaded {
+		sourceIndex, err := buildColumnIndexByNormalizedName(d.Columns)
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range d.Rows {
-			outRows = append(outRows, normalizeRowWidth(row, len(columns)))
+			out := make([]string, len(columns))
+			for targetIdx, key := range targetKeys {
+				srcIdx, ok := sourceIndex[key]
+				if !ok || srcIdx >= len(row) {
+					continue
+				}
+				out[targetIdx] = row[srcIdx]
+			}
+			outRows = append(outRows, out)
 		}
 	}
 	return &CSVData{
 		Columns:        append([]string(nil), columns...),
 		Rows:           outRows,
 		FileInfo:       first.FileInfo,
-		InputRadioTech: first.InputRadioTech,
+		InputRadioTech: DetectInputRadioTech(columns),
+	}, nil
+}
+
+func resolveColumnMappingNames(columns []string, cfg ProcessingConfig) (map[string]string, error) {
+	out := map[string]string{}
+	for key, name := range cfg.ColumnMappingNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[key] = name
+		}
 	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	for key, idx := range cfg.ColumnMapping {
+		if idx < 0 || idx >= len(columns) {
+			return nil, fmt.Errorf("neplatné mapovanie stĺpca %s: index %d mimo rozsahu", key, idx)
+		}
+		out[key] = columns[idx]
+	}
+	return out, nil
+}
+
+func displayOverridesFromMappingNames(mappingNames map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, name := range mappingNames {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[normalizedColumnKey(name)] = name
+	}
+	return out
+}
+
+func requiredMappingNames(mappingNames map[string]string) map[string]string {
+	required := map[string]string{}
+	for _, key := range []string{"latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp"} {
+		if name := strings.TrimSpace(mappingNames[key]); name != "" {
+			required[key] = name
+		}
+	}
+	return required
+}
+
+func resolveColumnMappingIndexes(columns []string, mappingNames map[string]string) (map[string]int, error) {
+	index, err := buildColumnIndexByNormalizedName(columns)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for key, name := range mappingNames {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		idx, ok := index[normalizedColumnKey(name)]
+		if !ok {
+			return nil, fmt.Errorf("mapovaný stĺpec %s: %q nie je vo výslednej schéme", key, name)
+		}
+		out[key] = idx
+	}
+	return out, nil
+}
+
+func LoadAndMergeCSVFilesForProcessing(ctx context.Context, paths []string, cfg ProcessingConfig) (*CSVData, map[string]int, error) {
+	paths, loaded, err := loadCSVFilesForMerge(ctx, paths)
+	if err != nil {
+		return nil, nil, err
+	}
+	previewColumns, err := buildUnionColumns(loaded, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
+	}
+	mappingNames, err := resolveColumnMappingNames(previewColumns, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts := CSVMergeOptions{
+		RequiredColumnNames:  requiredMappingNames(mappingNames),
+		DisplayNameOverrides: displayOverridesFromMappingNames(mappingNames),
+	}
+	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+		return nil, nil, err
+	}
+	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides)
+	if err != nil {
+		return nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
+	}
+	var out *CSVData
+	if len(loaded) == 1 {
+		out = loaded[0].clone()
+	} else {
+		out, err = mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:])
+		if err != nil {
+			return nil, nil, err
+		}
+		out.FileInfo = loaded[0].FileInfo
+		out.FileInfo.OriginalHeader = strings.Join(out.Columns, ";")
+		out.InputRadioTech = DetectInputRadioTech(out.Columns)
+	}
+	resolvedMapping, err := resolveColumnMappingIndexes(out.Columns, mappingNames)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, resolvedMapping, nil
 }

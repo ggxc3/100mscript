@@ -82,7 +82,7 @@ func TestLoadAndMergeCSVFilesPreservesInputRadioTech5G(t *testing.T) {
 	}
 }
 
-func TestLoadAndMergeCSVFilesIncompatibleHeaders(t *testing.T) {
+func TestLoadAndMergeCSVFilesDifferentHeadersBuildsUnion(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -95,13 +95,143 @@ func TestLoadAndMergeCSVFilesIncompatibleHeaders(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	_, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
-	if err == nil {
-		t.Fatalf("expected error for mismatched columns")
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if indexOf(data.Columns, "EARFCN") < 0 || indexOf(data.Columns, "NR-ARFCN") < 0 {
+		t.Fatalf("expected union frequency columns, got %#v", data.Columns)
 	}
 }
 
-func TestLoadAndMergeCSVFilesIgnoresTrailingAutoExtraColumns(t *testing.T) {
+func TestLoadAndMergeCSVFilesByName_ReorderedColumns(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	if err := os.WriteFile(p1, []byte("Latitude;Longitude;RSRP;PCI;mcc;mnc;frequency\n48.1;17.1;-100;10;231;01;3500\n"), 0o644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("PCI;frequency;mnc;RSRP;Longitude;mcc;Latitude\n20;3600;02;-101;17.2;231;48.2\n"), 0o644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(data.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(data.Rows))
+	}
+	if got := data.Rows[1][indexOf(data.Columns, "Latitude")]; got != "48.2" {
+		t.Fatalf("expected remapped latitude 48.2, got %q rows=%#v columns=%#v", got, data.Rows, data.Columns)
+	}
+	if got := data.Rows[1][indexOf(data.Columns, "PCI")]; got != "20" {
+		t.Fatalf("expected remapped PCI 20, got %q", got)
+	}
+}
+
+func TestLoadAndMergeCSVFilesByName_UnionExtraColumns(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	if err := os.WriteFile(p1, []byte("Latitude;Longitude;RSRP\n48.1;17.1;-100\n"), 0o644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("Longitude;Latitude;RSRP;SINR\n17.2;48.2;-101;12\n"), 0o644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	sinrIdx := indexOf(data.Columns, "SINR")
+	if sinrIdx < 0 {
+		t.Fatalf("expected SINR in union columns: %#v", data.Columns)
+	}
+	if got := data.Rows[0][sinrIdx]; got != "" {
+		t.Fatalf("expected empty SINR for first file, got %q", got)
+	}
+	if got := data.Rows[1][sinrIdx]; got != "12" {
+		t.Fatalf("expected SINR from second file, got %q", got)
+	}
+}
+
+func TestLoadAndMergeCSVFilesForProcessing_MissingRequiredColumnErrors(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	header := "latitude;longitude;frequency;pci;mcc;mnc;rsrp"
+	if err := os.WriteFile(p1, []byte(header+"\n48;17;3500;1;231;01;-100\n"), 0o644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("latitude;longitude;frequency;pci;mcc;mnc\n48;17;3500;1;231;01\n"), 0o644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ColumnMappingNames = map[string]string{
+		"latitude":  "latitude",
+		"longitude": "longitude",
+		"frequency": "frequency",
+		"pci":       "pci",
+		"mcc":       "mcc",
+		"mnc":       "mnc",
+		"rsrp":      "rsrp",
+	}
+
+	_, _, err := LoadAndMergeCSVFilesForProcessing(context.Background(), []string{p1, p2}, cfg)
+	if err == nil || !strings.Contains(err.Error(), "rsrp") || !strings.Contains(err.Error(), "b.csv") {
+		t.Fatalf("expected missing rsrp error for b.csv, got %v", err)
+	}
+}
+
+func TestLoadAndMergeCSVFilesByName_NormalizedHeaderMatch(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "a.csv")
+	p2 := filepath.Join(tmpDir, "b.csv")
+	if err := os.WriteFile(p1, []byte("Longi-tude;Latitude;RSRP\n17.1;48.1;-100\n"), 0o644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("longitude;Latitude;RSRP\n17.2;48.2;-101\n"), 0o644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+
+	data, err := LoadAndMergeCSVFiles(context.Background(), []string{p1, p2})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(data.Columns) != 3 {
+		t.Fatalf("expected normalized longitude match, got columns %#v", data.Columns)
+	}
+	if got := data.Rows[1][indexOf(data.Columns, "Longi-tude")]; got != "17.2" {
+		t.Fatalf("expected longitude from second row, got %q", got)
+	}
+}
+
+func TestLoadAndMergeCSVFilesByName_AmbiguousNormalizedColumnsError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p := filepath.Join(tmpDir, "ambiguous.csv")
+	if err := os.WriteFile(p, []byte("Longitude;longitude;Latitude;RSRP;mcc;mnc\n17.1;17.2;48.1;-100;231;01\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err := LoadAndMergeCSVFiles(context.Background(), []string{p})
+	if err == nil || !strings.Contains(err.Error(), "nejednozna") {
+		t.Fatalf("expected ambiguous header error, got %v", err)
+	}
+}
+
+func TestLoadAndMergeCSVFilesMergesTrailingAutoExtraColumns(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -135,7 +265,7 @@ func TestLoadAndMergeCSVFilesIgnoresTrailingAutoExtraColumns(t *testing.T) {
 	}
 }
 
-func TestLoadAndMergeCSVFilesIgnoresTrailingAutoExtraColumnsRegardlessOfOrder(t *testing.T) {
+func TestLoadAndMergeCSVFilesMergesTrailingAutoExtraColumnsRegardlessOfOrder(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()

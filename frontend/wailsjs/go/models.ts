@@ -34,6 +34,7 @@ export namespace backend {
 	    file_path: string;
 	    input_file_paths?: string[];
 	    column_mapping: Record<string, number>;
+	    column_mapping_names?: Record<string, string>;
 	    keep_original_rows: boolean;
 	    excluded_original_rows: number[];
 	    time_windows?: TimeWindow[];
@@ -65,6 +66,7 @@ export namespace backend {
 	        this.file_path = source["file_path"];
 	        this.input_file_paths = source["input_file_paths"];
 	        this.column_mapping = source["column_mapping"];
+	        this.column_mapping_names = source["column_mapping_names"];
 	        this.keep_original_rows = source["keep_original_rows"];
 	        this.excluded_original_rows = source["excluded_original_rows"];
 	        this.time_windows = this.convertValues(source["time_windows"], TimeWindow);
@@ -163,10 +165,25 @@ export namespace main {
 	        this.version = source["version"];
 	    }
 	}
+	export class CSVPreviewFileSchema {
+	    filePath: string;
+	    columns: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new CSVPreviewFileSchema(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filePath = source["filePath"];
+	        this.columns = source["columns"];
+	    }
+	}
 	export class CSVPreview {
 	    filePaths: string[];
 	    filePath: string;
 	    columns: string[];
+	    fileSchemas: CSVPreviewFileSchema[];
 	    encoding: string;
 	    headerLine: number;
 	    originalHeader: string;
@@ -182,12 +199,31 @@ export namespace main {
 	        this.filePaths = source["filePaths"];
 	        this.filePath = source["filePath"];
 	        this.columns = source["columns"];
+	        this.fileSchemas = this.convertValues(source["fileSchemas"], CSVPreviewFileSchema);
 	        this.encoding = source["encoding"];
 	        this.headerLine = source["headerLine"];
 	        this.originalHeader = source["originalHeader"];
 	        this.suggestedMapping = source["suggestedMapping"];
 	        this.inputRadioTech = source["inputRadioTech"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DefaultOutputPathsResult {
 	    zones: string;
@@ -205,4 +241,3 @@ export namespace main {
 	}
 
 }
-

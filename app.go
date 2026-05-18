@@ -156,15 +156,21 @@ func (a *App) PickOutputCSVFile(title string, defaultDirectory string, defaultFi
 }
 
 type CSVPreview struct {
-	FilePaths        []string       `json:"filePaths"`
-	FilePath         string         `json:"filePath"`
-	Columns          []string       `json:"columns"`
-	Encoding         string         `json:"encoding"`
-	HeaderLine       int            `json:"headerLine"`
-	OriginalHeader   string         `json:"originalHeader"`
-	SuggestedMapping map[string]int `json:"suggestedMapping"`
+	FilePaths        []string               `json:"filePaths"`
+	FilePath         string                 `json:"filePath"`
+	Columns          []string               `json:"columns"`
+	FileSchemas      []CSVPreviewFileSchema `json:"fileSchemas"`
+	Encoding         string                 `json:"encoding"`
+	HeaderLine       int                    `json:"headerLine"`
+	OriginalHeader   string                 `json:"originalHeader"`
+	SuggestedMapping map[string]int         `json:"suggestedMapping"`
 	// InputRadioTech is backend.InputRadioTech5G, InputRadioTechLTE, or InputRadioTechUnknown.
 	InputRadioTech string `json:"inputRadioTech"`
+}
+
+type CSVPreviewFileSchema struct {
+	FilePath string   `json:"filePath"`
+	Columns  []string `json:"columns"`
 }
 
 func (a *App) loadCSVPreview(paths []string) (CSVPreview, error) {
@@ -182,10 +188,22 @@ func (a *App) loadCSVPreview(paths []string) (CSVPreview, error) {
 	if err != nil {
 		return CSVPreview{}, err
 	}
+	fileSchemas := make([]CSVPreviewFileSchema, 0, len(paths))
+	for _, path := range paths {
+		fileData, err := backendpkg.LoadCSVFile(path)
+		if err != nil {
+			return CSVPreview{}, err
+		}
+		fileSchemas = append(fileSchemas, CSVPreviewFileSchema{
+			FilePath: path,
+			Columns:  append([]string(nil), fileData.Columns...),
+		})
+	}
 	return CSVPreview{
 		FilePaths:        paths,
 		FilePath:         paths[0],
 		Columns:          data.Columns,
+		FileSchemas:      fileSchemas,
 		Encoding:         data.FileInfo.Encoding,
 		HeaderLine:       data.FileInfo.HeaderLine,
 		OriginalHeader:   data.FileInfo.OriginalHeader,

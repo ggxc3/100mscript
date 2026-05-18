@@ -43,18 +43,7 @@ func syncMobileNRFromNSALTECSVNative(
 	if len(ltePaths) == 0 {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: žiadna cesta k NSA LTE CSV")
 	}
-	var dfLTE *CSVData
-	var err error
-	if len(ltePaths) == 1 {
-		dfLTE, err = LoadCSVFile(ltePaths[0])
-	} else {
-		dfLTE, err = LoadAndMergeCSVFiles(ctx, ltePaths)
-		if err == nil {
-			if sorted, ok := sortMergedCSVRowsByTime(dfLTE); ok {
-				dfLTE = sorted
-			}
-		}
-	}
+	dfLTE, err := loadMobileNSALTECSVFiles(ctx, ltePaths)
 	if err != nil {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: načítanie NSA LTE CSV: %w", err)
 	}
@@ -266,6 +255,35 @@ func syncMobileNRFromNSALTECSVNative(
 	}
 	emitProcessingProgress(ctx, "mobile_sync", 100)
 	return out, stats, nil
+}
+
+func loadMobileNSALTECSVFiles(ctx context.Context, paths []string) (*CSVData, error) {
+	paths, loaded, merged, err := loadAndMergeCSVFilesWithOptions(ctx, paths, CSVMergeOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for i, data := range loaded {
+		if findColumnNameNative(data.Columns, []string{"MCC"}) == "" {
+			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec MCC", paths[i])
+		}
+		if findColumnNameNative(data.Columns, []string{"MNC"}) == "" {
+			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec MNC", paths[i])
+		}
+		if findColumnNameNative(data.Columns, []string{"5G NR", "5GNR", "NR"}) == "" {
+			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec 5G NR", paths[i])
+		}
+		hasUTC := findColumnNameNative(data.Columns, []string{"UTC"}) != ""
+		hasDateTime := findColumnNameNative(data.Columns, []string{"Date"}) != "" && findColumnNameNative(data.Columns, []string{"Time"}) != ""
+		if !hasUTC && !hasDateTime {
+			return nil, fmt.Errorf("CSV %q neobsahuje časový stĺpec UTC ani dvojicu Date + Time", paths[i])
+		}
+	}
+	if len(paths) > 1 {
+		if sorted, ok := sortMergedCSVRowsByTime(merged); ok {
+			merged = sorted
+		}
+	}
+	return merged, nil
 }
 
 func nrScore(v string) int8 {

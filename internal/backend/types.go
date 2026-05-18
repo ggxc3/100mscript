@@ -12,30 +12,31 @@ type TimeWindow struct {
 }
 
 type ProcessingConfig struct {
-	FilePath              string           `json:"file_path"`
-	InputFilePaths        []string         `json:"input_file_paths,omitempty"`
-	ColumnMapping         map[string]int   `json:"column_mapping"`
-	KeepOriginalRows      bool             `json:"keep_original_rows"`
-	ExcludedOriginalRows  []int            `json:"excluded_original_rows"`
-	TimeWindows           []TimeWindow     `json:"time_windows,omitempty"`
-	ZoneMode              string           `json:"zone_mode"` // center | original | segments
-	ZoneSizeM             float64          `json:"zone_size_m"`
-	RSRPThreshold         float64          `json:"rsrp_threshold"`
-	SINRThreshold         float64          `json:"sinr_threshold"`
-	IncludeEmptyZones     bool             `json:"include_empty_zones"`
-	AddCustomOperators    bool             `json:"add_custom_operators"`
-	CustomOperators       []CustomOperator `json:"custom_operators"`
-	FilterPaths           []string         `json:"filter_paths,omitempty"`
-	OutputSuffix          string           `json:"output_suffix,omitempty"`
-	OutputZonesFilePath   string           `json:"output_zones_file_path,omitempty"`
-	OutputStatsFilePath   string           `json:"output_stats_file_path,omitempty"`
-	MobileModeEnabled     bool             `json:"mobile_mode_enabled"`
-	MobileNSALTEFilePath  string           `json:"mobile_nsa_lte_file_path,omitempty"`
-	MobileNSALTEFilePaths []string         `json:"mobile_nsa_lte_file_paths,omitempty"`
-	MobileTimeToleranceMS int              `json:"mobile_time_tolerance_ms"`
-	MobileRequireNRYES    bool             `json:"mobile_require_nr_yes"`
-	MobileNRColumnName    string           `json:"mobile_nr_column_name"`
-	ProgressEnabled       bool             `json:"progress_enabled"`
+	FilePath              string            `json:"file_path"`
+	InputFilePaths        []string          `json:"input_file_paths,omitempty"`
+	ColumnMapping         map[string]int    `json:"column_mapping"`
+	ColumnMappingNames    map[string]string `json:"column_mapping_names,omitempty"`
+	KeepOriginalRows      bool              `json:"keep_original_rows"`
+	ExcludedOriginalRows  []int             `json:"excluded_original_rows"`
+	TimeWindows           []TimeWindow      `json:"time_windows,omitempty"`
+	ZoneMode              string            `json:"zone_mode"` // center | original | segments
+	ZoneSizeM             float64           `json:"zone_size_m"`
+	RSRPThreshold         float64           `json:"rsrp_threshold"`
+	SINRThreshold         float64           `json:"sinr_threshold"`
+	IncludeEmptyZones     bool              `json:"include_empty_zones"`
+	AddCustomOperators    bool              `json:"add_custom_operators"`
+	CustomOperators       []CustomOperator  `json:"custom_operators"`
+	FilterPaths           []string          `json:"filter_paths,omitempty"`
+	OutputSuffix          string            `json:"output_suffix,omitempty"`
+	OutputZonesFilePath   string            `json:"output_zones_file_path,omitempty"`
+	OutputStatsFilePath   string            `json:"output_stats_file_path,omitempty"`
+	MobileModeEnabled     bool              `json:"mobile_mode_enabled"`
+	MobileNSALTEFilePath  string            `json:"mobile_nsa_lte_file_path,omitempty"`
+	MobileNSALTEFilePaths []string          `json:"mobile_nsa_lte_file_paths,omitempty"`
+	MobileTimeToleranceMS int               `json:"mobile_time_tolerance_ms"`
+	MobileRequireNRYES    bool              `json:"mobile_require_nr_yes"`
+	MobileNRColumnName    string            `json:"mobile_nr_column_name"`
+	ProgressEnabled       bool              `json:"progress_enabled"`
 }
 
 type ProcessingResult struct {
