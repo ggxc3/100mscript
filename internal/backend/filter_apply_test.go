@@ -42,6 +42,47 @@ func TestResolveColumnName_SSRefPreferredWhenNoFrequencyColumn(t *testing.T) {
 	}
 }
 
+func TestResolveColumnName_UsesNormalizedHeaderMatch(t *testing.T) {
+	t.Parallel()
+
+	cols := []string{"NR_ARFCN", "M-C-C", "SSRef"}
+	if got := resolveColumnName("NR-ARFCN", cols, map[string]int{"frequency": 0}); got != "NR_ARFCN" {
+		t.Fatalf("expected normalized NR-ARFCN match, got %q", got)
+	}
+	if got := resolveColumnName("MCC", cols, nil); got != "M-C-C" {
+		t.Fatalf("expected normalized MCC match, got %q", got)
+	}
+}
+
+func TestApplyFiltersCSV_normalizedFilterFieldNames(t *testing.T) {
+	t.Parallel()
+
+	data := &CSVData{
+		Columns: []string{"NR_ARFCN", "M-C-C"},
+		Rows: [][]string{
+			{"640704", "231"},
+		},
+		FileInfo: CSVFileInfo{HeaderLine: 0},
+	}
+	rules := []FilterRule{{
+		Name:            "normalized",
+		Assignments:     map[string][]float64{"MCC": {232}},
+		ConditionGroups: [][]Condition{{{Field: "NR-ARFCN", Kind: ConditionEq, Low: 640704, High: 640704}}},
+	}}
+
+	out, err := ApplyFiltersCSV(context.Background(), data, rules, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mccIdx := indexOf(out.Columns, "M-C-C")
+	if mccIdx < 0 {
+		t.Fatalf("expected assignment resolved to existing normalized MCC column, columns=%#v", out.Columns)
+	}
+	if got := out.Rows[0][mccIdx]; got != "232" {
+		t.Fatalf("expected normalized filter assignment to update M-C-C, got %q row=%#v", got, out.Rows[0])
+	}
+}
+
 func TestApplyFiltersCSV_matchExpandsAssignments(t *testing.T) {
 	t.Parallel()
 

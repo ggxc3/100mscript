@@ -98,6 +98,49 @@ func TestSortMergedCSVRowsByTime_noDateTimeLeavesOrder(t *testing.T) {
 	}
 }
 
+func TestSortMergedCSVRowsByTimeAfterNameBasedMergeReorderedColumns(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "later.csv")
+	p2 := filepath.Join(tmpDir, "earlier.csv")
+	if err := os.WriteFile(p1, []byte(strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time",
+		"48.1;17.1;3500;10;231;01;-100;05.02.2026;10:10:00",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write later: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte(strings.Join([]string{
+		"Time;Date;pci;rsrp;mnc;longitude;frequency;mcc;latitude",
+		"10:05:00;05.02.2026;20;-101;02;17.2;3600;231;48.2",
+	}, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write earlier: %v", err)
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ColumnMappingNames = map[string]string{
+		"latitude":  "latitude",
+		"longitude": "longitude",
+		"frequency": "frequency",
+		"pci":       "pci",
+		"mcc":       "mcc",
+		"mnc":       "mnc",
+		"rsrp":      "rsrp",
+	}
+
+	data, _, err := LoadAndMergeCSVFilesForProcessing(context.Background(), []string{p1, p2}, cfg)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	sorted, changed := sortMergedCSVRowsByTime(data)
+	if !changed {
+		t.Fatalf("expected chronological sort after name-based merge")
+	}
+	pciIdx := indexOf(sorted.Columns, "pci")
+	if got := sorted.Rows[0][pciIdx]; got != "20" {
+		t.Fatalf("expected earlier row first after sort, got PCI %q rows=%#v columns=%#v", got, sorted.Rows, sorted.Columns)
+	}
+}
+
 func TestLoadTimeSelectorDataMerged_timestampsChronological(t *testing.T) {
 	t.Parallel()
 
