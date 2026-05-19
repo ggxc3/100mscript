@@ -295,6 +295,48 @@ func TestRunProcessingSegmentsStillGeneratesMissingOperatorsForObservedSegments(
 	}
 }
 
+func TestRunProcessingSegmentsGeneratesEmptySegmentsForNoGPSGap(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input_gap.csv")
+	inputCSV := strings.Join([]string{
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp",
+		"48.148600;17.107700;3500;10;231;01;-100",
+		"48.148600;17.110500;3500;10;231;01;-101",
+	}, "\n") + "\n"
+	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
+		t.Fatalf("write input csv: %v", err)
+	}
+
+	cfg := DefaultProcessingConfig()
+	cfg.FilePath = inputPath
+	cfg.ZoneMode = "segments"
+	cfg.ZoneSizeM = 50
+	cfg.FilterPaths = []string{}
+	cfg.IncludeEmptyZones = true
+	cfg.ColumnMapping = map[string]int{
+		"latitude":  0,
+		"longitude": 1,
+		"frequency": 2,
+		"pci":       3,
+		"mcc":       4,
+		"mnc":       5,
+		"rsrp":      6,
+	}
+
+	result, err := RunProcessing(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("run processing: %v", err)
+	}
+
+	lines := readZoneDataLines(t, result.ZonesFile)
+	generated := countLinesContaining(lines, "# Prázdny úsek - automaticky vygenerovaný")
+	if generated == 0 {
+		t.Fatalf("expected generated empty segments inside no-GPS gap, got none:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func readZoneDataLines(t *testing.T, path string) []string {
 	t.Helper()
 

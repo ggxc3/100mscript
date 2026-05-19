@@ -191,6 +191,42 @@ func TestLoadAndMergeCSVFilesForProcessing_MissingRequiredColumnErrors(t *testin
 	}
 }
 
+func TestLoadAndMergeCSVFilesForProcessing_RSRPAliasesAreEquivalent(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	p1 := filepath.Join(tmpDir, "sss.csv")
+	p2 := filepath.Join(tmpDir, "ss.csv")
+	if err := os.WriteFile(p1, []byte("latitude;longitude;frequency;pci;mcc;mnc;SSS-RSRP\n48;17;3500;1;231;01;-100\n"), 0o644); err != nil {
+		t.Fatalf("write sss: %v", err)
+	}
+	if err := os.WriteFile(p2, []byte("latitude;longitude;frequency;pci;mcc;mnc;SS-RSRP\n48;17;3500;2;231;01;-101\n"), 0o644); err != nil {
+		t.Fatalf("write ss: %v", err)
+	}
+	cfg := DefaultProcessingConfig()
+	cfg.ColumnMappingNames = map[string]string{
+		"latitude":  "latitude",
+		"longitude": "longitude",
+		"frequency": "frequency",
+		"pci":       "pci",
+		"mcc":       "mcc",
+		"mnc":       "mnc",
+		"rsrp":      "SSS-RSRP",
+	}
+
+	data, mapping, err := LoadAndMergeCSVFilesForProcessing(context.Background(), []string{p1, p2}, cfg)
+	if err != nil {
+		t.Fatalf("merge for processing: %v", err)
+	}
+	rsrpIdx := mapping["rsrp"]
+	if got := data.Rows[1][rsrpIdx]; got != "-101" {
+		t.Fatalf("expected SS-RSRP value mapped into SSS-RSRP column, got %q rows=%#v columns=%#v", got, data.Rows, data.Columns)
+	}
+	if indexOf(data.Columns, "SS-RSRP") >= 0 {
+		t.Fatalf("expected SS-RSRP alias collapsed into selected SSS-RSRP column, columns=%#v", data.Columns)
+	}
+}
+
 func TestLoadAndMergeCSVFilesByName_NormalizedHeaderMatch(t *testing.T) {
 	t.Parallel()
 

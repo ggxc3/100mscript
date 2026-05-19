@@ -270,10 +270,22 @@ Program podporuje tri režimy rozdelenia bodov do priestorových jednotiek:
 
 Body sa rozdeľujú do úsekov po trase podľa kumulatívnej vzdialenosti. Každý úsek má dĺžku definovanú veľkosťou zóny (predvolene 100 m).
 
-**Výpočet:**
+**Výpočet pre jeden CSV track:**
 - Kumulatívna vzdialenosť sa počíta postupne: `cumDist += hypot(x_i - x_{i-1}, y_i - y_{i-1})`
 - ID úseku: `floor((cumDist + 1e-9) / veľkosťZóny)` -- epsilon 1e-9 chráni pred hraničnými chybami float aritmetiky
 - Ak krok prekročí hranicu jedného alebo viac úsekov, pre každú hranicu sa interpoluje začiatok nového úseku: `P_start = P_prev + (P_curr - P_prev) * fraction`, kde `fraction = (boundary - prevCumDist) / stepDist`, clipované do [0, 1]
+
+Pri viacerých vstupných CSV sa nevytvára jedna časovo zoradená línia. Každý vstupný CSV súbor sa najprv berie ako samostatný track a vzdialenosť sa počíta iba medzi susednými bodmi toho istého tracku. Program potom z prekrývajúcich sa alebo nadväzujúcich trackov odvodí spoločnú trasu a priradí body na spoločnú vzdialenosť po tejto trase.
+
+**Spoločná trasa pre viac CSV:**
+- Tracky sa párujú podľa polohy, nie podľa času.
+- Ak dva tracky merajú rovnaký úsek, body na rovnakých 100 m intervaloch dostanú rovnaký `segment_<id>`.
+- Ak jeden track pokračuje ďalej než druhý, spoločná trasa sa predĺži o pokračujúci track.
+- Opačný smer merania je podporený, ak sa tracky polohovo prekrývajú.
+- Dlhá medzera medzi nadväzujúcimi trackmi sa ponechá v spoločnej vzdialenosti po trase aj vtedy, keď je vypnuté generovanie prázdnych úsekov. V QGIS potom bude viditeľná medzera medzi meranými segmentmi.
+- Ak je zapnuté generovanie prázdnych úsekov, rovnaká medzera sa navyše vyplní prázdnymi 100 m úsekmi. Tento režim pokrýva tunely, výpadky GPS alebo úseky bez meraní.
+
+Na priradenie prekrývajúcich sa bodov sa používa tolerancia 75 m od spoločnej trasy. Ak sa track polohovo neprekrýva s už známou trasou, pripojí sa cez najbližší koncový bod ako pokračovanie trasy; prázdne úseky rozhodujú iba o tom, či sa chýbajúce segmenty v medzere aj zapíšu do exportu.
 
 Kľúč zóny: `segment_<id>`. Súradnice zóny: interpolovaný začiatok úseku.
 
@@ -366,6 +378,8 @@ Ak je zapnutá voľba "Generovať prázdne zóny", pre každú kombináciu zóna
 - 5G NR = 0
 - Súradnice sa prepočítajú zo stredu príslušnej zóny
 - Na konci riadku je komentár `# Prázdna zóna - automaticky vygenerovaná` (alebo `# Prázdny úsek...` pre segmenty)
+
+V režime segmentov sa prázdne úseky generujú aj pre interpolované časti trasy, kde nie je žiadny meraný bod. Typický prípad je tunel, výpadok GPS alebo medzera medzi dvoma nadväzujúcimi CSV trackmi.
 
 ### Custom operátori
 

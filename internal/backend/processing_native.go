@@ -36,6 +36,21 @@ type ProcessedDataset struct {
 	SegmentMeta map[int]Point
 }
 
+type rawParsed struct {
+	row              []string
+	originalExcelRow int
+	lat              float64
+	lon              float64
+	rsrp             float64
+	sinr             float64
+	hasSINR          bool
+}
+
+const (
+	commonRoutePointToleranceM = 75.0
+	commonRouteMaxSamples      = 2000
+)
+
 type ZoneStat struct {
 	ZonaKey                string
 	OperatorKey            string
@@ -86,16 +101,7 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	nrIdx := data.columnIndexByName(findColumnNameNative(cols, nrCandidates))
 
 	origExcelIdx := indexOf(cols, "original_excel_row")
-
-	type rawParsed struct {
-		row              []string
-		originalExcelRow int
-		lat              float64
-		lon              float64
-		rsrp             float64
-		sinr             float64
-		hasSINR          bool
-	}
+	sourceCSVIdx := indexOf(cols, csvSourceIndexColumn)
 
 	filtered := make([]rawParsed, 0, len(data.Rows))
 	nIn := len(data.Rows)
@@ -168,42 +174,11 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	epsilon := 1e-9
 	segmentIDs := make([]int, len(filtered))
 	if cfg.ZoneMode == "segments" && len(filtered) > 0 {
-		cumulativeDistance := 0.0
-		prevX, prevY := xy[0].A, xy[0].B
-		segmentMeta[0] = Point{A: prevX, B: prevY}
-		segmentIDs[0] = 0
-		segSteps := len(filtered) - 1
-		for i := 1; i < len(filtered); i++ {
-			if segSteps > 0 {
-				maybeEmitProgressInRange(ctx, "compute_zones", i-1, segSteps, 38, 46)
+		segmentIDs, segmentMeta = buildSegmentAssignments(filtered, xy, sourceCSVIdx, zoneSize, epsilon, cfg.IncludeEmptyZones, func(i, n int) {
+			if n > 0 {
+				maybeEmitProgressInRange(ctx, "compute_zones", i, n, 38, 46)
 			}
-			x, y := xy[i].A, xy[i].B
-			stepDistance := math.Hypot(x-prevX, y-prevY)
-			if stepDistance > 0 {
-				prevCumulative := cumulativeDistance
-				cumulativeDistance += stepDistance
-				prevSegment := int(math.Floor((prevCumulative + epsilon) / zoneSize))
-				newSegment := int(math.Floor((cumulativeDistance + epsilon) / zoneSize))
-				if newSegment > prevSegment {
-					for segID := prevSegment + 1; segID <= newSegment; segID++ {
-						boundaryDistance := float64(segID) * zoneSize
-						offset := boundaryDistance - prevCumulative
-						fraction := offset / stepDistance
-						if fraction < 0 {
-							fraction = 0
-						} else if fraction > 1 {
-							fraction = 1
-						}
-						segmentMeta[segID] = Point{
-							A: prevX + (x-prevX)*fraction,
-							B: prevY + (y-prevY)*fraction,
-						}
-					}
-				}
-			}
-			segmentIDs[i] = int(math.Floor((cumulativeDistance + epsilon) / zoneSize))
-			prevX, prevY = x, y
-		}
+		})
 	}
 
 	nF := len(filtered)
@@ -261,6 +236,501 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		FileInfo:    data.FileInfo,
 		SegmentMeta: segmentMeta,
 	}, nil
+}
+
+type segmentInputPoint struct {
+	filteredIndex int
+	x             float64
+	y             float64
+}
+
+type segmentTrack struct {
+	id     string
+	points []segmentInputPoint
+	cum    []float64
+	length float64
+}
+
+type segmentTrackAssignment struct {
+	assigned bool
+	reversed bool
+	offset   float64
+}
+
+type segmentSample struct {
+	pointIndex int
+	x          float64
+	y          float64
+	cum        float64
+	global     float64
+}
+
+type segmentAlignment struct {
+	ok       bool
+	reversed bool
+	offset   float64
+	count    int
+	mad      float64
+}
+
+type segmentGlobalPoint struct {
+	x      float64
+	y      float64
+	global float64
+}
+
+func buildSegmentAssignments(filtered []rawParsed, xy []Point, sourceCSVIdx int, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) ([]int, map[int]Point) {
+	segmentIDs := make([]int, len(filtered))
+	segmentMeta := map[int]Point{}
+	tracks := buildSegmentTracks(filtered, xy, sourceCSVIdx)
+	if len(tracks) == 0 {
+		return segmentIDs, segmentMeta
+	}
+	if len(tracks) == 1 {
+		assignSingleTrackSegments(tracks[0], segmentIDs, segmentMeta, zoneSize, epsilon, progress)
+		return segmentIDs, segmentMeta
+	}
+	assignCommonRouteSegments(tracks, segmentIDs, segmentMeta, zoneSize, epsilon, includeEmptySegments, progress)
+	return segmentIDs, segmentMeta
+}
+
+func buildSegmentTracks(filtered []rawParsed, xy []Point, sourceCSVIdx int) []segmentTrack {
+	trackOrder := []string{}
+	trackByID := map[string]int{}
+	for i := range filtered {
+		trackID := segmentTrackID(filtered[i], sourceCSVIdx)
+		_, ok := trackByID[trackID]
+		if !ok {
+			trackByID[trackID] = len(trackOrder)
+			trackOrder = append(trackOrder, trackID)
+		}
+	}
+
+	tracks := make([]segmentTrack, len(trackOrder))
+	for i, id := range trackOrder {
+		tracks[i].id = id
+	}
+	for i := range filtered {
+		idx := trackByID[segmentTrackID(filtered[i], sourceCSVIdx)]
+		tracks[idx].points = append(tracks[idx].points, segmentInputPoint{
+			filteredIndex: i,
+			x:             xy[i].A,
+			y:             xy[i].B,
+		})
+	}
+	for i := range tracks {
+		tracks[i].cum = make([]float64, len(tracks[i].points))
+		for j := 1; j < len(tracks[i].points); j++ {
+			prev := tracks[i].points[j-1]
+			curr := tracks[i].points[j]
+			tracks[i].cum[j] = tracks[i].cum[j-1] + math.Hypot(curr.x-prev.x, curr.y-prev.y)
+		}
+		if len(tracks[i].cum) > 0 {
+			tracks[i].length = tracks[i].cum[len(tracks[i].cum)-1]
+		}
+	}
+	return tracks
+}
+
+func segmentTrackID(row rawParsed, sourceCSVIdx int) string {
+	if sourceCSVIdx >= 0 {
+		if v := strings.TrimSpace(cellAt(row.row, sourceCSVIdx)); v != "" {
+			return v
+		}
+	}
+	return "0"
+}
+
+func assignSingleTrackSegments(track segmentTrack, segmentIDs []int, segmentMeta map[int]Point, zoneSize, epsilon float64, progress func(i, n int)) {
+	steps := len(track.points) - 1
+	for i, p := range track.points {
+		progress(i, steps)
+		if i > 0 {
+			addSegmentBoundaries(track, segmentTrackAssignment{}, i-1, i, segmentMeta, zoneSize, epsilon)
+		}
+		segID := int(math.Floor((track.cum[i] + epsilon) / zoneSize))
+		segmentIDs[p.filteredIndex] = segID
+		if _, ok := segmentMeta[segID]; !ok {
+			segmentMeta[segID] = Point{A: p.x, B: p.y}
+		}
+	}
+}
+
+func assignCommonRouteSegments(tracks []segmentTrack, segmentIDs []int, segmentMeta map[int]Point, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) {
+	assignments := alignSegmentTracks(tracks, zoneSize)
+	minGlobal := math.Inf(1)
+	for i := range tracks {
+		for j := range tracks[i].points {
+			g := segmentGlobalDistance(tracks[i], assignments[i], j)
+			if g < minGlobal {
+				minGlobal = g
+			}
+		}
+	}
+	if math.IsInf(minGlobal, 1) {
+		return
+	}
+	for i := range assignments {
+		assignments[i].offset -= minGlobal
+	}
+
+	for i, track := range tracks {
+		for j := 1; j < len(track.points); j++ {
+			addSegmentBoundaries(track, assignments[i], j-1, j, segmentMeta, zoneSize, epsilon)
+		}
+	}
+	if includeEmptySegments {
+		addCommonRouteGapBoundaries(tracks, assignments, segmentMeta, zoneSize, epsilon)
+	}
+
+	total := 0
+	for _, track := range tracks {
+		total += len(track.points)
+	}
+	done := 0
+	for i, track := range tracks {
+		for j, p := range track.points {
+			progress(done, total)
+			done++
+			g := segmentGlobalDistance(track, assignments[i], j)
+			segID := int(math.Floor((g + epsilon) / zoneSize))
+			segmentIDs[p.filteredIndex] = segID
+			if _, ok := segmentMeta[segID]; !ok {
+				segmentMeta[segID] = Point{A: p.x, B: p.y}
+			}
+		}
+	}
+}
+
+func alignSegmentTracks(tracks []segmentTrack, zoneSize float64) []segmentTrackAssignment {
+	assignments := make([]segmentTrackAssignment, len(tracks))
+	seed := 0
+	for i := 1; i < len(tracks); i++ {
+		if tracks[i].length > tracks[seed].length {
+			seed = i
+		}
+	}
+	assignments[seed] = segmentTrackAssignment{assigned: true}
+	for {
+		changed := false
+		for i := range tracks {
+			if assignments[i].assigned {
+				continue
+			}
+			best := segmentAlignment{}
+			for j := range tracks {
+				if !assignments[j].assigned {
+					continue
+				}
+				candidate := alignTrackToKnown(tracks[j], assignments[j], tracks[i])
+				if betterSegmentAlignment(candidate, best) {
+					best = candidate
+				}
+			}
+			if best.ok {
+				assignments[i] = segmentTrackAssignment{assigned: true, reversed: best.reversed, offset: best.offset}
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	for i := range tracks {
+		if assignments[i].assigned {
+			continue
+		}
+		if candidate, ok := connectTrackToKnownEndpoint(tracks, assignments, i); ok {
+			assignments[i] = candidate
+			continue
+		}
+		maxGlobal := 0.0
+		hasGlobal := false
+		for j := range tracks {
+			if !assignments[j].assigned {
+				continue
+			}
+			for k := range tracks[j].points {
+				g := segmentGlobalDistance(tracks[j], assignments[j], k)
+				if !hasGlobal || g > maxGlobal {
+					maxGlobal = g
+					hasGlobal = true
+				}
+			}
+		}
+		assignments[i] = segmentTrackAssignment{assigned: true, offset: maxGlobal + zoneSize}
+	}
+	return assignments
+}
+
+func alignTrackToKnown(known segmentTrack, knownAssignment segmentTrackAssignment, unknown segmentTrack) segmentAlignment {
+	knownSamples := sampleSegmentTrack(known, knownAssignment)
+	unknownSamples := sampleSegmentTrack(unknown, segmentTrackAssignment{})
+	if len(knownSamples) == 0 || len(unknownSamples) == 0 {
+		return segmentAlignment{}
+	}
+	bins := map[string][]segmentSample{}
+	for _, sample := range knownSamples {
+		cx, cy := segmentCell(sample.x, sample.y, commonRoutePointToleranceM)
+		key := strconv.Itoa(cx) + ":" + strconv.Itoa(cy)
+		bins[key] = append(bins[key], sample)
+	}
+
+	best := segmentAlignment{}
+	for _, reversed := range []bool{false, true} {
+		deltas := []float64{}
+		for _, us := range unknownSamples {
+			cx, cy := segmentCell(us.x, us.y, commonRoutePointToleranceM)
+			for dx := -1; dx <= 1; dx++ {
+				for dy := -1; dy <= 1; dy++ {
+					key := strconv.Itoa(cx+dx) + ":" + strconv.Itoa(cy+dy)
+					for _, ks := range bins[key] {
+						if math.Hypot(ks.x-us.x, ks.y-us.y) > commonRoutePointToleranceM {
+							continue
+						}
+						unknownCum := us.cum
+						if reversed {
+							unknownCum = unknown.length - us.cum
+						}
+						deltas = append(deltas, ks.global-unknownCum)
+					}
+				}
+			}
+		}
+		if len(deltas) < minInt(3, minInt(len(knownSamples), len(unknownSamples))) {
+			continue
+		}
+		offset := medianFloat64(deltas)
+		mad := medianAbsoluteDeviation(deltas, offset)
+		candidate := segmentAlignment{ok: true, reversed: reversed, offset: offset, count: len(deltas), mad: mad}
+		if candidate.mad <= commonRoutePointToleranceM && betterSegmentAlignment(candidate, best) {
+			best = candidate
+		}
+	}
+	return best
+}
+
+func betterSegmentAlignment(candidate, current segmentAlignment) bool {
+	if !candidate.ok {
+		return false
+	}
+	if !current.ok {
+		return true
+	}
+	if candidate.count != current.count {
+		return candidate.count > current.count
+	}
+	return candidate.mad < current.mad
+}
+
+func connectTrackToKnownEndpoint(tracks []segmentTrack, assignments []segmentTrackAssignment, unknownIdx int) (segmentTrackAssignment, bool) {
+	unknown := tracks[unknownIdx]
+	if len(unknown.points) == 0 {
+		return segmentTrackAssignment{assigned: true}, true
+	}
+	type endpointCandidate struct {
+		assignment segmentTrackAssignment
+		distance   float64
+	}
+	best := endpointCandidate{distance: math.Inf(1)}
+	for knownIdx, known := range tracks {
+		if !assignments[knownIdx].assigned || len(known.points) == 0 {
+			continue
+		}
+		knownEnds := []struct {
+			point    segmentInputPoint
+			global   float64
+			routeEnd int
+		}{
+			{point: known.points[0], global: segmentGlobalDistance(known, assignments[knownIdx], 0)},
+			{point: known.points[len(known.points)-1], global: segmentGlobalDistance(known, assignments[knownIdx], len(known.points)-1)},
+		}
+		if knownEnds[0].global > knownEnds[1].global {
+			knownEnds[0].routeEnd, knownEnds[1].routeEnd = 1, -1
+		} else {
+			knownEnds[0].routeEnd, knownEnds[1].routeEnd = -1, 1
+		}
+		for _, reversed := range []bool{false, true} {
+			unknownEnds := []struct {
+				point segmentInputPoint
+				cum   float64
+			}{
+				{point: unknown.points[0], cum: orientedSegmentCum(unknown, 0, reversed)},
+				{point: unknown.points[len(unknown.points)-1], cum: orientedSegmentCum(unknown, len(unknown.points)-1, reversed)},
+			}
+			for _, ke := range knownEnds {
+				for _, ue := range unknownEnds {
+					dist := math.Hypot(ke.point.x-ue.point.x, ke.point.y-ue.point.y)
+					if dist >= best.distance {
+						continue
+					}
+					offset := ke.global - ue.cum
+					if ke.routeEnd > 0 {
+						offset += dist
+					} else {
+						offset -= dist
+					}
+					best = endpointCandidate{
+						assignment: segmentTrackAssignment{assigned: true, reversed: reversed, offset: offset},
+						distance:   dist,
+					}
+				}
+			}
+		}
+	}
+	if math.IsInf(best.distance, 1) {
+		return segmentTrackAssignment{}, false
+	}
+	return best.assignment, true
+}
+
+func sampleSegmentTrack(track segmentTrack, assignment segmentTrackAssignment) []segmentSample {
+	n := len(track.points)
+	if n == 0 {
+		return nil
+	}
+	step := 1
+	if n > commonRouteMaxSamples {
+		step = int(math.Ceil(float64(n) / float64(commonRouteMaxSamples)))
+	}
+	out := make([]segmentSample, 0, n/step+1)
+	for i := 0; i < n; i += step {
+		p := track.points[i]
+		out = append(out, segmentSample{
+			pointIndex: i,
+			x:          p.x,
+			y:          p.y,
+			cum:        track.cum[i],
+			global:     segmentGlobalDistance(track, assignment, i),
+		})
+	}
+	if last := n - 1; out[len(out)-1].pointIndex != last {
+		p := track.points[last]
+		out = append(out, segmentSample{
+			pointIndex: last,
+			x:          p.x,
+			y:          p.y,
+			cum:        track.cum[last],
+			global:     segmentGlobalDistance(track, assignment, last),
+		})
+	}
+	return out
+}
+
+func segmentGlobalDistance(track segmentTrack, assignment segmentTrackAssignment, pointIndex int) float64 {
+	return orientedSegmentCum(track, pointIndex, assignment.reversed) + assignment.offset
+}
+
+func orientedSegmentCum(track segmentTrack, pointIndex int, reversed bool) float64 {
+	if !reversed {
+		return track.cum[pointIndex]
+	}
+	return track.length - track.cum[pointIndex]
+}
+
+func addSegmentBoundaries(track segmentTrack, assignment segmentTrackAssignment, fromIdx, toIdx int, segmentMeta map[int]Point, zoneSize, epsilon float64) {
+	g0 := segmentGlobalDistance(track, assignment, fromIdx)
+	g1 := segmentGlobalDistance(track, assignment, toIdx)
+	p0 := track.points[fromIdx]
+	p1 := track.points[toIdx]
+	addGlobalSegmentBoundaries(
+		segmentGlobalPoint{x: p0.x, y: p0.y, global: g0},
+		segmentGlobalPoint{x: p1.x, y: p1.y, global: g1},
+		segmentMeta,
+		zoneSize,
+		epsilon,
+	)
+}
+
+func addCommonRouteGapBoundaries(tracks []segmentTrack, assignments []segmentTrackAssignment, segmentMeta map[int]Point, zoneSize, epsilon float64) {
+	points := make([]segmentGlobalPoint, 0)
+	for i, track := range tracks {
+		for j, p := range track.points {
+			points = append(points, segmentGlobalPoint{
+				x:      p.x,
+				y:      p.y,
+				global: segmentGlobalDistance(track, assignments[i], j),
+			})
+		}
+	}
+	sort.Slice(points, func(i, j int) bool {
+		if points[i].global != points[j].global {
+			return points[i].global < points[j].global
+		}
+		if points[i].x != points[j].x {
+			return points[i].x < points[j].x
+		}
+		return points[i].y < points[j].y
+	})
+	for i := 1; i < len(points); i++ {
+		addGlobalSegmentBoundaries(points[i-1], points[i], segmentMeta, zoneSize, epsilon)
+	}
+}
+
+func addGlobalSegmentBoundaries(from, to segmentGlobalPoint, segmentMeta map[int]Point, zoneSize, epsilon float64) {
+	g0 := from.global
+	g1 := to.global
+	if g0 == g1 {
+		return
+	}
+	minG, maxG := g0, g1
+	if minG > maxG {
+		minG, maxG = maxG, minG
+	}
+	firstSegment := int(math.Floor((minG + epsilon) / zoneSize))
+	lastSegment := int(math.Floor((maxG + epsilon) / zoneSize))
+	for id := firstSegment + 1; id <= lastSegment; id++ {
+		if _, ok := segmentMeta[id]; ok {
+			continue
+		}
+		boundary := float64(id) * zoneSize
+		fraction := (boundary - g0) / (g1 - g0)
+		if fraction < 0 {
+			fraction = 0
+		} else if fraction > 1 {
+			fraction = 1
+		}
+		segmentMeta[id] = Point{
+			A: from.x + (to.x-from.x)*fraction,
+			B: from.y + (to.y-from.y)*fraction,
+		}
+	}
+}
+
+func segmentCell(x, y, size float64) (int, int) {
+	return int(math.Floor(x / size)), int(math.Floor(y / size))
+}
+
+func medianFloat64(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	cp := append([]float64(nil), values...)
+	sort.Float64s(cp)
+	mid := len(cp) / 2
+	if len(cp)%2 == 1 {
+		return cp[mid]
+	}
+	return (cp[mid-1] + cp[mid]) / 2
+}
+
+func medianAbsoluteDeviation(values []float64, center float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	dev := make([]float64, len(values))
+	for i, v := range values {
+		dev[i] = math.Abs(v - center)
+	}
+	return medianFloat64(dev)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func CalculateZoneStatsNative(

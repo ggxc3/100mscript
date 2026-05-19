@@ -457,16 +457,28 @@ func normalizeOperatorPair(mcc, mnc string) string {
 	return formatIntLikeString(mcc) + "_" + formatIntLikeString(mnc)
 }
 
-func buildAllSegmentZoneKeys(_ *ProcessedDataset, sortedStats []ZoneStat) ([]string, error) {
-	// Placeholder rows should only be created for segments that have at least one
-	// real measurement. Otherwise long no-GPS gaps are reintroduced as synthetic
-	// empty segments just because the path between two distant points is interpolated.
+func buildAllSegmentZoneKeys(ds *ProcessedDataset, sortedStats []ZoneStat) ([]string, error) {
 	out := []string{}
 	seen := map[string]bool{}
 	for _, zs := range sortedStats {
 		if !seen[zs.ZonaKey] {
 			seen[zs.ZonaKey] = true
 			out = append(out, zs.ZonaKey)
+		}
+	}
+	if ds != nil && len(ds.SegmentMeta) > 0 {
+		ids := make([]int, 0, len(ds.SegmentMeta))
+		for id := range ds.SegmentMeta {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+		for _, id := range ids {
+			key := fmt.Sprintf("segment_%d", id)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, key)
 		}
 	}
 	return out, nil
@@ -496,10 +508,10 @@ func appendEmptyZonesNative(
 	}
 
 	for _, zonaKey := range allZoneKeys {
-		if !measuredZoneKeys[zonaKey] {
+		if !measuredZoneKeys[zonaKey] && cfg.ZoneMode != "segments" {
 			// Include empty zones only for zones where at least one operator has
-			// a real measurement. Synthetic keys (for example from no-GPS gaps)
-			// must never produce generated rows.
+			// a real measurement. Segment mode also allows synthetic keys from
+			// interpolated no-measurement gaps when empty segments are requested.
 			continue
 		}
 		coords, ok := zoneLatLon[zonaKey]

@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+const csvSourceIndexColumn = "__100mscript_source_csv_index"
 
 // NormalizeInputPaths trims, drops empties, and removes duplicate paths (order preserved).
 func NormalizeInputPaths(paths []string) []string {
@@ -92,9 +95,17 @@ func buildColumnIndexByNormalizedName(columns []string) (map[string]int, error) 
 type CSVMergeOptions struct {
 	RequiredColumnNames  map[string]string
 	DisplayNameOverrides map[string]string
+	EquivalentColumnKeys map[string]string
 }
 
-func buildUnionColumns(loaded []*CSVData, displayOverrides map[string]string) ([]string, error) {
+func canonicalColumnKey(key string, equivalents map[string]string) string {
+	if v := equivalents[key]; v != "" {
+		return v
+	}
+	return key
+}
+
+func buildUnionColumns(loaded []*CSVData, displayOverrides map[string]string, equivalents map[string]string) ([]string, error) {
 	columns := []string(nil)
 	seen := map[string]struct{}{}
 	for _, d := range loaded {
@@ -105,7 +116,7 @@ func buildUnionColumns(loaded []*CSVData, displayOverrides map[string]string) ([
 			return nil, err
 		}
 		for _, col := range d.Columns {
-			key := normalizedColumnKey(col)
+			key := canonicalColumnKey(normalizedColumnKey(col), equivalents)
 			if key == "" {
 				continue
 			}
@@ -123,20 +134,24 @@ func buildUnionColumns(loaded []*CSVData, displayOverrides map[string]string) ([
 	return columns, nil
 }
 
-func validateRequiredColumnsInEveryFile(paths []string, loaded []*CSVData, required map[string]string) error {
+func validateRequiredColumnsInEveryFile(paths []string, loaded []*CSVData, required map[string]string, equivalents map[string]string) error {
 	if len(required) == 0 {
 		return nil
 	}
 	for i, data := range loaded {
-		index, err := buildColumnIndexByNormalizedName(data.Columns)
+		rawIndex, err := buildColumnIndexByNormalizedName(data.Columns)
 		if err != nil {
 			return fmt.Errorf("CSV %q má nejednoznačnú hlavičku: %w", paths[i], err)
+		}
+		index := map[string]int{}
+		for key, idx := range rawIndex {
+			index[canonicalColumnKey(key, equivalents)] = idx
 		}
 		for logicalKey, name := range required {
 			if strings.TrimSpace(name) == "" {
 				continue
 			}
-			if _, ok := index[normalizedColumnKey(name)]; !ok {
+			if _, ok := index[canonicalColumnKey(normalizedColumnKey(name), equivalents)]; !ok {
 				return fmt.Errorf("CSV %q neobsahuje povinný mapovaný stĺpec %s: %q", paths[i], logicalKey, name)
 			}
 		}
@@ -244,20 +259,20 @@ func loadAndMergeCSVFilesWithOptions(ctx context.Context, paths []string, opts C
 		if _, err := buildColumnIndexByNormalizedName(loaded[0].Columns); err != nil {
 			return nil, nil, nil, fmt.Errorf("CSV %q má nejednoznačnú hlavičku: %w", paths[0], err)
 		}
-		if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+		if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames, opts.EquivalentColumnKeys); err != nil {
 			return nil, nil, nil, err
 		}
 		out := loaded[0].clone()
 		return paths, loaded, out, nil
 	}
-	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames, opts.EquivalentColumnKeys); err != nil {
 		return nil, nil, nil, err
 	}
-	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides)
+	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides, opts.EquivalentColumnKeys)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
 	}
-	out, err := mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:])
+	out, err := mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:], opts.EquivalentColumnKeys)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -274,7 +289,7 @@ func LoadAndMergeCSVFiles(ctx context.Context, paths []string) (*CSVData, error)
 	return out, err
 }
 
-func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData) (*CSVData, error) {
+func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData, equivalents map[string]string) (*CSVData, error) {
 	totalRows := len(first.Rows)
 	for _, d := range rest {
 		totalRows += len(d.Rows)
@@ -282,7 +297,7 @@ func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData) (
 	loaded := append([]*CSVData{first}, rest...)
 	targetKeys := make([]string, len(columns))
 	for i, col := range columns {
-		targetKeys[i] = normalizedColumnKey(col)
+		targetKeys[i] = canonicalColumnKey(normalizedColumnKey(col), equivalents)
 	}
 	outRows := make([][]string, 0, totalRows)
 	for _, d := range loaded {
@@ -290,10 +305,17 @@ func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData) (
 		if err != nil {
 			return nil, err
 		}
+		canonicalSourceIndex := map[string]int{}
+		for key, idx := range sourceIndex {
+			canonicalKey := canonicalColumnKey(key, equivalents)
+			if _, exists := canonicalSourceIndex[canonicalKey]; !exists {
+				canonicalSourceIndex[canonicalKey] = idx
+			}
+		}
 		for _, row := range d.Rows {
 			out := make([]string, len(columns))
 			for targetIdx, key := range targetKeys {
-				srcIdx, ok := sourceIndex[key]
+				srcIdx, ok := canonicalSourceIndex[key]
 				if !ok || srcIdx >= len(row) {
 					continue
 				}
@@ -342,6 +364,30 @@ func displayOverridesFromMappingNames(mappingNames map[string]string) map[string
 	return out
 }
 
+func equivalentColumnKeysFromMappingNames(mappingNames map[string]string) map[string]string {
+	out := map[string]string{}
+	addAliasGroup := func(selected string, aliases []string) {
+		selected = strings.TrimSpace(selected)
+		if selected == "" {
+			return
+		}
+		canonical := normalizedColumnKey(selected)
+		if canonical == "" {
+			return
+		}
+		for _, alias := range aliases {
+			key := normalizedColumnKey(alias)
+			if key != "" {
+				out[key] = canonical
+			}
+		}
+		out[canonical] = canonical
+	}
+	addAliasGroup(mappingNames["rsrp"], []string{"SSS-RSRP", "SS-RSRP", "NR-SS-RSRP", "RSRP"})
+	addAliasGroup(mappingNames["sinr"], []string{"SSS-SINR", "SS-SINR", "NR-SS-SINR", "SINR"})
+	return out
+}
+
 func requiredMappingNames(mappingNames map[string]string) map[string]string {
 	required := map[string]string{}
 	for _, key := range []string{"latitude", "longitude", "frequency", "pci", "mcc", "mnc", "rsrp"} {
@@ -372,12 +418,28 @@ func resolveColumnMappingIndexes(columns []string, mappingNames map[string]strin
 	return out, nil
 }
 
+func appendCSVSourceIndexColumn(data *CSVData, loaded []*CSVData) *CSVData {
+	if data == nil || len(loaded) <= 1 {
+		return data
+	}
+	out := data.clone()
+	out.Columns = append(out.Columns, csvSourceIndexColumn)
+	rowOffset := 0
+	for sourceIdx, loadedData := range loaded {
+		for i := 0; i < len(loadedData.Rows) && rowOffset+i < len(out.Rows); i++ {
+			out.Rows[rowOffset+i] = append(out.Rows[rowOffset+i], strconv.Itoa(sourceIdx))
+		}
+		rowOffset += len(loadedData.Rows)
+	}
+	return out
+}
+
 func LoadAndMergeCSVFilesForProcessing(ctx context.Context, paths []string, cfg ProcessingConfig) (*CSVData, map[string]int, error) {
 	paths, loaded, err := loadCSVFilesForMerge(ctx, paths)
 	if err != nil {
 		return nil, nil, err
 	}
-	previewColumns, err := buildUnionColumns(loaded, nil)
+	previewColumns, err := buildUnionColumns(loaded, nil, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
 	}
@@ -388,11 +450,12 @@ func LoadAndMergeCSVFilesForProcessing(ctx context.Context, paths []string, cfg 
 	opts := CSVMergeOptions{
 		RequiredColumnNames:  requiredMappingNames(mappingNames),
 		DisplayNameOverrides: displayOverridesFromMappingNames(mappingNames),
+		EquivalentColumnKeys: equivalentColumnKeysFromMappingNames(mappingNames),
 	}
-	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames); err != nil {
+	if err := validateRequiredColumnsInEveryFile(paths, loaded, opts.RequiredColumnNames, opts.EquivalentColumnKeys); err != nil {
 		return nil, nil, err
 	}
-	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides)
+	mergedColumns, err := buildUnionColumns(loaded, opts.DisplayNameOverrides, opts.EquivalentColumnKeys)
 	if err != nil {
 		return nil, nil, fmt.Errorf("CSV súbory nie sú kompatibilné: %w", err)
 	}
@@ -400,7 +463,7 @@ func LoadAndMergeCSVFilesForProcessing(ctx context.Context, paths []string, cfg 
 	if len(loaded) == 1 {
 		out = loaded[0].clone()
 	} else {
-		out, err = mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:])
+		out, err = mergeCSVDataRowsByName(mergedColumns, loaded[0], loaded[1:], opts.EquivalentColumnKeys)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -408,6 +471,7 @@ func LoadAndMergeCSVFilesForProcessing(ctx context.Context, paths []string, cfg 
 		out.FileInfo.OriginalHeader = strings.Join(out.Columns, ";")
 		out.InputRadioTech = DetectInputRadioTech(out.Columns)
 	}
+	out = appendCSVSourceIndexColumn(out, loaded)
 	resolvedMapping, err := resolveColumnMappingIndexes(out.Columns, mappingNames)
 	if err != nil {
 		return nil, nil, err

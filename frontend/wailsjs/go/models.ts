@@ -168,11 +168,11 @@ export namespace main {
 	export class CSVPreviewFileSchema {
 	    filePath: string;
 	    columns: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CSVPreviewFileSchema(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.filePath = source["filePath"];
@@ -206,7 +206,7 @@ export namespace main {
 	        this.suggestedMapping = source["suggestedMapping"];
 	        this.inputRadioTech = source["inputRadioTech"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -225,6 +225,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class DefaultOutputPathsResult {
 	    zones: string;
 	    stats: string;
@@ -241,3 +242,4 @@ export namespace main {
 	}
 
 }
+
