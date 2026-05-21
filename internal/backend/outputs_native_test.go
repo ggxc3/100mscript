@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestRunProcessingExportsNRAsBinaryValues(t *testing.T) {
+func TestRunProcessingExportsNRAsYesNoValues(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -65,8 +65,8 @@ func TestRunProcessingExportsNRAsBinaryValues(t *testing.T) {
 		t.Fatalf("5G NR column missing in zones header: %q", headerLine)
 	}
 
-	sawOne := false
-	sawZero := false
+	sawYes := false
+	sawNo := false
 	for _, line := range lines[2:] {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -77,20 +77,17 @@ func TestRunProcessingExportsNRAsBinaryValues(t *testing.T) {
 		}
 		val := strings.TrimSpace(parts[nrIdx])
 		switch val {
-		case "1":
-			sawOne = true
-		case "0":
-			sawZero = true
+		case "yes":
+			sawYes = true
+		case "no":
+			sawNo = true
 		default:
 			t.Fatalf("unexpected 5G NR export value %q in row: %q", val, line)
 		}
 	}
 
-	if !sawOne || !sawZero {
-		t.Fatalf("expected both NR values 1 and 0 in export, got sawOne=%v sawZero=%v", sawOne, sawZero)
-	}
-	if strings.Contains(content, ";yes;") || strings.Contains(content, ";no;") {
-		t.Fatalf("zones export still contains textual NR values: %q", content)
+	if !sawYes || !sawNo {
+		t.Fatalf("expected both NR values yes and no in export, got sawYes=%v sawNo=%v", sawYes, sawNo)
 	}
 }
 

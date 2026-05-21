@@ -223,16 +223,15 @@ func syncMobileNRFromNSALTECSVNative(
 
 	rowsYes, rowsNo, rowsBlank := 0, 0, 0
 	for i := range out.Rows {
-		val := ""
+		val := "no"
 		switch windowScores[i] {
 		case 2:
 			val = "yes"
 			rowsYes++
 		case 1:
-			val = "no"
 			rowsNo++
 		default:
-			rowsBlank++
+			rowsNo++
 		}
 		if nrIdx >= len(out.Rows[i]) {
 			padded := make([]string, nrIdx+1)

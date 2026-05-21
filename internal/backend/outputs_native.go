@@ -380,14 +380,10 @@ func buildExportRowValues(layout zoneExportLayout, baseRowMap map[string]string)
 }
 
 func normalizeNRExportValue(val string) string {
-	switch normalizeNRValueNative(val) {
-	case "yes":
-		return "1"
-	case "no":
-		return "0"
-	default:
-		return strings.TrimSpace(val)
+	if normalizeNRValueNative(val) == "yes" {
+		return "yes"
 	}
+	return "no"
 }
 
 func normalizePandasCoordinateString(s string) string {

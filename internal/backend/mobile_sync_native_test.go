@@ -17,7 +17,8 @@ func TestSyncMobileNRFromNSALTECSVNative_fillsNRFromLTE(t *testing.T) {
 
 	fiveG := "" +
 		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;Date;Time;5G NR\n" +
-		"48.148600;17.107700;3500;10;231;01;-100;05.02.2026;10:00:00;\n"
+		"48.148600;17.107700;3500;10;231;01;-100;05.02.2026;10:00:00;\n" +
+		"48.148700;17.107800;3500;11;231;01;-101;05.02.2026;10:05:00;\n"
 	lte := "" +
 		"MCC;MNC;5G NR;Date;Time\n" +
 		"231;01;yes;05.02.2026;10:00:00\n"
@@ -43,7 +44,7 @@ func TestSyncMobileNRFromNSALTECSVNative_fillsNRFromLTE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.RowsYes != 1 || st.RowsWithMatch < 1 {
+	if st.RowsYes != 1 || st.RowsNo != 1 || st.RowsBlank != 0 || st.RowsWithMatch < 1 {
 		t.Fatalf("stats: %+v", st)
 	}
 	nrIdx := out.columnIndexByName("5G NR")
@@ -52,6 +53,9 @@ func TestSyncMobileNRFromNSALTECSVNative_fillsNRFromLTE(t *testing.T) {
 	}
 	if strings.TrimSpace(out.Rows[0][nrIdx]) != "yes" {
 		t.Fatalf("expected NR yes, got %q", out.Rows[0][nrIdx])
+	}
+	if strings.TrimSpace(out.Rows[1][nrIdx]) != "no" {
+		t.Fatalf("expected unmatched NR row to be no, got %q", out.Rows[1][nrIdx])
 	}
 }
 
