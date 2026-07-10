@@ -62,7 +62,7 @@ func (a *App) PickMobileNSALTECSVPaths() ([]string, error) {
 		return nil, fmt.Errorf("aplikacia nie je inicializovana")
 	}
 	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Vyber jeden alebo viac NSA LTE CSV súborov (rovnaká štruktúra)",
+		Title: "Vyber jeden alebo viac kompatibilných NSA LTE CSV súborov",
 		Filters: []wailsruntime.FileFilter{
 			{DisplayName: "CSV files (*.csv)", Pattern: "*.csv"},
 			{DisplayName: "All files", Pattern: "*"},
@@ -240,7 +240,7 @@ func (a *App) PickInputCSVPaths() ([]string, error) {
 		return nil, fmt.Errorf("aplikacia nie je inicializovana")
 	}
 	files, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Vyber jeden alebo viac CSV súborov (rovnaká štruktúra)",
+		Title: "Vyber jeden alebo viac kompatibilných CSV súborov",
 		Filters: []wailsruntime.FileFilter{
 			{DisplayName: "CSV files (*.csv)", Pattern: "*.csv"},
 			{DisplayName: "All files", Pattern: "*"},

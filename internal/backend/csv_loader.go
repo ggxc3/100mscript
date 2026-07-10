@@ -2,7 +2,9 @@ package backend
 
 import (
 	"bufio"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -31,7 +33,19 @@ type textDecoder struct {
 
 func splitSemicolonColumns(line string) []string {
 	trimmed := strings.TrimRight(line, "\r\n")
-	cols := strings.Split(trimmed, ";")
+	reader := csv.NewReader(strings.NewReader(trimmed))
+	reader.Comma = ';'
+	reader.FieldsPerRecord = -1
+	// Field-measurement exports are occasionally only partially quoted. LazyQuotes
+	// keeps those files readable while still correctly handling fully quoted values
+	// and semicolons embedded inside a quoted metadata field.
+	reader.LazyQuotes = true
+	cols, err := reader.Read()
+	if err != nil && err != io.EOF {
+		// Retain the legacy best-effort behavior for a malformed individual row;
+		// later width and numeric validation will still surface unusable data.
+		cols = strings.Split(trimmed, ";")
+	}
 	for len(cols) > 0 && cols[len(cols)-1] == "" {
 		cols = cols[:len(cols)-1]
 	}
@@ -63,7 +77,47 @@ func hasTabularFollowup(lines []string, startIndex, expectedColumns, minColumns 
 	return false
 }
 
+func isKnownMeasurementHeader(columns []string) bool {
+	tokens := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if token := normalizeHeaderToken(column); token != "" {
+			tokens[token] = struct{}{}
+		}
+	}
+	hasAny := func(candidates ...string) bool {
+		for _, candidate := range candidates {
+			if _, ok := tokens[normalizeHeaderToken(candidate)]; ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	// A recognizable main measurement header can be accepted even when the file
+	// has only one row after it.
+	mainHeader := hasAny("Latitude", "Lat") &&
+		hasAny("Longitude", "Lon", "Lng") &&
+		hasAny("MCC") && hasAny("MNC") &&
+		hasAny("SSS-RSRP", "SS-RSRP", "NR-SS-RSRP", "RSRP")
+	if mainHeader {
+		return true
+	}
+
+	// Minimal NSA LTE sync exports often contain only four or five columns, below
+	// the generic six-column heuristic used for unknown CSV schemas.
+	return hasAny("MCC") && hasAny("MNC") && hasAny("5G NR", "5GNR", "NR") &&
+		(hasAny("UTC") || (hasAny("Date") && hasAny("Time")))
+}
+
 func findTabularHeader(lines []string, minColumns int) (int, string) {
+	// Prefer a semantically recognizable header over metadata-preamble rows. This
+	// also supports minimal LTE files and files with a single measurement row.
+	for i, line := range lines {
+		if isKnownMeasurementHeader(splitSemicolonColumns(line)) {
+			return i, strings.TrimSpace(line)
+		}
+	}
+
 	firstCandidateIndex := -1
 	firstCandidateLine := ""
 
@@ -126,6 +180,10 @@ func defaultTextDecoders() []textDecoder {
 func splitLinesPreserveEmpty(text string) []string {
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	scanner.Split(bufio.ScanLines)
+	// Scanner's 64 KiB default token limit can truncate wide measurement exports
+	// without returning any rows after the offending line. Device CSVs may carry
+	// large diagnostic/metadata fields, so allow a generously sized record.
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	lines := make([]string, 0, 1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())

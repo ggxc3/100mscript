@@ -75,6 +75,7 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 			cfg.MobileTimeToleranceMS,
 			rules,
 			cfg.KeepOriginalRows,
+			paths,
 		)
 		if err != nil {
 			return ProcessingResult{}, err

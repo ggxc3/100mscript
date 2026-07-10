@@ -88,10 +88,11 @@ Program skúša dekódovať súbor v tomto poradí: UTF-8 (striktná validácia)
 
 ### Hľadanie hlavičky
 
-Za hlavičku sa považuje prvý riadok s minimálne 6 stĺpcami (oddelených bodkočiarkou), za ktorým nasledujú aspoň 2 dátové riadky s podobným počtom stĺpcov (z najbližších 25 neprázdnych riadkov).
+Pri neznámej schéme sa za hlavičku považuje prvý riadok s minimálne 6 stĺpcami (oddelenými bodkočiarkou), za ktorým nasledujú aspoň 2 dátové riadky s podobným počtom stĺpcov (z najbližších 25 neprázdnych riadkov). Rozpoznateľná meracia alebo minimálna NSA LTE hlavička sa prijme aj so 4–5 stĺpcami a jediným dátovým riadkom.
 
 ### Normalizácia schémy
 
+- Hodnoty aj hlavičky môžu byť CSV-quoted; bodkočiarka vo vnútri úvodzoviek sa nepovažuje za oddeľovač.
 - Trailing prázdne stĺpce po `;` sa orezávajú.
 - Ak dátové riadky majú viac polí ako hlavička, doplnia sa stĺpce `extra_col_1`, `extra_col_2` atď.
 - Duplicitné názvy stĺpcov sa disambiguujú: `name`, `name_2`, `name_3`.
@@ -103,7 +104,7 @@ Pri viacerých vstupných CSV sa vytvorí kanonická schéma ako únia stĺpcov 
 
 Porovnávanie názvov je normalizované: ignoruje sa veľkosť písmen, medzery a znaky ako `-` alebo `_`. Napríklad `Longi-tude`, `longi_tude` a `LONGITUDE` sa považujú za rovnaký stĺpec. Ak jeden súbor obsahuje dva stĺpce, ktoré sú po normalizácii rovnaké, spracovanie skončí chybou, aby sa nevybral nesprávny zdroj hodnoty.
 
-Povinné mapované stĺpce (`latitude`, `longitude`, `frequency`, `pci`, `mcc`, `mnc`, `rsrp`) musia byť dostupné v každom vstupnom CSV. Voliteľné stĺpce a ostatné stĺpce z union schémy môžu v niektorom súbore chýbať; vtedy sa do výsledného datasetu doplní prázdna hodnota. Ak súbory obsahujú časové údaje (UTC alebo Date + Time), riadky sa po zlúčení zoradia chronologicky.
+Povinné mapované stĺpce (`latitude`, `longitude`, `frequency`, `pci`, `mcc`, `mnc`, `rsrp`) musia byť dostupné v každom vstupnom CSV. Bežné názvy toho istého logického poľa sa medzi exportmi rôznych meračov považujú za ekvivalentné (`Latitude`/`Lat`, `Longitude`/`Lon`/`Lng`, `Frequency`/`NR-ARFCN`/`EARFCN`, ako aj varianty RSRP a SINR uvedené nižšie). Ak súbor obsahuje zároveň viac takýchto aliasov, prednosť má presný stĺpec vybraný používateľom. Voliteľné stĺpce a ostatné stĺpce z union schémy môžu v niektorom súbore chýbať; vtedy sa do výsledného datasetu doplní prázdna hodnota. Ak súbory obsahujú časové údaje (UTC alebo Date + Time), riadky sa po zlúčení zoradia chronologicky.
 
 Príklad pre rôzne poradie:
 
@@ -204,10 +205,10 @@ Mobile režim slúži na doplnenie informácie o 5G NR pokrytí do 5G datasetu n
 
 ### Prevod času na milisekundy
 
-Stratégie v poradí priority:
-1. **UTC ako číslo** -- ak sú hodnoty v stĺpci UTC parsovateľné ako float, určí sa faktor: ak medián absolútnych hodnôt >= 1e11, ide o milisekundy (faktor 1), inak o sekundy (faktor 1000).
-2. **UTC ako datetime string** -- skúšajú sa formáty: `YYYY-MM-DD HH:MM:SS.nnn`, `D.M.YYYY HH:MM:SS`, `DD.MM.YYYY HH:MM:SS`, RFC3339 a ďalšie.
-3. **Date + Time stĺpce** -- kombinácia stĺpcov Date a Time.
+Čas sa vyhodnocuje samostatne pre každý riadok, takže v jednej dávke môžu byť exporty z rôznych meračov aj v rôznych formátoch:
+1. **Date + Time stĺpce** -- preferovaná kombinácia dátumu a času, ak je na danom riadku platná.
+2. **UTC ako číslo** -- fallback pre daný riadok; automaticky sa rozpoznajú epoch sekundy, milisekundy, mikrosekundy aj nanosekundy.
+3. **UTC ako datetime string** -- fallback pre daný riadok; skúšajú sa formáty `YYYY-MM-DD HH:MM:SS.nnn`, `D.M.YYYY HH:MM:SS`, `DD.MM.YYYY HH:MM:SS`, RFC3339 a ďalšie.
 
 Časová zóna: `Europe/Bratislava` (ak dostupná), inak lokálna.
 
@@ -231,7 +232,9 @@ Hľadanie prebieha najprv podľa presnej zhody MCC+MNC. Ak 5G riadok nemá MCC/M
 
 - NSA LTE súbor musí obsahovať stĺpce MCC, MNC a 5G NR (alebo alias 5GNR, NR).
 - NSA LTE súbor musí obsahovať aspoň jeden riadok s `5G NR = yes`.
-- Oba súbory musia mať parsovateľný čas.
+- Každý vybraný NSA LTE súbor musí mať aspoň jeden použiteľný riadok s časom, MCC, MNC a hodnotou 5G NR `yes` alebo `no`.
+- Každý hlavný vstupný CSV zdroj musí mať parsovateľný čas a aspoň jednu MCC/MNC + časovú zhodu; neplatný alebo úplne nezosynchronizovaný zdroj sa ohlási konkrétnou cestou.
+- Ak sa medzi 5G a NSA LTE dátami nenájde ani jedna časová zhoda v nastavenej tolerancii, spracovanie skončí jasnou chybou namiesto tichého označenia všetkých riadkov ako `no`.
 
 ---
 
@@ -285,7 +288,7 @@ Pri viacerých vstupných CSV sa nevytvára jedna časovo zoradená línia. Kaž
 - Dlhá medzera medzi nadväzujúcimi trackmi sa ponechá v spoločnej vzdialenosti po trase aj vtedy, keď je vypnuté generovanie prázdnych úsekov. V QGIS potom bude viditeľná medzera medzi meranými segmentmi.
 - Ak je zapnuté generovanie prázdnych úsekov, rovnaká medzera sa navyše vyplní prázdnymi 100 m úsekmi. Tento režim pokrýva tunely, výpadky GPS alebo úseky bez meraní.
 
-Na priradenie prekrývajúcich sa bodov sa používa tolerancia 75 m od spoločnej trasy. Ak sa track polohovo neprekrýva s už známou trasou, pripojí sa cez najbližší koncový bod ako pokračovanie trasy; prázdne úseky rozhodujú iba o tom, či sa chýbajúce segmenty v medzere aj zapíšu do exportu.
+Na priradenie prekrývajúcich sa bodov sa používa tolerancia 75 m od spoločnej trasy. Tracky sa pre porovnanie vzorkujú rovnomerne podľa prejdenej vzdialenosti, takže rozdielny počet opakovaných GPS riadkov pri státí neovplyvní zladenie meračov. Ak sa track polohovo neprekrýva s už známou trasou, pripojí sa cez najbližší koncový bod ako pokračovanie trasy; orientácia sa odvodí z konkrétneho pripájaného konca aj vtedy, keď bol nadväzujúci úsek zaznamenaný opačným smerom. Prázdne úseky rozhodujú iba o tom, či sa chýbajúce segmenty v medzere aj zapíšu do exportu.
 
 Kľúč zóny: `segment_<id>`. Súradnice zóny: interpolovaný začiatok úseku.
 

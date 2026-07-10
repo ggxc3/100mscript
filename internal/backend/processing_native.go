@@ -49,6 +49,7 @@ type rawParsed struct {
 const (
 	commonRoutePointToleranceM = 75.0
 	commonRouteMaxSamples      = 2000
+	segmentEndpointCumEpsilon  = 1e-9
 )
 
 type ZoneStat struct {
@@ -480,6 +481,8 @@ func alignTrackToKnown(known segmentTrack, knownAssignment segmentTrackAssignmen
 	best := segmentAlignment{}
 	for _, reversed := range []bool{false, true} {
 		deltas := []float64{}
+		matchedKnown := map[int]struct{}{}
+		matchedUnknown := map[int]struct{}{}
 		for _, us := range unknownSamples {
 			cx, cy := segmentCell(us.x, us.y, commonRoutePointToleranceM)
 			for dx := -1; dx <= 1; dx++ {
@@ -489,6 +492,8 @@ func alignTrackToKnown(known segmentTrack, knownAssignment segmentTrackAssignmen
 						if math.Hypot(ks.x-us.x, ks.y-us.y) > commonRoutePointToleranceM {
 							continue
 						}
+						matchedKnown[ks.pointIndex] = struct{}{}
+						matchedUnknown[us.pointIndex] = struct{}{}
 						unknownCum := us.cum
 						if reversed {
 							unknownCum = unknown.length - us.cum
@@ -498,7 +503,12 @@ func alignTrackToKnown(known segmentTrack, knownAssignment segmentTrackAssignmen
 				}
 			}
 		}
-		if len(deltas) < minInt(3, minInt(len(knownSamples), len(unknownSamples))) {
+		// Two distinct points on each track are enough to establish an offset and
+		// orientation for a short partial overlap. Counting distinct samples (not
+		// every nearby pair) prevents a long stationary burst at one GPS position
+		// from masquerading as a real route overlap.
+		requiredCorrespondences := minInt(2, minInt(len(knownSamples), len(unknownSamples)))
+		if len(matchedKnown) < requiredCorrespondences || len(matchedUnknown) < requiredCorrespondences {
 			continue
 		}
 		offset := medianFloat64(deltas)
@@ -561,6 +571,19 @@ func connectTrackToKnownEndpoint(tracks []segmentTrack, assignments []segmentTra
 			}
 			for _, ke := range knownEnds {
 				for _, ue := range unknownEnds {
+					// A track attached after the known route's maximum global
+					// distance must start at the joining endpoint. Conversely, a
+					// track attached before the minimum must end there. Without
+					// this constraint both orientations have the same endpoint
+					// distance and the loop order incorrectly favors reversed=false,
+					// which can fold a reverse-recorded continuation back over the
+					// known segment IDs.
+					if ke.routeEnd > 0 && math.Abs(ue.cum) > segmentEndpointCumEpsilon {
+						continue
+					}
+					if ke.routeEnd < 0 && math.Abs(ue.cum-unknown.length) > segmentEndpointCumEpsilon {
+						continue
+					}
 					dist := math.Hypot(ke.point.x-ue.point.x, ke.point.y-ue.point.y)
 					if dist >= best.distance {
 						continue
@@ -590,31 +613,47 @@ func sampleSegmentTrack(track segmentTrack, assignment segmentTrackAssignment) [
 	if n == 0 {
 		return nil
 	}
-	step := 1
-	if n > commonRouteMaxSamples {
-		step = int(math.Ceil(float64(n) / float64(commonRouteMaxSamples)))
-	}
-	out := make([]segmentSample, 0, n/step+1)
-	for i := 0; i < n; i += step {
-		p := track.points[i]
-		out = append(out, segmentSample{
-			pointIndex: i,
+	targetCount := minInt(n, commonRouteMaxSamples)
+	out := make([]segmentSample, 0, targetCount)
+	appendIndex := func(index int) {
+		p := track.points[index]
+		candidate := segmentSample{
+			pointIndex: index,
 			x:          p.x,
 			y:          p.y,
-			cum:        track.cum[i],
-			global:     segmentGlobalDistance(track, assignment, i),
-		})
+			cum:        track.cum[index],
+			global:     segmentGlobalDistance(track, assignment, index),
+		}
+		if len(out) > 0 {
+			previous := out[len(out)-1]
+			if previous.pointIndex == candidate.pointIndex ||
+				(math.Abs(previous.cum-candidate.cum) <= segmentEndpointCumEpsilon &&
+					math.Hypot(previous.x-candidate.x, previous.y-candidate.y) <= segmentEndpointCumEpsilon) {
+				return
+			}
+		}
+		out = append(out, candidate)
 	}
-	if last := n - 1; out[len(out)-1].pointIndex != last {
-		p := track.points[last]
-		out = append(out, segmentSample{
-			pointIndex: last,
-			x:          p.x,
-			y:          p.y,
-			cum:        track.cum[last],
-			global:     segmentGlobalDistance(track, assignment, last),
-		})
+
+	if targetCount == 1 || track.length <= segmentEndpointCumEpsilon {
+		appendIndex(0)
+		return out
 	}
+	// Sample uniformly by travelled distance, not by input row number. Different
+	// meters often emit radically different numbers of repeated stationary GPS
+	// rows; index-based sampling let those bursts dominate alignment scoring.
+	for sampleIndex := 0; sampleIndex < targetCount; sampleIndex++ {
+		target := track.length * float64(sampleIndex) / float64(targetCount-1)
+		index := sort.Search(n, func(i int) bool { return track.cum[i] >= target })
+		if index >= n {
+			index = n - 1
+		}
+		if index > 0 && math.Abs(track.cum[index-1]-target) < math.Abs(track.cum[index]-target) {
+			index--
+		}
+		appendIndex(index)
+	}
+	appendIndex(n - 1)
 	return out
 }
 

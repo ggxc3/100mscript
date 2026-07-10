@@ -184,7 +184,8 @@ func SaveZoneResultsNative(
 	}
 
 	layout := buildZoneExportLayout(ds, cfg)
-	lines := []string{"", strings.Join(layout.exportHeaderCols, ";") + ";Riadky_v_zone;Frekvencie_v_zone"}
+	headerFields := append(append([]string(nil), layout.exportHeaderCols...), "Riadky_v_zone", "Frekvencie_v_zone")
+	lines := []string{"", joinSemicolonCSVFields(headerFields)}
 
 	type sampleKey struct {
 		zonaOperatorKey string
@@ -265,7 +266,7 @@ func SaveZoneResultsNative(
 		rowValues := buildExportRowValues(layout, baseRowMap)
 		excelRowsStr := joinInts(zs.OriginalExcelRows, ",")
 		freqsStr := strings.Join(uniqueSortedStrings(zs.VsetkyFrekvencie), ",")
-		lines = append(lines, strings.Join(rowValues, ";")+";"+excelRowsStr+";"+freqsStr+fmt.Sprintf(" # Meraní: %d", zs.PocetMerani))
+		lines = append(lines, joinSemicolonCSVFields(rowValues)+";"+excelRowsStr+";"+freqsStr+fmt.Sprintf(" # Meraní: %d", zs.PocetMerani))
 	}
 
 	allZoneKeys := uniqueZonesOrdered
@@ -306,10 +307,10 @@ func buildZoneExportLayout(ds *ProcessedDataset, cfg ProcessingConfig) zoneExpor
 	if headerLine == "" || !strings.Contains(headerLine, ";") {
 		headerLine = strings.Join(ds.Columns, ";")
 	}
-	origHeaderCols := strings.Split(headerLine, ";")
-	for len(origHeaderCols) > 0 && origHeaderCols[len(origHeaderCols)-1] == "" {
-		origHeaderCols = origHeaderCols[:len(origHeaderCols)-1]
-	}
+	// Use the same quote-aware parser as the loader. Otherwise a device export
+	// with quoted headers ("latitude";"longitude";...) would load correctly but
+	// fail to map those columns back into the zones export.
+	origHeaderCols := splitSemicolonColumns(headerLine)
 	nrCandidates := []string{"5G NR", "5GNR", "NR"}
 	if v := strings.TrimSpace(cfg.MobileNRColumnName); v != "" {
 		nrCandidates = append([]string{v}, nrCandidates...)
@@ -377,6 +378,18 @@ func buildExportRowValues(layout zoneExportLayout, baseRowMap map[string]string)
 		}
 	}
 	return rowValues
+}
+
+func joinSemicolonCSVFields(fields []string) string {
+	encoded := make([]string, len(fields))
+	for i, field := range fields {
+		if strings.ContainsAny(field, ";\"\r\n") {
+			encoded[i] = `"` + strings.ReplaceAll(field, `"`, `""`) + `"`
+		} else {
+			encoded[i] = field
+		}
+	}
+	return strings.Join(encoded, ";")
 }
 
 func normalizeNRExportValue(val string) string {
@@ -535,7 +548,7 @@ func appendEmptyZonesNative(
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
 				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
 			}
-			lines = append(lines, strings.Join(rowValues, ";")+";;"+comment)
+			lines = append(lines, joinSemicolonCSVFields(rowValues)+";;"+comment)
 		}
 	}
 	return lines, processedZonaOperators
@@ -605,7 +618,7 @@ func appendCustomOperatorsNative(
 			if cfg.ZoneMode == "segments" {
 				comment = " # Prázdny úsek - vlastný operátor"
 			}
-			lines = append(lines, strings.Join(rowValues, ";")+";;"+comment)
+			lines = append(lines, joinSemicolonCSVFields(rowValues)+";;"+comment)
 			addedRows++
 		}
 	}

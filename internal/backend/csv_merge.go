@@ -301,15 +301,26 @@ func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData, e
 	}
 	outRows := make([][]string, 0, totalRows)
 	for _, d := range loaded {
-		sourceIndex, err := buildColumnIndexByNormalizedName(d.Columns)
-		if err != nil {
+		canonicalSourceIndex := map[string]int{}
+		canonicalSourceIsExact := map[string]bool{}
+		if _, err := buildColumnIndexByNormalizedName(d.Columns); err != nil {
 			return nil, err
 		}
-		canonicalSourceIndex := map[string]int{}
-		for key, idx := range sourceIndex {
-			canonicalKey := canonicalColumnKey(key, equivalents)
-			if _, exists := canonicalSourceIndex[canonicalKey]; !exists {
+		// Walk columns in their stable source order. Iterating the normalized-index
+		// map made alias selection random whenever a file contained both the mapped
+		// name and one of its equivalents (for example SSS-RSRP and RSRP).
+		// Prefer an exact canonical column; otherwise keep the first alias.
+		for idx, col := range d.Columns {
+			rawKey := normalizedColumnKey(col)
+			if rawKey == "" {
+				continue
+			}
+			canonicalKey := canonicalColumnKey(rawKey, equivalents)
+			exact := rawKey == canonicalKey
+			_, exists := canonicalSourceIndex[canonicalKey]
+			if !exists || (exact && !canonicalSourceIsExact[canonicalKey]) {
 				canonicalSourceIndex[canonicalKey] = idx
+				canonicalSourceIsExact[canonicalKey] = exact
 			}
 		}
 		for _, row := range d.Rows {
@@ -383,6 +394,9 @@ func equivalentColumnKeysFromMappingNames(mappingNames map[string]string) map[st
 		}
 		out[canonical] = canonical
 	}
+	addAliasGroup(mappingNames["latitude"], []string{"Latitude", "Lat"})
+	addAliasGroup(mappingNames["longitude"], []string{"Longitude", "Lon", "Lng"})
+	addAliasGroup(mappingNames["frequency"], []string{"Frequency", "NR-ARFCN", "EARFCN"})
 	addAliasGroup(mappingNames["rsrp"], []string{"SSS-RSRP", "SS-RSRP", "NR-SS-RSRP", "RSRP"})
 	addAliasGroup(mappingNames["sinr"], []string{"SSS-SINR", "SS-SINR", "NR-SS-SINR", "SINR"})
 	return out

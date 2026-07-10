@@ -15,8 +15,8 @@ func normalizeHeaderToken(value string) string {
 
 func suggestColumnMappingFromHeaders(columns []string) map[string]int {
 	candidates := map[string][]string{
-		"latitude":  {"Latitude"},
-		"longitude": {"Longitude"},
+		"latitude":  {"Latitude", "Lat"},
+		"longitude": {"Longitude", "Lon", "Lng"},
 		"frequency": {"NR-ARFCN", "EARFCN", "Frequency"},
 		"pci":       {"PCI"},
 		"mcc":       {"MCC"},

@@ -112,6 +112,7 @@ function buildProcessingPhaseRows(cfg: backend.ProcessingConfig): PhaseRow[] {
 }
 
 const PREVIEW_AUTOLOAD_MS = 420;
+const PREVIEW_LOAD_TIMEOUT_MS = 5 * 60 * 1000;
 const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "latitude", label: "Latitude" },
   { key: "longitude", label: "Longitude" },
@@ -123,6 +124,17 @@ const COLUMN_FIELDS: Array<{ key: ColumnKey; label: string }> = [
   { key: "sinr", label: "SINR" },
 ];
 const REQUIRED_COLUMN_FIELDS = COLUMN_FIELDS.filter((field) => field.key !== "sinr");
+// Keep these groups aligned with backend equivalentColumnKeysFromMappingNames.
+const COLUMN_HEADER_ALIASES: Record<ColumnKey, readonly string[]> = {
+  latitude: ["Latitude", "Lat"],
+  longitude: ["Longitude", "Lon", "Lng"],
+  frequency: ["Frequency", "NR-ARFCN", "EARFCN"],
+  pci: ["PCI"],
+  mcc: ["MCC"],
+  mnc: ["MNC"],
+  rsrp: ["SSS-RSRP", "SS-RSRP", "NR-SS-RSRP", "RSRP"],
+  sinr: ["SSS-SINR", "SS-SINR", "NR-SS-SINR", "SINR"],
+};
 
 /** Hodnoty z backendu: 5g | lte | unknown */
 function inputRadioTechUiLabel(tech: string | undefined | null): string {
@@ -148,6 +160,11 @@ function pathsMatchPreview(paths: string[], preview: main.CSVPreview | null): bo
   return paths.every((p, i) => p === fromPreview[i]);
 }
 
+function pathsStateKey(paths: string[]): string {
+  // JSON encoding avoids collisions for otherwise valid paths containing newlines.
+  return JSON.stringify(paths);
+}
+
 function normalizeColumnNameForMatch(name: string): string {
   return name
     .trim()
@@ -158,6 +175,33 @@ function normalizeColumnNameForMatch(name: string): string {
 function shortPathName(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   return normalized.split("/").filter(Boolean).pop() ?? filePath;
+}
+
+type SchemaColumnMatch =
+  | { status: "matched"; column: string }
+  | { status: "missing" }
+  | { status: "ambiguous"; columns: string[] };
+
+function matchMappedColumnInSchema(columns: string[], field: ColumnKey, selectedName: string): SchemaColumnMatch {
+  const selectedKey = normalizeColumnNameForMatch(selectedName);
+  const exactMatches = columns.filter((column) => normalizeColumnNameForMatch(column) === selectedKey);
+  if (exactMatches.length === 1) {
+    return { status: "matched", column: exactMatches[0] };
+  }
+  if (exactMatches.length > 1) {
+    return { status: "ambiguous", columns: exactMatches };
+  }
+
+  const aliasKeys = new Set(COLUMN_HEADER_ALIASES[field].map(normalizeColumnNameForMatch));
+  aliasKeys.delete(selectedKey);
+  const aliasMatches = columns.filter((column) => aliasKeys.has(normalizeColumnNameForMatch(column)));
+  if (aliasMatches.length === 1) {
+    return { status: "matched", column: aliasMatches[0] };
+  }
+  if (aliasMatches.length > 1) {
+    return { status: "ambiguous", columns: aliasMatches };
+  }
+  return { status: "missing" };
 }
 
 function mappingComplete(ui: UIState): boolean {
@@ -188,27 +232,36 @@ function validateMappedColumnsAcrossFiles(state: UIState): MappingValidationResu
 
   const missingRequired: string[] = [];
   const missingOptional: string[] = [];
+  const ambiguous: string[] = [];
   for (const schema of fileSchemas) {
-    const normalized = new Set(schema.columns.map(normalizeColumnNameForMatch).filter((name) => name.length > 0));
     for (const field of REQUIRED_COLUMN_FIELDS) {
       const idx = state.columnMapping[field.key];
       if (typeof idx !== "number" || Number.isNaN(idx) || idx < 0 || idx >= state.preview.columns.length) {
         continue;
       }
       const selectedName = state.preview.columns[idx];
-      if (!normalized.has(normalizeColumnNameForMatch(selectedName))) {
+      const match = matchMappedColumnInSchema(schema.columns, field.key, selectedName);
+      if (match.status === "missing") {
         missingRequired.push(`${shortPathName(schema.filePath)}: ${field.label} (${selectedName})`);
+      } else if (match.status === "ambiguous") {
+        ambiguous.push(`${shortPathName(schema.filePath)}: ${field.label} (${match.columns.join(", ")})`);
       }
     }
     const sinrIdx = state.columnMapping.sinr;
     if (typeof sinrIdx === "number" && !Number.isNaN(sinrIdx) && sinrIdx >= 0 && sinrIdx < state.preview.columns.length) {
       const selectedName = state.preview.columns[sinrIdx];
-      if (!normalized.has(normalizeColumnNameForMatch(selectedName))) {
+      const match = matchMappedColumnInSchema(schema.columns, "sinr", selectedName);
+      if (match.status === "missing") {
         missingOptional.push(`${shortPathName(schema.filePath)}: SINR (${selectedName})`);
+      } else if (match.status === "ambiguous") {
+        ambiguous.push(`${shortPathName(schema.filePath)}: SINR (${match.columns.join(", ")})`);
       }
     }
   }
 
+  if (ambiguous.length > 0) {
+    return { ok: false, detail: `Nejednoznačné stĺpce: ${ambiguous.slice(0, 2).join("; ")}${ambiguous.length > 2 ? "…" : ""}` };
+  }
   if (missingRequired.length > 0) {
     return { ok: false, detail: `Chýba povinný stĺpec: ${missingRequired.slice(0, 2).join("; ")}${missingRequired.length > 2 ? "…" : ""}` };
   }
@@ -686,6 +739,8 @@ function mountMainView(root: HTMLDivElement): void {
   let previewLoadRequestId = 0;
   let activePreviewPathsKey = "";
   let pendingPreviewReload = false;
+  let previewLoadTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let outputDefaultsRequestId = 0;
   const phaseProgressPercent: Record<string, number> = {};
 
   function updateModalScrollLock(): void {
@@ -718,6 +773,49 @@ function mountMainView(root: HTMLDivElement): void {
       clearTimeout(previewAutoloadTimer);
       previewAutoloadTimer = null;
     }
+  }
+
+  function clearPreviewLoadTimeout(): void {
+    if (previewLoadTimeoutTimer !== null) {
+      clearTimeout(previewLoadTimeoutTimer);
+      previewLoadTimeoutTimer = null;
+    }
+  }
+
+  function supersedeActivePreviewLoad(): void {
+    clearPreviewLoadTimeout();
+    previewLoadRequestId++;
+    activePreviewPathsKey = "";
+    pendingPreviewReload = false;
+    state.previewLoading = false;
+  }
+
+  function armPreviewLoadTimeout(requestId: number, requestedPathsKey: string): void {
+    clearPreviewLoadTimeout();
+    previewLoadTimeoutTimer = window.setTimeout(() => {
+      previewLoadTimeoutTimer = null;
+      if (
+        !state.previewLoading ||
+        requestId !== previewLoadRequestId ||
+        requestedPathsKey !== activePreviewPathsKey
+      ) {
+        return;
+      }
+      previewLoadRequestId++;
+      activePreviewPathsKey = "";
+      pendingPreviewReload = false;
+      state.previewLoading = false;
+      state.preview = null;
+      state.previewError = "Načítanie náhľadu trvalo príliš dlho. Skús ho spustiť znova.";
+      state.columnMapping = {};
+      clearTimeSelectorState();
+      renderPreview();
+      renderMappingGrid();
+      renderTimeSelector();
+      renderReadiness();
+      setStatus("Načítanie náhľadu vypršalo", "error");
+      appendLog("Chyba pri načítaní CSV: prekročený časový limit náhľadu.");
+    }, PREVIEW_LOAD_TIMEOUT_MS);
   }
 
   function scheduleAutoLoadPreview(): void {
@@ -896,27 +994,28 @@ function mountMainView(root: HTMLDivElement): void {
   EventsOn("csv-preview:loaded", (...args: unknown[]) => {
     const payload = (args[0] ?? {}) as CSVPreviewLoadEvent;
     const requestId = typeof payload.requestId === "number" ? payload.requestId : Number(payload.requestId);
-    if (Number.isNaN(requestId) || requestId !== previewLoadRequestId) {
+    if (Number.isNaN(requestId) || requestId !== previewLoadRequestId || !state.previewLoading) {
       return;
     }
 
-    const currentPathsKey = getInputCsvPaths().join("\n");
+    const currentPaths = getInputCsvPaths();
+    const currentPathsKey = pathsStateKey(currentPaths);
     if (activePreviewPathsKey !== currentPathsKey) {
+      clearPreviewLoadTimeout();
+      activePreviewPathsKey = "";
       state.previewLoading = false;
       renderPreview();
       renderTimeSelector();
       renderReadiness();
-      if (pendingPreviewReload && getInputCsvPaths().length > 0) {
-        pendingPreviewReload = false;
-        window.setTimeout(() => {
-          void loadPreviewForCurrentCSV().catch(handlePreviewError);
-        }, 0);
-      } else if (pendingPreviewReload) {
-        pendingPreviewReload = false;
+      pendingPreviewReload = false;
+      if (currentPaths.length > 0) {
+        scheduleAutoLoadPreview();
       }
       return;
     }
 
+    clearPreviewLoadTimeout();
+    activePreviewPathsKey = "";
     state.previewLoading = false;
     if (payload.error) {
       state.preview = null;
@@ -927,7 +1026,7 @@ function mountMainView(root: HTMLDivElement): void {
       renderMappingGrid();
       setStatus("Chyba pri načítaní CSV", "error");
       appendLog(`Chyba pri načítaní CSV: ${payload.error}`);
-    } else if (payload.preview) {
+    } else if (payload.preview && pathsMatchPreview(currentPaths, payload.preview)) {
       state.preview = payload.preview;
       state.previewError = null;
       applySuggestedMapping(payload.preview);
@@ -937,14 +1036,21 @@ function mountMainView(root: HTMLDivElement): void {
       appendLog(
         `Načítané stĺpce (${payload.preview.columns.length}), vstup: ${inputRadioTechUiLabel(payload.preview.inputRadioTech)}, encoding=${payload.preview.encoding}, headerLine=${payload.preview.headerLine + 1}`
       );
+      if (!state.running) {
+        setStatus("Pripravené", "idle");
+      }
       void refreshOutputPathDefaults();
     } else {
       state.preview = null;
-      state.previewError = "Backend nevrátil náhľad CSV.";
+      state.previewError = payload.preview
+        ? "Backend vrátil náhľad pre iný zoznam CSV súborov. Načítaj ho znova."
+        : "Backend nevrátil náhľad CSV.";
       state.columnMapping = {};
       clearTimeSelectorState();
       renderPreview();
       renderMappingGrid();
+      setStatus("Chyba pri načítaní CSV", "error");
+      appendLog(`Chyba pri načítaní CSV: ${state.previewError}`);
     }
 
     renderReadiness();
@@ -975,6 +1081,14 @@ function mountMainView(root: HTMLDivElement): void {
     logOutput.scrollTop = logOutput.scrollHeight;
   }
 
+  function runAsyncAction(label: string, action: () => Promise<void>): void {
+    void action().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(label, "error");
+      appendLog(`${label}: ${message}`);
+    });
+  }
+
   function setStatus(text: string, tone: Tone): void {
     state.statusText = text;
     state.statusTone = tone;
@@ -1001,6 +1115,7 @@ function mountMainView(root: HTMLDivElement): void {
     removeCsvBtn.disabled = running;
     clearCsvBtn.disabled = running;
     loadPreviewBtn.disabled = running;
+    mobileModeCheckbox.disabled = running;
     const mobileOn = mobileModeCheckbox.checked;
     addMobileNsaLteBtn.disabled = running || !mobileOn;
     addMobileNsaLteMultiBtn.disabled = running || !mobileOn;
@@ -1012,8 +1127,26 @@ function mountMainView(root: HTMLDivElement): void {
     removeFilterBtn.disabled = running || !additionalFiltersOn;
     clearFiltersBtn.disabled = running || !additionalFiltersOn;
     filtersList.disabled = running || !additionalFiltersOn;
+    useAutoFiltersCheckbox.disabled = running;
+    useAdditionalFiltersCheckbox.disabled = running;
+    zoneModeSelect.disabled = running;
+    zoneSizeInput.disabled = running;
+    rsrpThresholdInput.disabled = running;
+    sinrThresholdInput.disabled = running;
+    keepOriginalRowsCheckbox.disabled = running;
+    includeEmptyZonesCheckbox.disabled = running;
+    addCustomOperatorsCheckbox.disabled = running || !includeEmptyZonesCheckbox.checked;
+    customOperatorsTextInput.disabled =
+      running || !includeEmptyZonesCheckbox.checked || !addCustomOperatorsCheckbox.checked;
+    enableTimeSelectorCheckbox.disabled = running;
     addTimeWindowBtn.disabled = running || !enableTimeSelectorCheckbox.checked;
     clearTimeWindowsBtn.disabled = running || !enableTimeSelectorCheckbox.checked || state.timeWindows.length === 0;
+    mappingGrid.querySelectorAll<HTMLSelectElement>("select[data-column-key]").forEach((select) => {
+      select.disabled = running || !state.preview;
+    });
+    timeWindowList.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((control) => {
+      control.disabled = running;
+    });
     outputZonesPathInput.disabled = running;
     outputStatsPathInput.disabled = running;
     progressBar.classList.toggle("is-running", running);
@@ -1102,6 +1235,8 @@ function mountMainView(root: HTMLDivElement): void {
 
   async function refreshOutputPathDefaults(): Promise<void> {
     const paths = getInputCsvPaths();
+    const requestId = ++outputDefaultsRequestId;
+    const mobileEnabled = mobileModeCheckbox.checked;
     const hasPaths = paths.length > 0;
     pickOutputZonesBtn.disabled = state.running || !hasPaths;
     pickOutputStatsBtn.disabled = state.running || !hasPaths;
@@ -1112,10 +1247,20 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     try {
-      const defaults = (await DefaultOutputPaths(paths[0], mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
+      const defaults = (await DefaultOutputPaths(paths[0], mobileEnabled, "")) as main.DefaultOutputPathsResult;
+      if (
+        requestId !== outputDefaultsRequestId ||
+        paths[0] !== getInputCsvPaths()[0] ||
+        mobileEnabled !== mobileModeCheckbox.checked
+      ) {
+        return;
+      }
       outputZonesPathInput.placeholder = defaults.zones;
       outputStatsPathInput.placeholder = defaults.stats;
     } catch {
+      if (requestId !== outputDefaultsRequestId) {
+        return;
+      }
       outputZonesPathInput.placeholder = "";
       outputStatsPathInput.placeholder = "";
     }
@@ -1153,10 +1298,12 @@ function mountMainView(root: HTMLDivElement): void {
 
   function clearCsvInputAndPreview(): void {
     cancelPreviewAutoload();
+    supersedeActivePreviewLoad();
     state.inputCsvPaths = [];
     state.preview = null;
     state.previewError = null;
     state.columnMapping = {};
+    state.result = null;
     clearTimeSelectorState();
     renderCsvList();
     renderPreview();
@@ -1166,9 +1313,12 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function invalidateCsvPreviewAfterListChange(): void {
+    cancelPreviewAutoload();
+    supersedeActivePreviewLoad();
     state.preview = null;
     state.previewError = null;
     state.columnMapping = {};
+    state.result = null;
     clearTimeSelectorState();
     renderPreview();
     renderMappingGrid();
@@ -1202,10 +1352,12 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   async function addOneCsvFromPicker(): Promise<void> {
-    const path = await PickInputCSVFile();
-    if (!path) {
+    const pickedPath = await PickInputCSVFile();
+    const paths = dedupePaths([pickedPath]);
+    if (paths.length === 0) {
       return;
     }
+    const path = paths[0];
     if (state.inputCsvPaths.includes(path)) {
       appendLog(`Súbor už je v zozname: ${path}`);
       return;
@@ -1218,18 +1370,14 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   async function addMultipleCsvFromPicker(): Promise<void> {
-    const paths = (await PickInputCSVPaths()) as string[];
-    if (!paths || paths.length === 0) {
+    const pickedPaths = (await PickInputCSVPaths()) as string[];
+    const paths = dedupePaths(pickedPaths ?? []);
+    if (paths.length === 0) {
       return;
     }
-    let added = 0;
-    for (const p of paths) {
-      if (state.inputCsvPaths.includes(p)) {
-        continue;
-      }
-      state.inputCsvPaths = [...state.inputCsvPaths, p];
-      added++;
-    }
+    const previousCount = state.inputCsvPaths.length;
+    state.inputCsvPaths = dedupePaths([...state.inputCsvPaths, ...paths]);
+    const added = state.inputCsvPaths.length - previousCount;
     if (added > 0) {
       invalidateCsvPreviewAfterListChange();
     }
@@ -1499,12 +1647,13 @@ function mountMainView(root: HTMLDivElement): void {
     }
 
     const requestId = ++previewLoadRequestId;
-    const requestedPathsKey = paths.join("\n");
+    const requestedPathsKey = pathsStateKey(paths);
     activePreviewPathsKey = requestedPathsKey;
     pendingPreviewReload = false;
 
     state.previewLoading = true;
     state.previewError = null;
+    armPreviewLoadTimeout(requestId, requestedPathsKey);
     renderPreview();
     renderTimeSelector();
     renderReadiness();
@@ -1512,14 +1661,24 @@ function mountMainView(root: HTMLDivElement): void {
 
     try {
       appendLog(`Načítavam hlavičku CSV (${paths.length} súborov): ${paths.join(", ")}`);
-      if (requestId !== previewLoadRequestId || requestedPathsKey !== getInputCsvPaths().join("\n")) {
+      if (requestId !== previewLoadRequestId || requestedPathsKey !== pathsStateKey(getInputCsvPaths())) {
+        if (requestId === previewLoadRequestId) {
+          clearPreviewLoadTimeout();
+          activePreviewPathsKey = "";
+          state.previewLoading = false;
+          if (getInputCsvPaths().length > 0) {
+            scheduleAutoLoadPreview();
+          }
+        }
         return;
       }
       await StartLoadCSVPreview(requestId, paths);
     } catch (err) {
-      if (requestId !== previewLoadRequestId || requestedPathsKey !== getInputCsvPaths().join("\n")) {
+      if (requestId !== previewLoadRequestId || requestedPathsKey !== pathsStateKey(getInputCsvPaths())) {
         return;
       }
+      clearPreviewLoadTimeout();
+      activePreviewPathsKey = "";
       state.previewLoading = false;
       throw err;
     }
@@ -1558,9 +1717,16 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   async function buildProcessingConfig(): Promise<backend.ProcessingConfig> {
-    const paths = getInputCsvPaths();
+    const paths = dedupePaths(getInputCsvPaths());
     if (paths.length === 0) {
       throw new Error("Pridaj vstupný CSV súbor (aspoň jeden).");
+    }
+    if (!pathsMatchPreview(paths, state.preview)) {
+      throw new Error("Zoznam vstupných CSV sa zmenil. Najprv znova načítaj náhľad.");
+    }
+    const schemaValidation = validateMappedColumnsAcrossFiles(state);
+    if (!schemaValidation.ok) {
+      throw new Error(schemaValidation.detail);
     }
     const filePath = paths[0];
     const input_file_paths = paths.length > 1 ? paths : undefined;
@@ -1631,7 +1797,7 @@ function mountMainView(root: HTMLDivElement): void {
       ...(output_stats_file_path ? { output_stats_file_path } : {}),
       mobile_mode_enabled,
       mobile_nsa_lte_file_path: mobile_mode_enabled && nsaLtePaths.length > 0 ? nsaLtePaths[0] : "",
-      ...(mobile_mode_enabled && nsaLtePaths.length > 1 ? { mobile_nsa_lte_file_paths: nsaLtePaths } : {}),
+      ...(mobile_mode_enabled ? { mobile_nsa_lte_file_paths: nsaLtePaths } : {}),
       mobile_time_tolerance_ms,
       mobile_require_nr_yes: false,
       mobile_nr_column_name: "5G NR",
@@ -1723,32 +1889,36 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   async function addOneMobileNsaLteFromPicker(): Promise<void> {
-    const path = await PickMobileNSALTECSVFile();
-    if (!path) {
+    const pickedPath = await PickMobileNSALTECSVFile();
+    const paths = dedupePaths([pickedPath]);
+    if (paths.length === 0) {
       return;
     }
+    const path = paths[0];
     if (state.mobileNsaLtePaths.includes(path)) {
       appendLog(`NSA LTE súbor už je v zozname: ${path}`);
       return;
     }
     state.mobileNsaLtePaths = [...state.mobileNsaLtePaths, path];
+    state.result = null;
     renderMobileNsaLteList();
+    renderResult();
     appendLog(`Pridaný NSA LTE CSV: ${path}`);
     renderReadiness();
   }
 
   async function addMultipleMobileNsaLteFromPicker(): Promise<void> {
-    const paths = (await PickMobileNSALTECSVPaths()) as string[];
-    if (!paths || paths.length === 0) {
+    const pickedPaths = (await PickMobileNSALTECSVPaths()) as string[];
+    const paths = dedupePaths(pickedPaths ?? []);
+    if (paths.length === 0) {
       return;
     }
-    let added = 0;
-    for (const p of paths) {
-      if (state.mobileNsaLtePaths.includes(p)) {
-        continue;
-      }
-      state.mobileNsaLtePaths = [...state.mobileNsaLtePaths, p];
-      added++;
+    const previousCount = state.mobileNsaLtePaths.length;
+    state.mobileNsaLtePaths = dedupePaths([...state.mobileNsaLtePaths, ...paths]);
+    const added = state.mobileNsaLtePaths.length - previousCount;
+    if (added > 0) {
+      state.result = null;
+      renderResult();
     }
     renderMobileNsaLteList();
     const skipped = paths.length - added;
@@ -1762,7 +1932,9 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     state.mobileNsaLtePaths = state.mobileNsaLtePaths.filter((path) => !selected.has(path));
+    state.result = null;
     renderMobileNsaLteList();
+    renderResult();
     appendLog(`Odstránené NSA LTE CSV (${selected.size})`);
     renderReadiness();
   }
@@ -1773,7 +1945,9 @@ function mountMainView(root: HTMLDivElement): void {
     }
     const count = state.mobileNsaLtePaths.length;
     state.mobileNsaLtePaths = [];
+    state.result = null;
     renderMobileNsaLteList();
+    renderResult();
     appendLog(`Vyčistený zoznam NSA LTE CSV (${count})`);
     renderReadiness();
   }
@@ -1809,10 +1983,10 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   addCsvBtn.addEventListener("click", () => {
-    void addOneCsvFromPicker();
+    runAsyncAction("Pridanie vstupného CSV zlyhalo", addOneCsvFromPicker);
   });
   addCsvMultiBtn.addEventListener("click", () => {
-    void addMultipleCsvFromPicker();
+    runAsyncAction("Pridanie vstupných CSV zlyhalo", addMultipleCsvFromPicker);
   });
   removeCsvBtn.addEventListener("click", removeSelectedCsvPaths);
   clearCsvBtn.addEventListener("click", clearCsvPaths);
@@ -1820,10 +1994,10 @@ function mountMainView(root: HTMLDivElement): void {
     void loadPreviewForCurrentCSV().catch(handlePreviewError);
   });
   addMobileNsaLteBtn.addEventListener("click", () => {
-    void addOneMobileNsaLteFromPicker();
+    runAsyncAction("Pridanie NSA LTE CSV zlyhalo", addOneMobileNsaLteFromPicker);
   });
   addMobileNsaLteMultiBtn.addEventListener("click", () => {
-    void addMultipleMobileNsaLteFromPicker();
+    runAsyncAction("Pridanie NSA LTE CSV zlyhalo", addMultipleMobileNsaLteFromPicker);
   });
   removeMobileNsaLteBtn.addEventListener("click", () => {
     removeSelectedMobileNsaLtePaths();
@@ -1832,16 +2006,16 @@ function mountMainView(root: HTMLDivElement): void {
     clearMobileNsaLtePaths();
   });
   addFiltersBtn.addEventListener("click", () => {
-    void addFilterFiles();
+    runAsyncAction("Pridanie filtrov zlyhalo", addFilterFiles);
   });
   removeFilterBtn.addEventListener("click", removeSelectedFilters);
   clearFiltersBtn.addEventListener("click", clearFilters);
   mobileModeCheckbox.addEventListener("change", updateDependentUI);
   pickOutputZonesBtn.addEventListener("click", () => {
-    void pickOutputZonesPath();
+    runAsyncAction("Výber výstupu zón zlyhal", pickOutputZonesPath);
   });
   pickOutputStatsBtn.addEventListener("click", () => {
-    void pickOutputStatsPath();
+    runAsyncAction("Výber výstupu štatistík zlyhal", pickOutputStatsPath);
   });
   useAdditionalFiltersCheckbox.addEventListener("change", updateDependentUI);
   includeEmptyZonesCheckbox.addEventListener("change", updateDependentUI);
@@ -2039,6 +2213,10 @@ function mountMainView(root: HTMLDivElement): void {
   });
   function handlePreviewError(err: unknown): void {
     const message = err instanceof Error ? err.message : String(err);
+    clearPreviewLoadTimeout();
+    activePreviewPathsKey = "";
+    pendingPreviewReload = false;
+    state.previewLoading = false;
     state.preview = null;
     state.previewError = message;
     state.columnMapping = {};

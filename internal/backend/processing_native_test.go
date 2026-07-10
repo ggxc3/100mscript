@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -175,6 +176,150 @@ func TestBuildSegmentAssignments_endpointGapContinuesRouteAndEmptySegmentsFillIt
 			t.Fatalf("missing interpolated segment meta for empty segment %d; ids=%v", id, withEmpty)
 		}
 	}
+}
+
+func TestBuildSegmentAssignments_disjointContinuationRespectsRecordedDirection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		continuation []Point
+		want         []int
+	}{
+		{
+			name:         "forward",
+			continuation: []Point{{A: 200, B: 0}, {A: 300, B: 0}},
+			want:         []int{0, 1, 2, 3},
+		},
+		{
+			name:         "recorded_reverse",
+			continuation: []Point{{A: 300, B: 0}, {A: 200, B: 0}},
+			want:         []int{0, 1, 3, 2},
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			filtered := []rawParsed{
+				{row: []string{"0"}},
+				{row: []string{"0"}},
+				{row: []string{"1"}},
+				{row: []string{"1"}},
+			}
+			xy := []Point{{A: 0, B: 0}, {A: 100, B: 0}, tc.continuation[0], tc.continuation[1]}
+
+			got, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("disjoint continuation folded into known segments: got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildSegmentAssignments_disjointContinuationIsInputOrderInvariant(t *testing.T) {
+	t.Parallel()
+
+	type routePoint struct {
+		source string
+		point  Point
+	}
+	physical := []routePoint{
+		{source: "known", point: Point{A: 0, B: 0}},
+		{source: "known", point: Point{A: 100, B: 0}},
+		{source: "continuation", point: Point{A: 300, B: 0}},
+		{source: "continuation", point: Point{A: 200, B: 0}},
+	}
+	orders := [][]int{{0, 1, 2, 3}, {2, 3, 0, 1}}
+	var baseline map[float64]map[float64]int
+	for orderIdx, order := range orders {
+		filtered := make([]rawParsed, 0, len(order))
+		xy := make([]Point, 0, len(order))
+		for _, idx := range order {
+			filtered = append(filtered, rawParsed{row: []string{physical[idx].source}})
+			xy = append(xy, physical[idx].point)
+		}
+		ids, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+		byX := make(map[float64]int, len(order))
+		for i, point := range xy {
+			byX[point.A] = ids[i]
+		}
+
+		// Segment numbering may be globally reflected when the seed track is
+		// recorded in the opposite direction. Pairwise segment distances are
+		// the input-order-independent route invariant.
+		distances := map[float64]map[float64]int{}
+		for _, from := range []float64{0, 100, 200, 300} {
+			distances[from] = map[float64]int{}
+			for _, to := range []float64{0, 100, 200, 300} {
+				distances[from][to] = absInt(byX[from] - byX[to])
+			}
+		}
+		if orderIdx == 0 {
+			baseline = distances
+			continue
+		}
+		for from, expected := range baseline {
+			for to, want := range expected {
+				if got := distances[from][to]; got != want {
+					t.Fatalf("input order changed route distance %v→%v: got %d want %d (ids=%v)", from, to, got, want, byX)
+				}
+			}
+		}
+	}
+}
+
+func TestSampleSegmentTrackUsesDistanceInsteadOfStationaryRowCount(t *testing.T) {
+	t.Parallel()
+
+	filtered := make([]rawParsed, 0, 102)
+	xy := make([]Point, 0, 102)
+	for i := 0; i < 100; i++ {
+		filtered = append(filtered, rawParsed{row: []string{"0"}})
+		xy = append(xy, Point{A: 0, B: 0})
+	}
+	filtered = append(filtered, rawParsed{row: []string{"0"}}, rawParsed{row: []string{"0"}})
+	xy = append(xy, Point{A: 100, B: 0}, Point{A: 200, B: 0})
+
+	track := buildSegmentTracks(filtered, xy, 0)[0]
+	samples := sampleSegmentTrack(track, segmentTrackAssignment{})
+	if len(samples) != 3 {
+		t.Fatalf("stationary burst dominated route samples: got %d samples, want 3", len(samples))
+	}
+	if samples[0].x != 0 || samples[1].x != 100 || samples[2].x != 200 {
+		t.Fatalf("unexpected distance samples: %#v", samples)
+	}
+}
+
+func TestAlignTrackToKnownRequiresDistinctSpatialCorrespondences(t *testing.T) {
+	t.Parallel()
+
+	filtered := make([]rawParsed, 0, 42)
+	xy := make([]Point, 0, 42)
+	for i := 0; i < 20; i++ {
+		filtered = append(filtered, rawParsed{row: []string{"known"}})
+		xy = append(xy, Point{A: 0, B: 0})
+	}
+	filtered = append(filtered, rawParsed{row: []string{"known"}})
+	xy = append(xy, Point{A: 100, B: 0})
+	for i := 0; i < 20; i++ {
+		filtered = append(filtered, rawParsed{row: []string{"unknown"}})
+		xy = append(xy, Point{A: 0, B: 0})
+	}
+	filtered = append(filtered, rawParsed{row: []string{"unknown"}})
+	xy = append(xy, Point{A: 0, B: 100})
+
+	tracks := buildSegmentTracks(filtered, xy, 0)
+	if got := alignTrackToKnown(tracks[0], segmentTrackAssignment{assigned: true}, tracks[1]); got.ok {
+		t.Fatalf("one stationary GPS position must not establish a route overlap: %+v", got)
+	}
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func TestProcessDataNative_invalidLatitudeError(t *testing.T) {

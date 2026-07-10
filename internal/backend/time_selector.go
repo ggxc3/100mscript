@@ -109,31 +109,7 @@ func timeSeriesForSorting(data *CSVData) (timeSeriesNative, string) {
 }
 
 func buildTimeSelectorSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) (timeSeriesNative, string) {
-	dateTimeSeries, dateTimeStrategy := buildTimeMillisSeriesNative(data, -1, dateIdx, timeIdx)
-	if dateTimeStrategy == "missing" {
-		return buildTimeMillisSeriesNative(data, utcIdx, -1, -1)
-	}
-
-	utcSeries, utcStrategy := buildTimeMillisSeriesNative(data, utcIdx, -1, -1)
-	if utcStrategy == "missing" {
-		return dateTimeSeries, dateTimeStrategy
-	}
-
-	usedFallback := false
-	for i := range dateTimeSeries.Values {
-		if dateTimeSeries.Valid[i] {
-			continue
-		}
-		if i < len(utcSeries.Valid) && utcSeries.Valid[i] {
-			dateTimeSeries.Values[i] = utcSeries.Values[i]
-			dateTimeSeries.Valid[i] = true
-			usedFallback = true
-		}
-	}
-	if usedFallback {
-		return dateTimeSeries, "date_time_with_utc_fallback"
-	}
-	return dateTimeSeries, dateTimeStrategy
+	return buildTimeMillisSeriesNative(data, utcIdx, dateIdx, timeIdx)
 }
 
 func excludeRowsByTimeWindows(data *CSVData, windows []TimeWindow) (*CSVData, int, error) {

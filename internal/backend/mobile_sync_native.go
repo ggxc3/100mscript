@@ -3,7 +3,9 @@ package backend
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -35,6 +37,7 @@ func syncMobileNRFromNSALTECSVNative(
 	timeToleranceMS int,
 	filterRules []FilterRule,
 	keepOriginalRows bool,
+	mainSourcePaths ...[]string,
 ) (*CSVData, mobileSyncStats, error) {
 	if df5g == nil {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: nil 5G dataset")
@@ -42,6 +45,10 @@ func syncMobileNRFromNSALTECSVNative(
 	ltePaths = NormalizeInputPaths(ltePaths)
 	if len(ltePaths) == 0 {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: žiadna cesta k NSA LTE CSV")
+	}
+	nrColumnName = strings.TrimSpace(nrColumnName)
+	if nrColumnName == "" {
+		nrColumnName = "5G NR"
 	}
 	dfLTE, err := loadMobileNSALTECSVFiles(ctx, ltePaths)
 	if err != nil {
@@ -94,6 +101,13 @@ func syncMobileNRFromNSALTECSVNative(
 
 	lteTimeMS, lteStrategy := buildTimeMillisSeriesNative(dfLTE, lteUTCIdx, lteDateIdx, lteTimeIdx)
 	fivegTimeMS, fivegStrategy := buildTimeMillisSeriesNative(df5g, fivegUTCIdx, fivegDateIdx, fivegTimeIdx)
+	var sourcePaths []string
+	if len(mainSourcePaths) > 0 {
+		sourcePaths = NormalizeInputPaths(mainSourcePaths[0])
+	}
+	if err := validateMobileFiveGSourceTimes(df5g, fivegTimeMS, sourcePaths); err != nil {
+		return nil, mobileSyncStats{}, err
+	}
 
 	type lteRow struct {
 		mcc, mnc string
@@ -111,6 +125,9 @@ func syncMobileNRFromNSALTECSVNative(
 			continue
 		}
 		score := nrScore(normalizeNRValueNative(cellAt(row, lteNRIdx)))
+		if score == 0 {
+			continue
+		}
 		lteRows = append(lteRows, lteRow{mcc: mcc, mnc: mnc, timeMS: lteTimeMS.Values[i], score: score})
 	}
 	if len(lteRows) == 0 {
@@ -127,21 +144,35 @@ func syncMobileNRFromNSALTECSVNative(
 	}
 
 	type fivegCandidate struct {
-		index    int
-		mcc, mnc string
-		timeMS   int64
+		index     int
+		mcc, mnc  string
+		timeMS    int64
+		source    int
+		hasSource bool
 	}
 	fivegCandidates := make([]fivegCandidate, 0, len(df5g.Rows))
+	fivegSourceIdx := df5g.columnIndexByName(csvSourceIndexColumn)
+	candidatesBySource := map[int]int{}
 	for i, row := range df5g.Rows {
 		if !fivegTimeMS.Valid[i] {
 			continue
 		}
-		fivegCandidates = append(fivegCandidates, fivegCandidate{
+		candidate := fivegCandidate{
 			index:  i,
 			mcc:    normalizeKeyStringNative(cellAt(row, fivegMCCIdx)),
 			mnc:    normalizeKeyStringNative(cellAt(row, fivegMNCIdx)),
 			timeMS: fivegTimeMS.Values[i],
-		})
+		}
+		if fivegSourceIdx >= 0 {
+			source, parseErr := strconv.Atoi(strings.TrimSpace(cellAt(row, fivegSourceIdx)))
+			if parseErr != nil || source < 0 {
+				return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: neplatná interná identita zdroja 5G CSV %q", cellAt(row, fivegSourceIdx))
+			}
+			candidate.source = source
+			candidate.hasSource = true
+			candidatesBySource[source]++
+		}
+		fivegCandidates = append(fivegCandidates, candidate)
 	}
 	if len(fivegCandidates) == 0 {
 		return nil, mobileSyncStats{}, fmt.Errorf("mobile mode: nepodarilo sa načítať čas pre porovnanie (UTC alebo Date+Time) v jednom zo súborov")
@@ -174,6 +205,7 @@ func syncMobileNRFromNSALTECSVNative(
 	}
 	windowScores := make([]int8, len(df5g.Rows))
 	matchedRows := 0
+	matchedBySource := map[int]int{}
 	conflictingWindows := 0
 	fallbackTimeOnlyRows := 0
 
@@ -190,6 +222,9 @@ func syncMobileNRFromNSALTECSVNative(
 		score, matched, conflict := resolveWindowScore(lookup, c.timeMS, int64(tolerance))
 		if matched {
 			matchedRows++
+			if c.hasSource {
+				matchedBySource[c.source]++
+			}
 			if conflict {
 				conflictingWindows++
 			}
@@ -203,6 +238,9 @@ func syncMobileNRFromNSALTECSVNative(
 		score, matched, conflict := resolveWindowScore(globalLookup, c.timeMS, int64(tolerance))
 		if matched {
 			matchedRows++
+			if c.hasSource {
+				matchedBySource[c.source]++
+			}
 			fallbackTimeOnlyRows++
 			if conflict {
 				conflictingWindows++
@@ -210,7 +248,34 @@ func syncMobileNRFromNSALTECSVNative(
 			windowScores[c.index] = score
 		}
 	}
-
+	if matchedRows == 0 {
+		return nil, mobileSyncStats{}, fmt.Errorf(
+			"mobile mode: medzi 5G a NSA LTE dátami sa nenašla žiadna časová zhoda v tolerancii ±%d ms; skontrolujte čas, časové pásmo, MCC/MNC a vybrané súbory",
+			tolerance,
+		)
+	}
+	if len(candidatesBySource) > 0 {
+		sources := make([]int, 0, len(candidatesBySource))
+		for source := range candidatesBySource {
+			sources = append(sources, source)
+		}
+		sort.Ints(sources)
+		for _, source := range sources {
+			if matchedBySource[source] > 0 {
+				continue
+			}
+			if source < len(sourcePaths) {
+				return nil, mobileSyncStats{}, fmt.Errorf(
+					"mobile mode: pre 5G CSV %q sa nenašla žiadna MCC/MNC + časová zhoda v NSA LTE dátach v tolerancii ±%d ms",
+					sourcePaths[source], tolerance,
+				)
+			}
+			return nil, mobileSyncStats{}, fmt.Errorf(
+				"mobile mode: pre 5G CSV zdroj č. %d sa nenašla žiadna MCC/MNC + časová zhoda v NSA LTE dátach v tolerancii ±%d ms",
+				source+1, tolerance,
+			)
+		}
+	}
 	out := df5g.clone()
 	nrIdx := out.columnIndexByName(nrColumnName)
 	if nrIdx < 0 {
@@ -256,25 +321,112 @@ func syncMobileNRFromNSALTECSVNative(
 	return out, stats, nil
 }
 
+func validateMobileFiveGSourceTimes(data *CSVData, series timeSeriesNative, sourcePaths []string) error {
+	if data == nil {
+		return fmt.Errorf("mobile mode: nil 5G dataset")
+	}
+	sourceIdx := data.columnIndexByName(csvSourceIndexColumn)
+	if sourceIdx < 0 {
+		return nil
+	}
+	type timeCoverage struct {
+		total int
+		valid int
+	}
+	coverage := map[int]timeCoverage{}
+	for rowIdx, row := range data.Rows {
+		rawSource := strings.TrimSpace(cellAt(row, sourceIdx))
+		source, err := strconv.Atoi(rawSource)
+		if err != nil || source < 0 {
+			return fmt.Errorf("mobile mode: neplatná interná identita zdroja 5G CSV %q", rawSource)
+		}
+		item := coverage[source]
+		item.total++
+		if rowIdx < len(series.Valid) && series.Valid[rowIdx] {
+			item.valid++
+		}
+		coverage[source] = item
+	}
+	sources := make([]int, 0, len(coverage))
+	for source := range coverage {
+		sources = append(sources, source)
+	}
+	sort.Ints(sources)
+	for _, source := range sources {
+		item := coverage[source]
+		if item.total == 0 || item.valid > 0 {
+			continue
+		}
+		if source < len(sourcePaths) {
+			return fmt.Errorf("mobile mode: 5G CSV %q neobsahuje žiadny parsovateľný čas v UTC ani Date + Time", sourcePaths[source])
+		}
+		return fmt.Errorf("mobile mode: 5G CSV zdroj č. %d neobsahuje žiadny parsovateľný čas v UTC ani Date + Time", source+1)
+	}
+	return nil
+}
+
 func loadMobileNSALTECSVFiles(ctx context.Context, paths []string) (*CSVData, error) {
-	paths, loaded, merged, err := loadAndMergeCSVFilesWithOptions(ctx, paths, CSVMergeOptions{})
+	nrCanonical := normalizedColumnKey("5G NR")
+	paths, loaded, merged, err := loadAndMergeCSVFilesWithOptions(ctx, paths, CSVMergeOptions{
+		DisplayNameOverrides: map[string]string{
+			nrCanonical: "5G NR",
+		},
+		EquivalentColumnKeys: map[string]string{
+			normalizedColumnKey("5G NR"): nrCanonical,
+			normalizedColumnKey("5GNR"):  nrCanonical,
+			normalizedColumnKey("NR"):    nrCanonical,
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
 	for i, data := range loaded {
-		if findColumnNameNative(data.Columns, []string{"MCC"}) == "" {
+		mccColumn := findColumnNameNative(data.Columns, []string{"MCC"})
+		if mccColumn == "" {
 			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec MCC", paths[i])
 		}
-		if findColumnNameNative(data.Columns, []string{"MNC"}) == "" {
+		mncColumn := findColumnNameNative(data.Columns, []string{"MNC"})
+		if mncColumn == "" {
 			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec MNC", paths[i])
 		}
-		if findColumnNameNative(data.Columns, []string{"5G NR", "5GNR", "NR"}) == "" {
+		nrColumn := findColumnNameNative(data.Columns, []string{"5G NR", "5GNR", "NR"})
+		if nrColumn == "" {
 			return nil, fmt.Errorf("CSV %q neobsahuje povinný NSA LTE stĺpec 5G NR", paths[i])
 		}
-		hasUTC := findColumnNameNative(data.Columns, []string{"UTC"}) != ""
-		hasDateTime := findColumnNameNative(data.Columns, []string{"Date"}) != "" && findColumnNameNative(data.Columns, []string{"Time"}) != ""
+		utcColumn := findColumnNameNative(data.Columns, []string{"UTC"})
+		dateColumn := findColumnNameNative(data.Columns, []string{"Date"})
+		timeColumn := findColumnNameNative(data.Columns, []string{"Time"})
+		hasUTC := utcColumn != ""
+		hasDateTime := dateColumn != "" && timeColumn != ""
 		if !hasUTC && !hasDateTime {
 			return nil, fmt.Errorf("CSV %q neobsahuje časový stĺpec UTC ani dvojicu Date + Time", paths[i])
+		}
+
+		mccIdx := data.columnIndexByName(mccColumn)
+		mncIdx := data.columnIndexByName(mncColumn)
+		nrIdx := data.columnIndexByName(nrColumn)
+		utcIdx := data.columnIndexByName(utcColumn)
+		dateIdx := data.columnIndexByName(dateColumn)
+		timeIdx := data.columnIndexByName(timeColumn)
+		series, strategy := buildTimeMillisSeriesNative(data, utcIdx, dateIdx, timeIdx)
+		if strategy == "missing" {
+			return nil, fmt.Errorf("CSV %q neobsahuje žiadny parsovateľný čas v UTC ani Date + Time", paths[i])
+		}
+		usableRows := 0
+		for rowIdx, row := range data.Rows {
+			if rowIdx >= len(series.Valid) || !series.Valid[rowIdx] {
+				continue
+			}
+			if normalizeKeyStringNative(cellAt(row, mccIdx)) == "" || normalizeKeyStringNative(cellAt(row, mncIdx)) == "" {
+				continue
+			}
+			if nrScore(normalizeNRValueNative(cellAt(row, nrIdx))) == 0 {
+				continue
+			}
+			usableRows++
+		}
+		if usableRows == 0 {
+			return nil, fmt.Errorf("CSV %q neobsahuje žiadny použiteľný riadok s časom, MCC, MNC a hodnotou 5G NR yes/no", paths[i])
 		}
 	}
 	if len(paths) > 1 {
@@ -314,52 +466,12 @@ func buildTimeMillisSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) (t
 		return out, "missing"
 	}
 
-	if utcIdx >= 0 {
-		validVals := make([]float64, 0, n)
-		tmpVals := make([]float64, n)
-		tmpOK := make([]bool, n)
-		for i, row := range data.Rows {
-			if v, ok := parseNumberString(cellAt(row, utcIdx)); ok {
-				tmpVals[i] = v
-				tmpOK[i] = true
-				abs := v
-				if abs < 0 {
-					abs = -abs
-				}
-				validVals = append(validVals, abs)
-			}
-		}
-		if len(validVals) > 0 {
-			sort.Float64s(validVals)
-			medianAbs := validVals[len(validVals)/2]
-			factor := float64(1000)
-			if medianAbs >= 1e11 {
-				factor = 1
-			}
-			for i := 0; i < n; i++ {
-				if !tmpOK[i] {
-					continue
-				}
-				out.Values[i] = int64(mathRound(tmpVals[i] * factor))
-				out.Valid[i] = true
-			}
-			return out, "utc_numeric"
-		}
-		anyDT := false
-		for i, row := range data.Rows {
-			if ms, ok := parseDateTimeToMillis(strings.TrimSpace(cellAt(row, utcIdx))); ok {
-				out.Values[i] = ms
-				out.Valid[i] = true
-				anyDT = true
-			}
-		}
-		if anyDT {
-			return out, "utc_datetime"
-		}
-	}
-
+	// Prefer the explicit Date + Time pair for every row. Some meter exports carry
+	// a rounded or otherwise incompatible UTC column next to the more precise local
+	// timestamp. When Date + Time is unavailable or malformed for an individual row,
+	// fall back to that row's UTC value instead of discarding the whole source file.
+	dateTimeRows := 0
 	if dateIdx >= 0 && timeIdx >= 0 {
-		anyDT := false
 		for i, row := range data.Rows {
 			d := strings.TrimSpace(cellAt(row, dateIdx))
 			t := strings.TrimSpace(cellAt(row, timeIdx))
@@ -369,15 +481,81 @@ func buildTimeMillisSeriesNative(data *CSVData, utcIdx, dateIdx, timeIdx int) (t
 			if ms, ok := parseDateTimeToMillis(d + " " + t); ok {
 				out.Values[i] = ms
 				out.Valid[i] = true
-				anyDT = true
+				dateTimeRows++
 			}
-		}
-		if anyDT {
-			return out, "date_time"
 		}
 	}
 
-	return out, "missing"
+	utcNumericRows := 0
+	utcDateTimeRows := 0
+	utcFallbackRows := 0
+	if utcIdx >= 0 {
+		for i, row := range data.Rows {
+			if out.Valid[i] {
+				continue
+			}
+			raw := strings.TrimSpace(cellAt(row, utcIdx))
+			if raw == "" {
+				continue
+			}
+			if value, ok := parseNumberString(raw); ok {
+				if ms, ok := numericEpochToMillis(value); ok {
+					out.Values[i] = ms
+					out.Valid[i] = true
+					utcNumericRows++
+					utcFallbackRows++
+					continue
+				}
+			}
+			if ms, ok := parseDateTimeToMillis(raw); ok {
+				out.Values[i] = ms
+				out.Valid[i] = true
+				utcDateTimeRows++
+				utcFallbackRows++
+			}
+		}
+	}
+
+	switch {
+	case dateTimeRows > 0 && utcFallbackRows > 0:
+		return out, "date_time_with_utc_fallback"
+	case dateTimeRows > 0:
+		return out, "date_time"
+	case utcNumericRows > 0 && utcDateTimeRows > 0:
+		return out, "utc_mixed"
+	case utcNumericRows > 0:
+		return out, "utc_numeric"
+	case utcDateTimeRows > 0:
+		return out, "utc_datetime"
+	default:
+		return out, "missing"
+	}
+}
+
+// numericEpochToMillis accepts epoch values emitted by different meters in
+// seconds, milliseconds, microseconds, or nanoseconds. The unit is determined
+// independently for each row so merging files with different export settings is
+// safe. Thresholds sit well between contemporary epoch magnitudes.
+func numericEpochToMillis(value float64) (int64, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	abs := math.Abs(value)
+	var millis float64
+	switch {
+	case abs >= 1e17:
+		millis = value / 1e6 // nanoseconds
+	case abs >= 1e14:
+		millis = value / 1e3 // microseconds
+	case abs >= 1e11:
+		millis = value // milliseconds
+	default:
+		millis = value * 1e3 // seconds
+	}
+	if math.IsNaN(millis) || math.IsInf(millis, 0) || math.Abs(millis) > 9.22e18 {
+		return 0, false
+	}
+	return int64(math.Round(millis)), true
 }
 
 func parseDateTimeToMillis(s string) (int64, bool) {
@@ -408,13 +586,6 @@ func parseDateTimeToMillis(s string) (int64, bool) {
 		}
 	}
 	return 0, false
-}
-
-func mathRound(v float64) float64 {
-	if v >= 0 {
-		return float64(int64(v + 0.5))
-	}
-	return float64(int64(v - 0.5))
 }
 
 func buildMobileLookup(times []int64, scores []int8) mobileLookup {
@@ -482,6 +653,13 @@ func normalizeKeyStringNative(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, ",", "."))
 	if s == "" {
 		return ""
+	}
+	// MCC/MNC are numeric identifiers, but CSV exporters disagree about leading
+	// zeros and Excel-style decimal formatting (for example 01 vs 1 vs 1.0).
+	// Canonicalizing numeric spellings prevents otherwise identical operators from
+	// ending up in different sync lookup groups.
+	if value, ok := parseNumberString(s); ok && !math.IsNaN(value) && !math.IsInf(value, 0) {
+		return normalizeIntLikeString(value)
 	}
 	for strings.Contains(s, ".") && strings.HasSuffix(s, "0") {
 		s = strings.TrimSuffix(s, "0")
