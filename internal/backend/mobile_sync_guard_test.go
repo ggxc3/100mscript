@@ -94,7 +94,7 @@ func TestRunProcessingRejectsMainSourceWithoutParseableTime(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a main source with no parseable time to fail")
 	}
-	if !strings.Contains(err.Error(), badMainPath) || !strings.Contains(err.Error(), "parsovateľný čas") {
+	if !syncErrorMentionsPath(err, badMainPath) || !strings.Contains(err.Error(), "parsovateľný čas") {
 		t.Fatalf("error must identify the invalid main source: %v", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestRunProcessingRejectsMainSourceWithoutAnySyncMatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a main source without any sync match to fail")
 	}
-	if !strings.Contains(err.Error(), unmatchedMainPath) || !strings.Contains(err.Error(), "žiadna MCC/MNC + časová zhoda") {
+	if !syncErrorMentionsPath(err, unmatchedMainPath) || !strings.Contains(err.Error(), "žiadna MCC/MNC + časová zhoda") {
 		t.Fatalf("error must identify the unmatched main source: %v", err)
 	}
 }

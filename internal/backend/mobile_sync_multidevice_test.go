@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,22 @@ func writeMultiDeviceSyncCSV(t *testing.T, path, content string) string {
 		t.Fatalf("write fixture %q: %v", path, err)
 	}
 	return path
+}
+
+func syncErrorMentionsPath(err error, path string) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, path) || strings.Contains(message, strconv.Quote(path))
+}
+
+func TestSyncErrorMentionsQuotedWindowsPath(t *testing.T) {
+	path := `C:\Users\runner\AppData\Local\Temp\bad.csv`
+	err := fmt.Errorf("CSV %q neobsahuje použiteľné dáta", path)
+	if !syncErrorMentionsPath(err, path) {
+		t.Fatalf("quoted Windows path was not recognized: %v", err)
+	}
 }
 
 func multiDeviceFiveGData(times []string, mncs []string) *CSVData {
@@ -229,7 +246,7 @@ func TestSyncMobileNRMultiDeviceReportsMalformedFile(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected malformed input to fail explicitly")
 			}
-			if !strings.Contains(err.Error(), badPath) {
+			if !syncErrorMentionsPath(err, badPath) {
 				t.Fatalf("error must identify the bad file, got: %v", err)
 			}
 			if !strings.Contains(err.Error(), "MCC") && !strings.Contains(err.Error(), "decode") {
@@ -274,7 +291,7 @@ func TestSyncMobileNRMultiDeviceRejectsFileWithoutUsableSyncRows(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an explicitly selected but unusable device file to fail")
 			}
-			if !strings.Contains(err.Error(), badPath) {
+			if !syncErrorMentionsPath(err, badPath) {
 				t.Fatalf("error must identify the unusable device file, got: %v", err)
 			}
 		})
