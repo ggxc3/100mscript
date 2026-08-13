@@ -35,10 +35,17 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	if err != nil {
 		return ProcessingResult{}, fmt.Errorf("original excel row: %w", err)
 	}
+	hasConfiguredTimeWindows := false
 	if len(cfg.TimeWindows) > 0 {
-		data, _, err = excludeRowsByTimeWindows(data, cfg.TimeWindows)
+		parsedWindows, err := parseConfiguredTimeWindows(cfg.TimeWindows)
 		if err != nil {
 			return ProcessingResult{}, fmt.Errorf("exclude time windows: %w", err)
+		}
+		hasConfiguredTimeWindows = len(parsedWindows) > 0
+		if hasConfiguredTimeWindows {
+			if _, strategy := timeSeriesForSorting(data); strategy == "missing" {
+				return ProcessingResult{}, fmt.Errorf("exclude time windows: v súbore sa nenašli použiteľné časové údaje (UTC alebo Date + Time)")
+			}
 		}
 	}
 	if len(cfg.ExcludedOriginalRows) > 0 {
@@ -93,6 +100,13 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 	ds, err := ProcessDataNative(ctx, data, cfg, transformer)
 	if err != nil {
 		return ProcessingResult{}, err
+	}
+	timeWindowCuts := timeWindowCutSummary{}
+	if hasConfiguredTimeWindows {
+		ds, timeWindowCuts, err = applyTimeWindowsAfterSegmentation(ds, cfg.TimeWindows, cfg)
+		if err != nil {
+			return ProcessingResult{}, fmt.Errorf("exclude time windows: %w", err)
+		}
 	}
 	emitProcessingPhase(ctx, "zone_stats")
 	zoneStats, err := CalculateZoneStatsNative(ctx, ds, cfg, transformer)
@@ -163,6 +177,8 @@ func runProcessingNative(ctx context.Context, cfg ProcessingConfig) (ProcessingR
 		UniqueZones:           len(uniqueZones),
 		UniqueOperators:       len(uniqueOperators),
 		TotalZoneRows:         len(zoneStats),
+		ExcludedMeasurements:  timeWindowCuts.RemovedMeasurements,
+		ExcludedZones:         timeWindowCuts.RemovedZones,
 		MinX:                  minX,
 		MaxX:                  maxX,
 		MinY:                  minY,

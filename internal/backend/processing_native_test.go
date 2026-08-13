@@ -103,7 +103,7 @@ func TestBuildSegmentAssignments_commonRouteSharesOverlappingSegments(t *testing
 		{A: 400, B: 8},
 	}
 
-	segmentIDs, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+	segmentIDs, _, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
 
 	if segmentIDs[2] != segmentIDs[1] {
 		t.Fatalf("overlapping 100 m points should share one common segment, got track0=%d track1=%d", segmentIDs[2], segmentIDs[1])
@@ -136,7 +136,7 @@ func TestBuildSegmentAssignments_commonRouteHandlesOppositeDirectionTrack(t *tes
 		{A: 0, B: 6},
 	}
 
-	segmentIDs, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+	segmentIDs, _, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
 
 	if segmentIDs[0] != segmentIDs[5] || segmentIDs[1] != segmentIDs[4] || segmentIDs[2] != segmentIDs[3] {
 		t.Fatalf("opposite direction track should align to the same common segments, got %v", segmentIDs)
@@ -159,8 +159,8 @@ func TestBuildSegmentAssignments_endpointGapContinuesRouteAndEmptySegmentsFillIt
 		{A: 700, B: 0},
 	}
 
-	withoutEmpty, withoutMeta := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
-	withEmpty, meta := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, true, func(i, n int) {})
+	withoutEmpty, withoutMeta, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+	withEmpty, meta, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, true, func(i, n int) {})
 
 	if withoutEmpty[2]-withoutEmpty[1] != 5 {
 		t.Fatalf("endpoint gap should preserve route distance even without empty segment export, got %v", withoutEmpty)
@@ -209,7 +209,7 @@ func TestBuildSegmentAssignments_disjointContinuationRespectsRecordedDirection(t
 			}
 			xy := []Point{{A: 0, B: 0}, {A: 100, B: 0}, tc.continuation[0], tc.continuation[1]}
 
-			got, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+			got, _, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("disjoint continuation folded into known segments: got %v want %v", got, tc.want)
 			}
@@ -239,7 +239,7 @@ func TestBuildSegmentAssignments_disjointContinuationIsInputOrderInvariant(t *te
 			filtered = append(filtered, rawParsed{row: []string{physical[idx].source}})
 			xy = append(xy, physical[idx].point)
 		}
-		ids, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
+		ids, _, _ := buildSegmentAssignments(filtered, xy, 0, 100, 1e-9, false, func(i, n int) {})
 		byX := make(map[float64]int, len(order))
 		for i, point := range xy {
 			byX[point.A] = ids[i]

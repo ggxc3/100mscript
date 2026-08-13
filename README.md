@@ -413,7 +413,11 @@ Ak je výsledný dataset prázdny, stats súbor obsahuje len prázdny riadok.
 
 ## Časové úseky (Time Windows)
 
-Voliteľná funkcia v UI umožňuje definovať časové okná, ktoré vylúčia merania z výpočtu. Používateľ zadá začiatok a koniec (dátum + čas) a program pred spracovaním vyfiltruje všetky riadky, ktorých časová značka padne do niektorého z definovaných okien.
+Voliteľná funkcia v UI umožňuje definovať časové okná, ktoré vyrežú zadanú časť meranej trasy. Používateľ zadá začiatok a koniec (dátum + čas). Program najprv z kompletných dát vypočíta trasu, segmenty a prípadné prázdne segmenty. Až potom premietne časové okno na vzdialenosť pozdĺž trasy a z finálneho datasetu odstráni všetky dotknuté segmenty vrátane automaticky vygenerovaných prázdnych segmentov.
+
+Ak v časovom okne nie je žiadny bod s použiteľnými GPS súradnicami (napríklad počas prejazdu tunelom), poloha začiatku a konca výrezu sa interpoluje medzi najbližšími časovo označenými bodmi pred a po okne. Časové okno tak zabráni tomu, aby sa tunel po odstránení meraní znovu objavil ako séria prázdnych úsekov.
+
+V režimoch štvorcových zón (`center`, `original`) sa časový filter tiež aplikuje až po priestorovom spracovaní, ale odstraňuje jednotlivé merania patriace do okna. Koniec okna zadaný na celé sekundy zahŕňa celú poslednú sekundu vrátane milisekundových meraní.
 
 Podporované formáty dátumu a času sú rovnaké ako pri mobile sync. Pri viacerých oknách sa riadok vylúči, ak padne do ktoréhokoľvek z nich.
 

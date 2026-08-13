@@ -86,10 +86,10 @@ type CSVPreviewLoadEvent = {
 
 const PROCESSING_PHASE_LABELS: Record<string, string> = {
   load_csv: "Načítanie a zlúčenie CSV",
-  prepare_rows: "Príprava riadkov a časové výnimky",
+  prepare_rows: "Príprava riadkov",
   apply_filters: "Aplikácia filtrov",
   mobile_sync: "Synchronizácia 5G / NSA LTE",
-  compute_zones: "Výpočet zón",
+  compute_zones: "Výpočet zón a časový výrez",
   zone_stats: "Štatistiky zón",
   export_files: "Zápis výstupných súborov",
 };
@@ -1404,6 +1404,8 @@ function mountMainView(root: HTMLDivElement): void {
         <div><span>Unikátne zóny</span><strong>${String(result.unique_zones ?? 0)}</strong></div>
         <div><span>Unikátni operátori</span><strong>${String(result.unique_operators ?? 0)}</strong></div>
         <div><span>Riadky zón</span><strong>${String(result.total_zone_rows ?? 0)}</strong></div>
+        <div><span>Vyradené merania</span><strong>${String(result.excluded_measurements ?? 0)}</strong></div>
+        <div><span>Vyrezané zóny/úseky</span><strong>${String(result.excluded_zones ?? 0)}</strong></div>
         <div><span>Časové okná</span><strong>${String(state.timeWindows.filter((window) => isCompleteTimeWindow(window)).length)}</strong></div>
         <div><span>Pokrytie</span><strong>${formatPercent(result.coverage_percent)}</strong></div>
       </div>
@@ -1724,6 +1726,9 @@ function mountMainView(root: HTMLDivElement): void {
     if (!pathsMatchPreview(paths, state.preview)) {
       throw new Error("Zoznam vstupných CSV sa zmenil. Najprv znova načítaj náhľad.");
     }
+    if (enableTimeSelectorCheckbox.checked && state.timeWindows.some((window) => !isCompleteTimeWindow(window))) {
+      throw new Error("Časové okno nie je potvrdené. Skontroluj jeho začiatok a koniec a stlač „Použiť interval“.");
+    }
     const schemaValidation = validateMappedColumnsAcrossFiles(state);
     if (!schemaValidation.ok) {
       throw new Error(schemaValidation.detail);
@@ -1852,7 +1857,7 @@ function mountMainView(root: HTMLDivElement): void {
       appendLog(`Výstup zón: ${result.zones_file}`);
       appendLog(`Výstup štatistík: ${result.stats_file}`);
       appendLog(
-        `Hotovo (zóny=${result.unique_zones}, operátori=${result.unique_operators}, riadky=${result.total_zone_rows}, okná=${buildConfiguredTimeWindows(state.timeWindows).length})`
+        `Hotovo (zóny=${result.unique_zones}, operátori=${result.unique_operators}, riadky=${result.total_zone_rows}, okná=${buildConfiguredTimeWindows(state.timeWindows).length}, vyradené_merania=${result.excluded_measurements ?? 0}, vyrezané_úseky=${result.excluded_zones ?? 0})`
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

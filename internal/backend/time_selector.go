@@ -169,12 +169,28 @@ func parseConfiguredTimeWindows(windows []TimeWindow) ([]parsedTimeWindow, error
 		if !ok {
 			return nil, fmt.Errorf("neplatný koniec časového úseku: %q", end)
 		}
+		// The desktop UI accepts whole seconds. Treat the selected end second as a
+		// complete second so a measurement at 10:04:00.670 is not unexpectedly
+		// retained when the user selected an end value of 10:04:00.
+		if !hasFractionalSecond(end) {
+			endMS += 999
+		}
 		if endMS < startMS {
 			return nil, fmt.Errorf("koniec časového úseku musí byť po začiatku")
 		}
 		parsed = append(parsed, parsedTimeWindow{startMS: startMS, endMS: endMS})
 	}
 	return parsed, nil
+}
+
+func hasFractionalSecond(value string) bool {
+	value = strings.TrimSpace(value)
+	if idx := strings.IndexByte(value, 'T'); idx >= 0 {
+		value = value[idx+1:]
+	} else if idx := strings.IndexByte(value, ' '); idx >= 0 {
+		value = value[idx+1:]
+	}
+	return strings.Contains(value, ".") || strings.Contains(value, ",")
 }
 
 func timeInAnyWindow(timestampMS int64, windows []parsedTimeWindow) bool {

@@ -34,6 +34,27 @@ func TestExcludeRowsByTimeWindows_RemovesRowsInsideConfiguredInterval(t *testing
 	}
 }
 
+func TestExcludeRowsByTimeWindows_IncludesWholeSelectedEndSecond(t *testing.T) {
+	data := &CSVData{
+		Columns: []string{"Date", "Time", "value"},
+		Rows: [][]string{
+			{"05.02.2026", "10:04:00.670", "drop"},
+			{"05.02.2026", "10:04:01.000", "keep"},
+		},
+	}
+
+	out, removed, err := excludeRowsByTimeWindows(data, []TimeWindow{{
+		Start: "2026-02-05T10:03:59",
+		End:   "2026-02-05T10:04:00",
+	}})
+	if err != nil {
+		t.Fatalf("exclude rows by time windows: %v", err)
+	}
+	if removed != 1 || len(out.Rows) != 1 || out.Rows[0][2] != "keep" {
+		t.Fatalf("whole end second was not applied: removed=%d rows=%v", removed, out.Rows)
+	}
+}
+
 func TestParseDateTimeToMillis_AcceptsDateTimeLocalFormat(t *testing.T) {
 	if _, ok := parseDateTimeToMillis("2024-05-01T11:15"); !ok {
 		t.Fatalf("expected datetime-local format to parse")

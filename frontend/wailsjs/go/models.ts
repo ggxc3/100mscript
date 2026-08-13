@@ -115,6 +115,8 @@ export namespace backend {
 	    unique_zones: number;
 	    unique_operators: number;
 	    total_zone_rows: number;
+	    excluded_measurements: number;
+	    excluded_zones: number;
 	    min_x?: number;
 	    max_x?: number;
 	    min_y?: number;
@@ -136,6 +138,8 @@ export namespace backend {
 	        this.unique_zones = source["unique_zones"];
 	        this.unique_operators = source["unique_operators"];
 	        this.total_zone_rows = source["total_zone_rows"];
+	        this.excluded_measurements = source["excluded_measurements"];
+	        this.excluded_zones = source["excluded_zones"];
 	        this.min_x = source["min_x"];
 	        this.max_x = source["max_x"];
 	        this.min_y = source["min_y"];
@@ -242,4 +246,3 @@ export namespace main {
 	}
 
 }
-

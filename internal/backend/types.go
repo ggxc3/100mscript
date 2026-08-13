@@ -46,6 +46,8 @@ type ProcessingResult struct {
 	UniqueZones           int      `json:"unique_zones"`
 	UniqueOperators       int      `json:"unique_operators"`
 	TotalZoneRows         int      `json:"total_zone_rows"`
+	ExcludedMeasurements  int      `json:"excluded_measurements"`
+	ExcludedZones         int      `json:"excluded_zones"`
 	MinX                  *float64 `json:"min_x"`
 	MaxX                  *float64 `json:"max_x"`
 	MinY                  *float64 `json:"min_y"`

@@ -12,6 +12,10 @@ import (
 type ProcessedRow struct {
 	Raw              []string
 	OriginalExcelRow int
+	TimestampMS      int64
+	HasTimestamp     bool
+	SourceTrackID    string
+	SegmentDistanceM float64
 	XMeters          float64
 	YMeters          float64
 	ZonaX            float64
@@ -39,6 +43,8 @@ type ProcessedDataset struct {
 type rawParsed struct {
 	row              []string
 	originalExcelRow int
+	timestampMS      int64
+	hasTimestamp     bool
 	lat              float64
 	lon              float64
 	rsrp             float64
@@ -103,6 +109,13 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 
 	origExcelIdx := indexOf(cols, "original_excel_row")
 	sourceCSVIdx := indexOf(cols, csvSourceIndexColumn)
+	timeSeries := timeSeriesNative{
+		Values: make([]int64, len(data.Rows)),
+		Valid:  make([]bool, len(data.Rows)),
+	}
+	if len(cfg.TimeWindows) > 0 {
+		timeSeries, _ = timeSeriesForSorting(data)
+	}
 
 	filtered := make([]rawParsed, 0, len(data.Rows))
 	nIn := len(data.Rows)
@@ -146,6 +159,8 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		filtered = append(filtered, rawParsed{
 			row:              rowCopy,
 			originalExcelRow: originalExcelRow,
+			timestampMS:      timeSeries.Values[i],
+			hasTimestamp:     timeSeries.Valid[i],
 			lat:              lat,
 			lon:              lon,
 			rsrp:             rsrp,
@@ -174,8 +189,9 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 
 	epsilon := 1e-9
 	segmentIDs := make([]int, len(filtered))
+	segmentDistances := make([]float64, len(filtered))
 	if cfg.ZoneMode == "segments" && len(filtered) > 0 {
-		segmentIDs, segmentMeta = buildSegmentAssignments(filtered, xy, sourceCSVIdx, zoneSize, epsilon, cfg.IncludeEmptyZones, func(i, n int) {
+		segmentIDs, segmentMeta, segmentDistances = buildSegmentAssignments(filtered, xy, sourceCSVIdx, zoneSize, epsilon, cfg.IncludeEmptyZones, func(i, n int) {
 			if n > 0 {
 				maybeEmitProgressInRange(ctx, "compute_zones", i, n, 38, 46)
 			}
@@ -212,6 +228,10 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 		rows[i] = ProcessedRow{
 			Raw:              src.row,
 			OriginalExcelRow: src.originalExcelRow,
+			TimestampMS:      src.timestampMS,
+			HasTimestamp:     src.hasTimestamp,
+			SourceTrackID:    segmentTrackID(src, sourceCSVIdx),
+			SegmentDistanceM: segmentDistances[i],
 			XMeters:          x,
 			YMeters:          y,
 			ZonaX:            zonaX,
@@ -280,19 +300,20 @@ type segmentGlobalPoint struct {
 	global float64
 }
 
-func buildSegmentAssignments(filtered []rawParsed, xy []Point, sourceCSVIdx int, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) ([]int, map[int]Point) {
+func buildSegmentAssignments(filtered []rawParsed, xy []Point, sourceCSVIdx int, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) ([]int, map[int]Point, []float64) {
 	segmentIDs := make([]int, len(filtered))
 	segmentMeta := map[int]Point{}
+	segmentDistances := make([]float64, len(filtered))
 	tracks := buildSegmentTracks(filtered, xy, sourceCSVIdx)
 	if len(tracks) == 0 {
-		return segmentIDs, segmentMeta
+		return segmentIDs, segmentMeta, segmentDistances
 	}
 	if len(tracks) == 1 {
-		assignSingleTrackSegments(tracks[0], segmentIDs, segmentMeta, zoneSize, epsilon, progress)
-		return segmentIDs, segmentMeta
+		assignSingleTrackSegments(tracks[0], segmentIDs, segmentMeta, segmentDistances, zoneSize, epsilon, progress)
+		return segmentIDs, segmentMeta, segmentDistances
 	}
-	assignCommonRouteSegments(tracks, segmentIDs, segmentMeta, zoneSize, epsilon, includeEmptySegments, progress)
-	return segmentIDs, segmentMeta
+	assignCommonRouteSegments(tracks, segmentIDs, segmentMeta, segmentDistances, zoneSize, epsilon, includeEmptySegments, progress)
+	return segmentIDs, segmentMeta, segmentDistances
 }
 
 func buildSegmentTracks(filtered []rawParsed, xy []Point, sourceCSVIdx int) []segmentTrack {
@@ -342,7 +363,7 @@ func segmentTrackID(row rawParsed, sourceCSVIdx int) string {
 	return "0"
 }
 
-func assignSingleTrackSegments(track segmentTrack, segmentIDs []int, segmentMeta map[int]Point, zoneSize, epsilon float64, progress func(i, n int)) {
+func assignSingleTrackSegments(track segmentTrack, segmentIDs []int, segmentMeta map[int]Point, segmentDistances []float64, zoneSize, epsilon float64, progress func(i, n int)) {
 	steps := len(track.points) - 1
 	for i, p := range track.points {
 		progress(i, steps)
@@ -351,13 +372,14 @@ func assignSingleTrackSegments(track segmentTrack, segmentIDs []int, segmentMeta
 		}
 		segID := int(math.Floor((track.cum[i] + epsilon) / zoneSize))
 		segmentIDs[p.filteredIndex] = segID
+		segmentDistances[p.filteredIndex] = track.cum[i]
 		if _, ok := segmentMeta[segID]; !ok {
 			segmentMeta[segID] = Point{A: p.x, B: p.y}
 		}
 	}
 }
 
-func assignCommonRouteSegments(tracks []segmentTrack, segmentIDs []int, segmentMeta map[int]Point, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) {
+func assignCommonRouteSegments(tracks []segmentTrack, segmentIDs []int, segmentMeta map[int]Point, segmentDistances []float64, zoneSize, epsilon float64, includeEmptySegments bool, progress func(i, n int)) {
 	assignments := alignSegmentTracks(tracks, zoneSize)
 	minGlobal := math.Inf(1)
 	for i := range tracks {
@@ -396,6 +418,7 @@ func assignCommonRouteSegments(tracks []segmentTrack, segmentIDs []int, segmentM
 			g := segmentGlobalDistance(track, assignments[i], j)
 			segID := int(math.Floor((g + epsilon) / zoneSize))
 			segmentIDs[p.filteredIndex] = segID
+			segmentDistances[p.filteredIndex] = g
 			if _, ok := segmentMeta[segID]; !ok {
 				segmentMeta[segID] = Point{A: p.x, B: p.y}
 			}
