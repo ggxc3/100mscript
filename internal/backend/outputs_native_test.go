@@ -15,9 +15,9 @@ func TestRunProcessingExportsNRAsYesNoValues(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.csv")
 	inputCSV := strings.Join([]string{
-		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;5G NR",
-		"48.148600;17.107700;3500;10;231;01;-100;yes",
-		"48.160000;17.120000;3600;20;231;02;-120;no",
+		"latitude;longitude;frequency;pci;mcc;mnc;rsrp;sinr;5G NR",
+		"48.148600;17.107700;3500;10;231;01;-100;12;yes",
+		"48.160000;17.120000;3600;20;231;02;-120;7;no",
 	}, "\n") + "\n"
 	if err := os.WriteFile(inputPath, []byte(inputCSV), 0o644); err != nil {
 		t.Fatalf("write input csv: %v", err)
@@ -41,6 +41,7 @@ func TestRunProcessingExportsNRAsYesNoValues(t *testing.T) {
 		"mcc":       4,
 		"mnc":       5,
 		"rsrp":      6,
+		"sinr":      7,
 	}
 
 	result, err := RunProcessing(context.Background(), cfg)
@@ -64,9 +65,14 @@ func TestRunProcessingExportsNRAsYesNoValues(t *testing.T) {
 	if nrIdx < 0 {
 		t.Fatalf("5G NR column missing in zones header: %q", headerLine)
 	}
+	sinrIdx := indexOf(header, "sinr")
+	if sinrIdx < 0 {
+		t.Fatalf("SINR column missing in zones header: %q", headerLine)
+	}
 
 	sawYes := false
 	sawNo := false
+	generatedRows := 0
 	for _, line := range lines[2:] {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -84,10 +90,19 @@ func TestRunProcessingExportsNRAsYesNoValues(t *testing.T) {
 		default:
 			t.Fatalf("unexpected 5G NR export value %q in row: %q", val, line)
 		}
+		if strings.Contains(line, "# Prázdn") {
+			generatedRows++
+			if sinrIdx >= len(parts) || strings.TrimSpace(parts[sinrIdx]) != emptyZoneSINRValue {
+				t.Fatalf("generated empty-zone SINR must be %s, row: %q", emptyZoneSINRValue, line)
+			}
+		}
 	}
 
 	if !sawYes || !sawNo {
 		t.Fatalf("expected both NR values yes and no in export, got sawYes=%v sawNo=%v", sawYes, sawNo)
+	}
+	if generatedRows == 0 {
+		t.Fatal("expected generated empty-zone rows")
 	}
 }
 

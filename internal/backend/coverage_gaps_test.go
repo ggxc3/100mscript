@@ -286,7 +286,7 @@ func TestRunProcessing_centerMode_setsCoverageBoundingFields(t *testing.T) {
 	}
 }
 
-func TestBuildOperatorTemplatesForEmptyRows_normalizesSinrWhenPresent(t *testing.T) {
+func TestBuildOperatorTemplatesForEmptyRows_setsEmptyZoneSinr(t *testing.T) {
 	t.Parallel()
 
 	ds := &ProcessedDataset{
@@ -314,7 +314,7 @@ func TestBuildOperatorTemplatesForEmptyRows_normalizesSinrWhenPresent(t *testing
 	if sinIdx < 0 || sinIdx >= len(row) {
 		t.Fatalf("sinr index")
 	}
-	if row[sinIdx] == "" {
-		t.Fatalf("expected normalized SINR in template")
+	if row[sinIdx] != emptyZoneSINRValue {
+		t.Fatalf("empty-zone SINR=%q, want %q", row[sinIdx], emptyZoneSINRValue)
 	}
 }

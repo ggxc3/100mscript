@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+const (
+	emptyZoneRSRPValue = "-174"
+	emptyZoneSINRValue = "-50"
+)
+
 type ZoneExportOutcome struct {
 	ZoneStats   []ZoneStat
 	UniqueZones []string
@@ -452,9 +457,9 @@ func buildOperatorTemplatesForEmptyRows(ds *ProcessedDataset, sortedStats []Zone
 		baseRowMap := rowValueMap(ds.Columns, ds.Rows[rowIdx].Raw)
 		baseRowMap[layout.mccCol] = op[0]
 		baseRowMap[layout.mncCol] = op[1]
-		baseRowMap[layout.rsrpCol] = "-174"
+		baseRowMap[layout.rsrpCol] = emptyZoneRSRPValue
 		if layout.hasSINRCol {
-			baseRowMap[layout.sinrCol] = normalizePandasFloatString(baseRowMap[layout.sinrCol])
+			baseRowMap[layout.sinrCol] = emptyZoneSINRValue
 		}
 		rowValues := buildExportRowValues(layout, baseRowMap)
 		templateRows[opKey] = rowValues
@@ -543,7 +548,10 @@ func appendEmptyZonesNative(
 				rowValues[layout.exportHeaderToIdx[layout.lonCol]] = coords[1]
 			}
 			if layout.exportHeaderToIdx[layout.rsrpCol] < layout.expectedColumns {
-				rowValues[layout.exportHeaderToIdx[layout.rsrpCol]] = "-174"
+				rowValues[layout.exportHeaderToIdx[layout.rsrpCol]] = emptyZoneRSRPValue
+			}
+			if layout.hasSINRCol && layout.exportHeaderToIdx[layout.sinrCol] < layout.expectedColumns {
+				rowValues[layout.exportHeaderToIdx[layout.sinrCol]] = emptyZoneSINRValue
 			}
 			if layout.nrExportIndex >= 0 && layout.nrExportIndex < layout.expectedColumns {
 				rowValues[layout.nrExportIndex] = normalizeNRExportValue("no")
@@ -586,7 +594,7 @@ func appendCustomOperatorsNative(
 		baseRowMap = rowValueMap(ds.Columns, ds.Rows[0].Raw)
 	}
 	if layout.hasSINRCol {
-		baseRowMap[layout.sinrCol] = normalizePandasFloatString(baseRowMap[layout.sinrCol])
+		baseRowMap[layout.sinrCol] = emptyZoneSINRValue
 	}
 
 	addedRows := 0
@@ -606,7 +614,10 @@ func appendCustomOperatorsNative(
 			rowMap := copyStringMap(baseRowMap)
 			rowMap[layout.latCol] = coords[0]
 			rowMap[layout.lonCol] = coords[1]
-			rowMap[layout.rsrpCol] = "-174"
+			rowMap[layout.rsrpCol] = emptyZoneRSRPValue
+			if layout.hasSINRCol {
+				rowMap[layout.sinrCol] = emptyZoneSINRValue
+			}
 			rowMap[layout.mccCol] = op.MCC
 			rowMap[layout.mncCol] = op.MNC
 			rowMap[layout.pciCol] = op.PCI

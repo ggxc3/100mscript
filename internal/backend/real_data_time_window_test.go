@@ -14,6 +14,7 @@ import (
 // window containing no measured point must remove a spatial slice of them.
 func TestRealROMESData_TimeWindowCutsGeneratedGapSegments(t *testing.T) {
 	inputPath := filepath.Join("..", "..", "data", "real_test", "LTE_D1_S.csv")
+	requireLocalRealData(t, inputPath)
 	tmpDir := t.TempDir()
 	cfg := DefaultProcessingConfig()
 	cfg.FilePath = inputPath
@@ -76,6 +77,7 @@ func TestLargeRealROMESData_TimeWindowStress(t *testing.T) {
 		t.Skip("set RUN_LARGE_REAL_DATA_TESTS=1 to process the 28 MB real ROMES fixture")
 	}
 	inputPath := filepath.Join("..", "..", "data", "empty_problem", "5G_NR_empty_problem.csv")
+	requireLocalRealData(t, inputPath)
 	tmpDir := t.TempDir()
 	cfg := DefaultProcessingConfig()
 	cfg.FilePath = inputPath
@@ -122,4 +124,14 @@ func TestLargeRealROMESData_TimeWindowStress(t *testing.T) {
 	}
 	t.Logf("large ROMES file: removed measurements=%d, cut segments=%d, empty rows before=%d after=%d",
 		withCut.ExcludedMeasurements, withCut.ExcludedZones, withoutCutEmptyRows, withCutEmptyRows)
+}
+
+func requireLocalRealData(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("real data fixture is local-only and not available: %s", path)
+		}
+		t.Fatalf("inspect real data fixture %q: %v", path, err)
+	}
 }

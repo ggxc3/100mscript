@@ -378,6 +378,7 @@ Hranica (>=) patrí do GOOD.
 
 Ak je zapnutá voľba "Generovať prázdne zóny", pre každú kombináciu zóna + operátor, kde chýba meranie, sa doplní riadok:
 - RSRP = -174
+- SINR = -50 (ak je SINR stĺpec vo vstupnej schéme)
 - 5G NR = 0
 - Súradnice sa prepočítajú zo stredu príslušnej zóny
 - Na konci riadku je komentár `# Prázdna zóna - automaticky vygenerovaná` (alebo `# Prázdny úsek...` pre segmenty)
