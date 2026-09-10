@@ -16,6 +16,24 @@ export namespace backend {
 	        this.pci = source["pci"];
 	    }
 	}
+	export class FrequencyInput {
+	    file_path: string;
+	    technology: string;
+	    frequency_column: string;
+	    plmn_column?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FrequencyInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file_path = source["file_path"];
+	        this.technology = source["technology"];
+	        this.frequency_column = source["frequency_column"];
+	        this.plmn_column = source["plmn_column"];
+	    }
+	}
 	export class TimeWindow {
 	    start: string;
 	    end: string;
@@ -31,6 +49,15 @@ export namespace backend {
 	    }
 	}
 	export class ProcessingConfig {
+	    frequency_column_mappings?: Record<string, any>;
+	    frequency_5g_output_path?: string;
+	    frequency_lte_output_path?: string;
+	    frequency_mode_enabled: boolean;
+	    frequency_inputs?: FrequencyInput[];
+	    frequency_lte_bv_mhz: number;
+	    frequency_5g_bv_mhz: number;
+	    frequency_lte_filter_paths?: string[];
+	    frequency_5g_filter_paths?: string[];
 	    file_path: string;
 	    input_file_paths?: string[];
 	    column_mapping: Record<string, number>;
@@ -63,6 +90,15 @@ export namespace backend {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.frequency_column_mappings = source["frequency_column_mappings"];
+	        this.frequency_5g_output_path = source["frequency_5g_output_path"];
+	        this.frequency_lte_output_path = source["frequency_lte_output_path"];
+	        this.frequency_mode_enabled = source["frequency_mode_enabled"];
+	        this.frequency_inputs = this.convertValues(source["frequency_inputs"], FrequencyInput);
+	        this.frequency_lte_bv_mhz = source["frequency_lte_bv_mhz"];
+	        this.frequency_5g_bv_mhz = source["frequency_5g_bv_mhz"];
+	        this.frequency_lte_filter_paths = source["frequency_lte_filter_paths"];
+	        this.frequency_5g_filter_paths = source["frequency_5g_filter_paths"];
 	        this.file_path = source["file_path"];
 	        this.input_file_paths = source["input_file_paths"];
 	        this.column_mapping = source["column_mapping"];
@@ -109,6 +145,9 @@ export namespace backend {
 		}
 	}
 	export class ProcessingResult {
+	    frequency_5g_file?: string;
+	    frequency_lte_file?: string;
+	    corrected_mnc: number;
 	    zones_file: string;
 	    stats_file: string;
 	    include_empty_zones: boolean;
@@ -132,6 +171,9 @@ export namespace backend {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.frequency_5g_file = source["frequency_5g_file"];
+	        this.frequency_lte_file = source["frequency_lte_file"];
+	        this.corrected_mnc = source["corrected_mnc"];
 	        this.zones_file = source["zones_file"];
 	        this.stats_file = source["stats_file"];
 	        this.include_empty_zones = source["include_empty_zones"];
@@ -246,3 +288,4 @@ export namespace main {
 	}
 
 }
+

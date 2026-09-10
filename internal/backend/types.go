@@ -11,7 +11,26 @@ type TimeWindow struct {
 	End   string `json:"end"`
 }
 
+// FrequencyInput requires an explicit technology selected by the user. Frequency
+// is a physical frequency in Hz, never an EARFCN / NR-ARFCN channel number.
+type FrequencyInput struct {
+	FilePath        string `json:"file_path"`
+	Technology      string `json:"technology"` // lte | 5g
+	FrequencyColumn string `json:"frequency_column"`
+	PLMNColumn      string `json:"plmn_column,omitempty"` // empty: detect named/trailing PLMN columns
+}
+
 type ProcessingConfig struct {
+	FrequencyColumnMappings map[string]map[string]string `json:"frequency_column_mappings,omitempty"` // lte / 5g, independent source names
+
+	Frequency5GOutput     string            `json:"frequency_5g_output_path,omitempty"`
+	FrequencyLTEOutput    string            `json:"frequency_lte_output_path,omitempty"`
+	FrequencyModeEnabled  bool              `json:"frequency_mode_enabled"`
+	FrequencyInputs       []FrequencyInput  `json:"frequency_inputs,omitempty"`
+	FrequencyLTEBV        float64           `json:"frequency_lte_bv_mhz"`
+	Frequency5GBV         float64           `json:"frequency_5g_bv_mhz"`
+	FrequencyLTEFilters   []string          `json:"frequency_lte_filter_paths,omitempty"`
+	Frequency5GFilters    []string          `json:"frequency_5g_filter_paths,omitempty"`
 	FilePath              string            `json:"file_path"`
 	InputFilePaths        []string          `json:"input_file_paths,omitempty"`
 	ColumnMapping         map[string]int    `json:"column_mapping"`
@@ -40,6 +59,9 @@ type ProcessingConfig struct {
 }
 
 type ProcessingResult struct {
+	Frequency5GFile       string   `json:"frequency_5g_file,omitempty"`
+	FrequencyLTEFile      string   `json:"frequency_lte_file,omitempty"`
+	CorrectedMNC          int      `json:"corrected_mnc"`
 	ZonesFile             string   `json:"zones_file"`
 	StatsFile             string   `json:"stats_file"`
 	IncludeEmptyZones     bool     `json:"include_empty_zones"`

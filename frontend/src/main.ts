@@ -1,5 +1,6 @@
 import "./style.css";
 import "./app.css";
+import { FrequencyState, newFrequencyState, frequencyValidation, renderFrequencyPanel } from "./frequency-mode";
 
 import {
   DefaultOutputPaths,
@@ -43,6 +44,7 @@ type TimeWindowDraft = {
 };
 
 type UIState = {
+  frequency: FrequencyState;
   preview: main.CSVPreview | null;
   /** Posledná chyba načítania náhľadu (hlavičky); pri úspechu null. */
   previewError: string | null;
@@ -108,6 +110,11 @@ function buildProcessingPhaseRows(cfg: backend.ProcessingConfig): PhaseRow[] {
     { id: "zone_stats", label: PROCESSING_PHASE_LABELS.zone_stats, status: "pending" },
     { id: "export_files", label: PROCESSING_PHASE_LABELS.export_files, status: "pending" }
   );
+  if (cfg.frequency_mode_enabled) {
+    rows.find(p => p.id === "apply_filters")!.label = "Príprava porovnania filtrov";
+    rows.find(p => p.id === "zone_stats")!.label = "Výber maxima RSRP pre každú frekvenciu";
+    rows.find(p => p.id === "export_files")!.label = "Zápis 5G a LTE CSV";
+  }
   return rows;
 }
 
@@ -204,11 +211,62 @@ function matchMappedColumnInSchema(columns: string[], field: ColumnKey, selected
   return { status: "missing" };
 }
 
+const FREQUENCY_TECHNOLOGIES = [{key:"lte",label:"LTE"},{key:"5g",label:"5G"}] as const;
+
+function frequencySchemas(state: UIState, technology: string): Array<{filePath: string; columns: string[]}> {
+  return (state.preview?.fileSchemas || []).filter(schema => state.inputCsvPaths.includes(schema.filePath) && state.frequency.files[schema.filePath]?.technology === technology);
+}
+
+function frequencyColumns(state: UIState, technology: string): string[] {
+  const names = new Map<string,string>();
+  for (const schema of frequencySchemas(state,technology)) {
+    for (const name of schema.columns) if (!names.has(normalizeColumnNameForMatch(name))) names.set(normalizeColumnNameForMatch(name),name);
+  }
+  return [...names.values()];
+}
+
+function suggestFrequencyMappings(state: UIState): void {
+  for (const {key:tech} of FREQUENCY_TECHNOLOGIES) {
+    const columns = frequencyColumns(state,tech);
+    const mapping = state.frequency.columnMappings[tech];
+    for (const field of COLUMN_FIELDS.filter(f => f.key !== "frequency")) {
+      if (mapping[field.key] !== undefined) continue; // Preserve explicit choices, including a cleared field.
+      let candidates = [...COLUMN_HEADER_ALIASES[field.key]];
+      if (tech === "lte" && (field.key === "rsrp" || field.key === "sinr")) candidates = [field.key.toUpperCase(),...candidates];
+      const suggested = candidates.map(alias => columns.find(col => normalizeColumnNameForMatch(col) === normalizeColumnNameForMatch(alias))).find(Boolean);
+      if (suggested) mapping[field.key] = suggested;
+    }
+  }
+}
+
+function validateFrequencyMappings(state: UIState): MappingValidationResult {
+  if (!state.preview) return {ok:false,detail:"Najprv načítaj CSV."};
+  for (const path of state.inputCsvPaths) {
+    if (!["lte","5g"].includes(state.frequency.files[path]?.technology)) return {ok:false,detail:"Najprv označ technológiu každého súboru."};
+  }
+  for (const {key:tech,label} of FREQUENCY_TECHNOLOGIES) {
+    const schemas = frequencySchemas(state,tech);
+    const mapping = state.frequency.columnMappings[tech];
+    for (const schema of schemas) {
+      for (const field of COLUMN_FIELDS.filter(f=>f.key!=="frequency")) {
+        const selected = mapping[field.key];
+        if (!selected && field.key === "sinr") continue;
+        if (!selected) return {ok:false,detail:`${label}: vyber stĺpec ${field.label}.`};
+        const match = matchMappedColumnInSchema(schema.columns,field.key,selected);
+        if (match.status === "missing" && field.key === "sinr") continue;
+        if (match.status !== "matched") return {ok:false,detail:`${label} · ${shortPathName(schema.filePath)}: ${field.label} (${selected}) ${match.status === "missing" ? "chýba" : "je nejednoznačný"}.`};
+      }
+    }
+  }
+  return {ok:true,detail:"Mapovanie LTE aj 5G je overené v súboroch danej technológie."};
+}
+
 function mappingComplete(ui: UIState): boolean {
+  if (ui.frequency.enabled) return validateFrequencyMappings(ui).ok;
   if (!ui.preview) {
     return false;
   }
-  return REQUIRED_COLUMN_FIELDS.every((f) => {
+  return REQUIRED_COLUMN_FIELDS.filter(f => !ui.frequency.enabled || f.key !== "frequency").every((f) => {
     const idx = ui.columnMapping[f.key];
     return typeof idx === "number" && !Number.isNaN(idx) && idx >= 0 && idx < ui.preview!.columns.length;
   });
@@ -220,6 +278,7 @@ type MappingValidationResult = {
 };
 
 function validateMappedColumnsAcrossFiles(state: UIState): MappingValidationResult {
+  if (state.frequency.enabled) return validateFrequencyMappings(state);
   if (!state.preview || !mappingComplete(state)) {
     return { ok: false, detail: "Najprv dokonči mapovanie povinných polí." };
   }
@@ -234,7 +293,7 @@ function validateMappedColumnsAcrossFiles(state: UIState): MappingValidationResu
   const missingOptional: string[] = [];
   const ambiguous: string[] = [];
   for (const schema of fileSchemas) {
-    for (const field of REQUIRED_COLUMN_FIELDS) {
+    for (const field of REQUIRED_COLUMN_FIELDS.filter(f => !state.frequency.enabled || f.key !== "frequency")) {
       const idx = state.columnMapping[field.key];
       if (typeof idx !== "number" || Number.isNaN(idx) || idx < 0 || idx >= state.preview.columns.length) {
         continue;
@@ -316,6 +375,11 @@ function computeReadinessItems(
       detail: schemaValidation.detail,
     });
   }
+  if (state.frequency.enabled) {
+    const problem = frequencyValidation(state.frequency, paths);
+    items.push({id: "frequency", label: "Technológie a frekvencie", ok: !problem, detail: problem || "Každý súbor má technológiu a frekvenciu v Hz."});
+    return items;
+  }
   const nsaLteCount = mobileNsaLtePaths.filter((p) => p.trim().length > 0).length;
   const mobileOk = !mobileEnabled || nsaLteCount > 0;
   items.push({
@@ -346,6 +410,7 @@ mountMainView(app);
 
 function mountMainView(root: HTMLDivElement): void {
   const state: UIState = {
+    frequency: newFrequencyState(),
     preview: null,
     previewError: null,
     previewLoading: false,
@@ -381,6 +446,10 @@ function mountMainView(root: HTMLDivElement): void {
         </div>
       </header>
 
+      <nav class="processing-mode-nav" aria-label="Režim spracovania">
+        <button id="standardModeBtn" class="mode-button is-active" type="button" aria-pressed="true"><strong>Zóny a pokrytie</strong><span>Štandardné spracovanie</span></button>
+        <button id="frequencyModeBtn" class="mode-button" type="button" aria-pressed="false"><strong>Frekvencie · LTE + 5G</strong><span>Každá frekvencia, najsilnejšie meranie</span></button>
+      </nav>
       <section class="content-grid">
         <section class="left-column">
           <article class="card section-card">
@@ -476,6 +545,8 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
           </article>
 
+          <article id="frequencyPanel" class="card section-card frequency-panel" hidden></article>
+
           <article class="card section-card">
             <div class="section-head">
               <h2>Nastavenia spracovania</h2>
@@ -487,7 +558,7 @@ function mountMainView(root: HTMLDivElement): void {
                 <select id="zoneMode"></select>
               </label>
               <label class="field">
-                <span>Veľkosť zóny/úseku (m)</span>
+                <span id="zoneSizeLabel">Dĺžka úseku (m)</span>
                 <input id="zoneSize" type="number" min="0.1" step="0.1" value="100" />
               </label>
               <label class="field">
@@ -529,13 +600,11 @@ function mountMainView(root: HTMLDivElement): void {
             </div>
           </article>
 
-          <article class="card section-card">
-            <div class="section-head">
-              <h2>Mapovanie stĺpcov</h2>
-            </div>
-            <p class="section-note">Najprv načítaj CSV (automaticky po pridaní). Stĺpce sa predvyplnia podľa hlavičky; pred spustením skontroluj každé pole.</p>
+          <details id="mappingDetails" class="card section-card mapping-details" open>
+            <summary><strong>Mapovanie stĺpcov</strong><span id="mappingStatus" class="section-note">Rozšírené nastavenie</span></summary>
+            <p class="section-note">Určuje stĺpce GPS, operátora, PCI a signálu. V režime Frekvencie má LTE aj 5G vlastné nezávislé mapovanie. Rozpoznané názvy sa predvyplnia automaticky; frekvenciu vyberáš pri každom súbore osobitne.</p>
             <div id="mappingGrid" class="mapping-grid"></div>
-          </article>
+          </details>
 
           <article class="card section-card time-selector-card">
             <div class="section-head">
@@ -591,7 +660,7 @@ function mountMainView(root: HTMLDivElement): void {
                 Výstupné CSV sú voliteľné. Prázdne polia znamená uloženie vedľa vstupného súboru s rovnakým pravidlom pomenovania ako doteraz (<code>_zones.csv</code>, <code>_stats.csv</code>; pri Mobile režime <code>_mobile</code> v názve).
               </p>
               <label class="field">
-                <span>Súbor zón</span>
+                <span id="zonesOutputLabel">Súbor zón</span>
                 <div class="inline-row">
                   <input
                     id="outputZonesPath"
@@ -605,7 +674,7 @@ function mountMainView(root: HTMLDivElement): void {
                 </div>
               </label>
               <label class="field">
-                <span>Štatistiky</span>
+                <span id="statsOutputLabel">Štatistiky</span>
                 <div class="inline-row">
                   <input
                     id="outputStatsPath"
@@ -667,6 +736,9 @@ function mountMainView(root: HTMLDivElement): void {
     </main>
   `;
 
+  const frequencyPanel = qs<HTMLElement>("#frequencyPanel");
+  const standardModeBtn = qs<HTMLButtonElement>("#standardModeBtn");
+  const frequencyModeBtn = qs<HTMLButtonElement>("#frequencyModeBtn");
   const csvList = qs<HTMLSelectElement>("#csvList");
   const addCsvBtn = qs<HTMLButtonElement>("#addCsvBtn");
   const addCsvMultiBtn = qs<HTMLButtonElement>("#addCsvMultiBtn");
@@ -1071,6 +1143,9 @@ function mountMainView(root: HTMLDivElement): void {
     zoneModeSelect.appendChild(opt);
   });
   zoneModeSelect.value = "segments";
+  zoneModeSelect.addEventListener("change", () => {
+    qs<HTMLElement>("#zoneSizeLabel").textContent = zoneModeSelect.value === "segments" ? "Dĺžka úseku (m)" : "Strana štvorcovej zóny (m)";
+  });
 
   function appendLog(message: string): void {
     state.logs.push(`[${timestamp()}] ${message}`);
@@ -1147,6 +1222,9 @@ function mountMainView(root: HTMLDivElement): void {
     timeWindowList.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button").forEach((control) => {
       control.disabled = running;
     });
+    standardModeBtn.disabled = running;
+    frequencyModeBtn.disabled = running;
+    renderFrequencySettings();
     outputZonesPathInput.disabled = running;
     outputStatsPathInput.disabled = running;
     progressBar.classList.toggle("is-running", running);
@@ -1156,6 +1234,7 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function renderPreview(): void {
+    renderFrequencySettings();
     updateLoadPreviewButtonLabel();
     if (state.previewLoading) {
       csvPreviewStatus.hidden = false;
@@ -1183,7 +1262,7 @@ function mountMainView(root: HTMLDivElement): void {
     }
     csvPreviewStatus.hidden = false;
     csvPreviewStatus.className = "csv-preview-inline";
-    const techLabel = inputRadioTechUiLabel(state.preview.inputRadioTech);
+    const techLabel = state.frequency.enabled ? "LTE + 5G (technológiu vyber pri každom súbore)" : inputRadioTechUiLabel(state.preview.inputRadioTech);
     csvPreviewStatus.innerHTML = `<span class="csv-preview-inline__ok">Hlavička CSV načítaná úspešne.</span><span class="csv-preview-inline__muted"> · Vstup: ${escapeHtml(techLabel)}</span>`;
     updateMobileNsaLteInputWarning();
     renderReadiness();
@@ -1200,6 +1279,8 @@ function mountMainView(root: HTMLDivElement): void {
   }
 
   function renderCsvList(): void {
+    renderFrequencySettings();
+    if (state.frequency.enabled) renderMappingGrid();
     csvList.innerHTML = "";
     for (const path of state.inputCsvPaths) {
       const opt = document.createElement("option");
@@ -1247,7 +1328,7 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     try {
-      const defaults = (await DefaultOutputPaths(paths[0], mobileEnabled, "")) as main.DefaultOutputPathsResult;
+      const defaults = (await DefaultOutputPaths(paths[0], mobileEnabled, state.frequency.enabled ? "frequencies" : "")) as main.DefaultOutputPathsResult;
       if (
         requestId !== outputDefaultsRequestId ||
         paths[0] !== getInputCsvPaths()[0] ||
@@ -1255,8 +1336,8 @@ function mountMainView(root: HTMLDivElement): void {
       ) {
         return;
       }
-      outputZonesPathInput.placeholder = defaults.zones;
-      outputStatsPathInput.placeholder = defaults.stats;
+      outputZonesPathInput.placeholder = state.frequency.enabled ? defaults.zones.replace(/_zones\.csv$/, "_5g.csv") : defaults.zones;
+      outputStatsPathInput.placeholder = state.frequency.enabled ? defaults.stats.replace(/_stats\.csv$/, "_lte.csv") : defaults.stats;
     } catch {
       if (requestId !== outputDefaultsRequestId) {
         return;
@@ -1273,8 +1354,8 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     const first = paths[0];
-    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
-    const picked = await PickOutputCSVFile("Uložiť súbor zón", fileParentDir(first), fileBasename(defaults.zones));
+    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, state.frequency.enabled ? "frequencies" : "")) as main.DefaultOutputPathsResult;
+    const picked = await PickOutputCSVFile(state.frequency.enabled ? "Uložiť merania 5G" : "Uložiť súbor zón", fileParentDir(first), fileBasename(state.frequency.enabled ? defaults.zones.replace(/_zones\.csv$/, "_5g.csv") : defaults.zones));
     if (!picked) {
       return;
     }
@@ -1288,8 +1369,8 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
     const first = paths[0];
-    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, "")) as main.DefaultOutputPathsResult;
-    const picked = await PickOutputCSVFile("Uložiť súbor štatistík", fileParentDir(first), fileBasename(defaults.stats));
+    const defaults = (await DefaultOutputPaths(first, mobileModeCheckbox.checked, state.frequency.enabled ? "frequencies" : "")) as main.DefaultOutputPathsResult;
+    const picked = await PickOutputCSVFile(state.frequency.enabled ? "Uložiť merania LTE" : "Uložiť súbor štatistík", fileParentDir(first), fileBasename(state.frequency.enabled ? defaults.stats.replace(/_stats\.csv$/, "_lte.csv") : defaults.stats));
     if (!picked) {
       return;
     }
@@ -1399,11 +1480,12 @@ function mountMainView(root: HTMLDivElement): void {
     resultContent.className = "result-body";
     resultContent.innerHTML = `
       <div class="result-grid">
-        <div><span>Zóny CSV</span><strong>${escapeHtml(result.zones_file ?? "")}</strong></div>
-        <div><span>Štatistiky CSV</span><strong>${escapeHtml(result.stats_file ?? "")}</strong></div>
+        <div><span>${result.frequency_5g_file ? "5G CSV" : "Zóny CSV"}</span><strong>${escapeHtml((result.frequency_5g_file || result.zones_file) ?? "")}</strong></div>
+        <div><span>${result.frequency_lte_file ? "LTE CSV" : "Štatistiky CSV"}</span><strong>${escapeHtml((result.frequency_lte_file || result.stats_file) ?? "")}</strong></div>
         <div><span>Unikátne zóny</span><strong>${String(result.unique_zones ?? 0)}</strong></div>
         <div><span>Unikátni operátori</span><strong>${String(result.unique_operators ?? 0)}</strong></div>
         <div><span>Riadky zón</span><strong>${String(result.total_zone_rows ?? 0)}</strong></div>
+        <div><span>Opravené MNC</span><strong>${String(result.corrected_mnc ?? 0)}</strong></div>
         <div><span>Vyradené merania</span><strong>${String(result.excluded_measurements ?? 0)}</strong></div>
         <div><span>Vyrezané zóny/úseky</span><strong>${String(result.excluded_zones ?? 0)}</strong></div>
         <div><span>Časové okná</span><strong>${String(state.timeWindows.filter((window) => isCompleteTimeWindow(window)).length)}</strong></div>
@@ -1411,8 +1493,8 @@ function mountMainView(root: HTMLDivElement): void {
       </div>
       <div class="result-actions-bar">
         <button type="button" class="btn secondary small-btn" data-result-action="open-output">Otvoriť výstupný priečinok</button>
-        <button type="button" class="btn ghost small-btn" data-result-action="copy-zones">Skopírovať cestu (zóny)</button>
-        <button type="button" class="btn ghost small-btn" data-result-action="copy-stats">Skopírovať cestu (štatistiky)</button>
+        <button type="button" class="btn ghost small-btn" data-result-action="copy-zones">Skopírovať cestu (${result.frequency_5g_file ? "5G" : "zóny"})</button>
+        <button type="button" class="btn ghost small-btn" data-result-action="copy-stats">Skopírovať cestu (${result.frequency_lte_file ? "LTE" : "štatistiky"})</button>
       </div>
     `;
   }
@@ -1543,9 +1625,43 @@ function mountMainView(root: HTMLDivElement): void {
     renderReadiness();
   }
 
+  function updateMappingSummary(): void {
+    const valid = !!state.preview && mappingComplete(state) && validateMappedColumnsAcrossFiles(state).ok;
+    qs<HTMLElement>("#mappingStatus").textContent = !state.preview ? "Predvyplní sa po načítaní CSV" : valid ? (state.frequency.enabled ? "LTE a 5G · nezávislé mapovania" : "Stĺpce priradené · rozšírené nastavenie") : "Skontroluj priradenie stĺpcov";
+    if (state.preview && !valid && (!state.frequency.enabled || state.inputCsvPaths.every(p => ["lte","5g"].includes(state.frequency.files[p]?.technology)))) qs<HTMLDetailsElement>("#mappingDetails").open = true;
+  }
+
   function renderMappingGrid(): void {
+    if (state.frequency.enabled) {
+      suggestFrequencyMappings(state);
+      updateMappingSummary();
+      mappingGrid.classList.add("mapping-grid--technologies");
+      mappingGrid.innerHTML = FREQUENCY_TECHNOLOGIES.map(({key:tech,label}) => {
+        const schemas = frequencySchemas(state,tech);
+        const columns = frequencyColumns(state,tech);
+        const mapping = state.frequency.columnMappings[tech];
+        const fields = COLUMN_FIELDS.filter(f=>f.key!=="frequency").map(({key,label:fieldLabel}) => {
+          const selected = mapping[key] || "";
+          const choices = selected && !columns.includes(selected) ? [selected,...columns] : columns;
+          return `<label class="field mapping-field"><span>${fieldLabel}</span><select data-column-key="${key}" data-mapping-tech="${tech}" aria-label="${label} ${fieldLabel}"${state.running ? " disabled" : ""}>
+            <option value="">${key === "sinr" ? "Nepoužiť SINR" : "Vyber stĺpec"}</option>
+            ${choices.map(col=>`<option value="${escapeHtml(col)}"${col===selected ? " selected" : ""}>${escapeHtml(col)}</option>`).join("")}
+          </select></label>`;
+        }).join("");
+        return `<section class="technology-mapping" aria-label="Mapovanie ${label}"><h3>Mapovanie ${label}</h3><p class="section-note">${schemas.length ? `${schemas.length} súborov · iba stĺpce ${label}` : `Najprv označ vstupné súbory ako ${label}.`}</p>${schemas.length ? `<div class="mapping-grid">${fields}</div>` : ""}</section>`;
+      }).join("");
+      mappingGrid.querySelectorAll<HTMLSelectElement>("select[data-mapping-tech]").forEach(select=>select.addEventListener("change",()=>{
+        state.frequency.columnMappings[select.dataset.mappingTech!][select.dataset.columnKey!] = select.value;
+        updateMappingSummary();
+        renderReadiness();
+      }));
+      renderReadiness();
+      return;
+    }
+    mappingGrid.classList.remove("mapping-grid--technologies");
+    updateMappingSummary();
     if (!state.preview) {
-      mappingGrid.innerHTML = COLUMN_FIELDS.map(
+      mappingGrid.innerHTML = COLUMN_FIELDS.filter(f => !state.frequency.enabled || f.key !== "frequency").map(
         ({ key, label }) => `
           <label class="field mapping-field">
             <span>${label}</span>
@@ -1558,7 +1674,7 @@ function mountMainView(root: HTMLDivElement): void {
       return;
     }
 
-    mappingGrid.innerHTML = COLUMN_FIELDS.map(({ key, label }) => {
+    mappingGrid.innerHTML = COLUMN_FIELDS.filter(f => !state.frequency.enabled || f.key !== "frequency").map(({ key, label }) => {
       const selected = state.columnMapping[key];
       const options = state.preview!.columns
         .map((col, idx) => {
@@ -1585,6 +1701,7 @@ function mountMainView(root: HTMLDivElement): void {
         } else {
           state.columnMapping[key] = Number(raw);
         }
+        updateMappingSummary();
         renderReadiness();
       });
     });
@@ -1691,7 +1808,7 @@ function mountMainView(root: HTMLDivElement): void {
       throw new Error("Najprv načítaj stĺpce zo vstupného CSV.");
     }
     const columnMapping: Record<string, number> = {};
-    for (const field of REQUIRED_COLUMN_FIELDS) {
+    for (const field of REQUIRED_COLUMN_FIELDS.filter(f => !state.frequency.enabled || f.key !== "frequency")) {
       const idx = state.columnMapping[field.key];
       if (typeof idx !== "number" || Number.isNaN(idx)) {
         throw new Error(`Chýba mapovanie stĺpca pre '${field.label}'.`);
@@ -1736,9 +1853,9 @@ function mountMainView(root: HTMLDivElement): void {
     const filePath = paths[0];
     const input_file_paths = paths.length > 1 ? paths : undefined;
 
-    const column_mapping = buildColumnMapping();
-    const column_mapping_names = buildColumnMappingNames();
-    const mobile_mode_enabled = mobileModeCheckbox.checked;
+    const column_mapping = state.frequency.enabled ? {} : buildColumnMapping();
+    const column_mapping_names = state.frequency.enabled ? {} : buildColumnMappingNames();
+    const mobile_mode_enabled = !state.frequency.enabled && mobileModeCheckbox.checked;
     const nsaLtePaths = dedupePaths(state.mobileNsaLtePaths.map((p) => p.trim()).filter((p) => p.length > 0));
     if (mobile_mode_enabled && nsaLtePaths.length === 0) {
       throw new Error("Pre Mobile režim pridaj aspoň jeden NSA LTE CSV súbor.");
@@ -1749,12 +1866,12 @@ function mountMainView(root: HTMLDivElement): void {
       throw new Error("Veľkosť zóny/úseku musí byť kladná.");
     }
 
-    const rsrp_threshold = parseNumberInput(rsrpThresholdInput, "RSRP hranica");
-    const sinr_threshold = parseNumberInput(sinrThresholdInput, "SINR hranica");
-    const mobile_time_tolerance_ms = parseIntegerInput(mobileToleranceInput, "Tolerancia času");
+    const rsrp_threshold = state.frequency.enabled ? -110 : parseNumberInput(rsrpThresholdInput, "RSRP hranica");
+    const sinr_threshold = state.frequency.enabled ? -5 : parseNumberInput(sinrThresholdInput, "SINR hranica");
+    const mobile_time_tolerance_ms = state.frequency.enabled ? 1000 : parseIntegerInput(mobileToleranceInput, "Tolerancia času");
 
     let custom_operators: backend.CustomOperator[] = [];
-    const include_empty_zones = includeEmptyZonesCheckbox.checked;
+    const include_empty_zones = !state.frequency.enabled && includeEmptyZonesCheckbox.checked;
     const add_custom_operators = include_empty_zones && addCustomOperatorsCheckbox.checked;
     if (add_custom_operators) {
       custom_operators = parseCustomOperatorsText(customOperatorsTextInput.value);
@@ -1764,8 +1881,8 @@ function mountMainView(root: HTMLDivElement): void {
     const output_stats_file_path = outputStatsPathInput.value.trim();
 
     let filter_paths: string[] | undefined;
-    const useAuto = useAutoFiltersCheckbox.checked;
-    const useAdditional = useAdditionalFiltersCheckbox.checked;
+    const useAuto = !state.frequency.enabled && useAutoFiltersCheckbox.checked;
+    const useAdditional = !state.frequency.enabled && useAdditionalFiltersCheckbox.checked;
     const effectiveCustomPaths = useAdditional ? state.customFilterPaths : [];
     if (!useAuto && effectiveCustomPaths.length === 0) {
       filter_paths = [];
@@ -1781,25 +1898,43 @@ function mountMainView(root: HTMLDivElement): void {
       filter_paths = dedupePaths(merged);
     }
 
+    let frequencyOptions = {};
+    if (state.frequency.enabled) {
+      const problem = frequencyValidation(state.frequency, paths);
+      if (problem) throw new Error(problem);
+      const auto = state.frequency.autoFilters ? await DiscoverAutoFilterPaths() : [];
+      frequencyOptions = {
+        frequency_mode_enabled: true,
+        frequency_column_mappings: state.frequency.columnMappings,
+        frequency_5g_output_path: output_zones_file_path,
+        frequency_lte_output_path: output_stats_file_path,
+        frequency_inputs: paths.map(p => state.frequency.files[p]),
+        frequency_lte_bv_mhz: Number(state.frequency.lteBV.replace(",", ".")),
+        frequency_5g_bv_mhz: Number(state.frequency.nrBV.replace(",", ".")),
+        frequency_lte_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filters[\\/]/.test(p)), ...state.frequency.lteFilters]),
+        frequency_5g_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filtre_5G[\\/]/.test(p)), ...state.frequency.nrFilters]),
+      };
+    }
     return {
+      ...frequencyOptions,
       file_path: filePath,
       input_file_paths,
       column_mapping,
       column_mapping_names,
-      keep_original_rows: keepOriginalRowsCheckbox.checked,
+      keep_original_rows: !state.frequency.enabled && keepOriginalRowsCheckbox.checked,
       excluded_original_rows: [],
       time_windows: buildConfiguredTimeWindows(state.timeWindows),
       zone_mode: zoneModeSelect.value || "segments",
       zone_size_m,
       rsrp_threshold,
       sinr_threshold,
-      include_empty_zones,
-      add_custom_operators,
+      include_empty_zones: !state.frequency.enabled && include_empty_zones,
+      add_custom_operators: !state.frequency.enabled && add_custom_operators,
       custom_operators,
       filter_paths,
       output_suffix: "",
-      ...(output_zones_file_path ? { output_zones_file_path } : {}),
-      ...(output_stats_file_path ? { output_stats_file_path } : {}),
+      ...(!state.frequency.enabled && output_zones_file_path ? { output_zones_file_path } : {}),
+      ...(!state.frequency.enabled && output_stats_file_path ? { output_stats_file_path } : {}),
       mobile_mode_enabled,
       mobile_nsa_lte_file_path: mobile_mode_enabled && nsaLtePaths.length > 0 ? nsaLtePaths[0] : "",
       ...(mobile_mode_enabled ? { mobile_nsa_lte_file_paths: nsaLtePaths } : {}),
@@ -1854,8 +1989,8 @@ function mountMainView(root: HTMLDivElement): void {
       renderResult();
 
       setStatus("Spracovanie úspešne dokončené", "success");
-      appendLog(`Výstup zón: ${result.zones_file}`);
-      appendLog(`Výstup štatistík: ${result.stats_file}`);
+      appendLog(`Výstup ${result.frequency_5g_file ? "5G" : "zón"}: ${(result.frequency_5g_file || result.zones_file)}`);
+      appendLog(`Výstup ${result.frequency_lte_file ? "LTE" : "štatistík"}: ${(result.frequency_lte_file || result.stats_file)}`);
       appendLog(
         `Hotovo (zóny=${result.unique_zones}, operátori=${result.unique_operators}, riadky=${result.total_zone_rows}, okná=${buildConfiguredTimeWindows(state.timeWindows).length}, vyradené_merania=${result.excluded_measurements ?? 0}, vyrezané_úseky=${result.excluded_zones ?? 0})`
       );
@@ -1986,6 +2121,49 @@ function mountMainView(root: HTMLDivElement): void {
     renderFilterList();
     appendLog(`Vyčistené filtre (${count})`);
   }
+
+  function renderFrequencySettings(): void {
+    renderFrequencyPanel(frequencyPanel, state.frequency, getInputCsvPaths(), state.preview?.fileSchemas || [], state.running,
+      () => { renderMappingGrid(); }, message => { appendLog(message); setStatus("Chyba pri výbere filtrov", "error"); });
+  }
+
+  const modeOutputPaths = { standard: ["", ""], frequency: ["", ""] };
+  function selectProcessingMode(enabled: boolean): void {
+    if (state.running || state.frequency.enabled === enabled) return;
+    modeOutputPaths[state.frequency.enabled ? "frequency" : "standard"] = [outputZonesPathInput.value, outputStatsPathInput.value];
+    state.frequency.enabled = enabled;
+    qs<HTMLDetailsElement>("#mappingDetails").open = !enabled;
+    setStatus("Pripravené", "idle");
+    qs<HTMLElement>("#zonesOutputLabel").textContent = enabled ? "Výsledok 5G" : "Súbor zón";
+    qs<HTMLElement>("#statsOutputLabel").textContent = enabled ? "Výsledok LTE" : "Štatistiky";
+    qs<HTMLElement>(".output-paths-note").textContent = enabled
+      ? "Dva samostatné súbory: _frequencies_5g.csv a _frequencies_lte.csv. Každý zachová stĺpce svojej technológie. Prázdne cesty uložia výstupy vedľa prvého vstupu."
+      : "Prázdne cesty uložia _zones.csv a _stats.csv vedľa prvého vstupu.";
+    state.result = null;
+    state.processingPhases = [];
+    standardModeBtn.classList.toggle("is-active", !enabled);
+    frequencyModeBtn.classList.toggle("is-active", enabled);
+    standardModeBtn.setAttribute("aria-pressed", String(!enabled));
+    frequencyModeBtn.setAttribute("aria-pressed", String(enabled));
+    for (const input of [mobileModeCheckbox, useAutoFiltersCheckbox, useAdditionalFiltersCheckbox, keepOriginalRowsCheckbox, includeEmptyZonesCheckbox]) {
+      input.closest<HTMLElement>("label")!.hidden = enabled;
+    }
+
+    rsrpThresholdInput.closest<HTMLElement>("label")!.hidden = enabled;
+    sinrThresholdInput.closest<HTMLElement>("label")!.hidden = enabled;
+    customOperatorsPanel.hidden = enabled;
+    if (enabled) { mobileModeCheckbox.checked = false; }
+    [outputZonesPathInput.value, outputStatsPathInput.value] = modeOutputPaths[enabled ? "frequency" : "standard"];
+    renderFrequencySettings();
+    renderPreview();
+    renderMappingGrid();
+    renderResult();
+    renderProcessingPipeline();
+    updateDependentUI();
+    extraFiltersWrap.hidden = enabled;
+  }
+  standardModeBtn.addEventListener("click", () => selectProcessingMode(false));
+  frequencyModeBtn.addEventListener("click", () => selectProcessingMode(true));
 
   addCsvBtn.addEventListener("click", () => {
     runAsyncAction("Pridanie vstupného CSV zlyhalo", addOneCsvFromPicker);
@@ -2175,18 +2353,18 @@ function mountMainView(root: HTMLDivElement): void {
     void (async () => {
       try {
         if (action === "open-output") {
-          const path = result.zones_file || result.stats_file;
+          const path = (result.frequency_5g_file || result.zones_file) || (result.frequency_lte_file || result.stats_file);
           if (!path) {
             return;
           }
           await OpenContainingFolder(path);
           appendLog("Otvorený priečinok / súbor vo výstupe.");
-        } else if (action === "copy-zones" && result.zones_file) {
-          await ClipboardSetText(result.zones_file);
-          appendLog("Skopírovaná cesta k súboru zón.");
-        } else if (action === "copy-stats" && result.stats_file) {
-          await ClipboardSetText(result.stats_file);
-          appendLog("Skopírovaná cesta k štatistikám.");
+        } else if (action === "copy-zones" && (result.frequency_5g_file || result.zones_file)) {
+          await ClipboardSetText((result.frequency_5g_file || result.zones_file));
+          appendLog(result.frequency_5g_file ? "Skopírovaná cesta k 5G CSV." : "Skopírovaná cesta k súboru zón.");
+        } else if (action === "copy-stats" && (result.frequency_lte_file || result.stats_file)) {
+          await ClipboardSetText((result.frequency_lte_file || result.stats_file));
+          appendLog(result.frequency_lte_file ? "Skopírovaná cesta k LTE CSV." : "Skopírovaná cesta k štatistikám.");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

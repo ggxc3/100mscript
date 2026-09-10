@@ -6,6 +6,51 @@ Program načíta namerané dáta z jedného alebo viacerých CSV súborov, aplik
 
 ---
 
+## Samostatný režim „Frekvencie · LTE + 5G“
+
+V hornej časti aplikácie vyber **Frekvencie · LTE + 5G**. Tento režim podporuje ľubovoľný počet LTE aj 5G CSV naraz a používa existujúci výpočet priestorových zón. V nastaveniach si vyber **Úseky po trase**, **Štvorcové zóny (stred)** alebo **Štvorcové zóny (prvý bod v zóne)**. Veľkosť v metroch znamená dĺžku úseku alebo stranu štvorca. Časové okná fungujú rovnako ako pri štandardnom spracovaní: pri úsekoch vyrežú dotknuté úseky, pri štvorcových zónach jednotlivé merania v danom čase.
+
+**Mapovanie stĺpcov** má vo frekvenčnom režime dva nezávislé bloky: **Mapovanie LTE** a **Mapovanie 5G**. Každý priraďuje GPS, operátora, PCI a RSRP/SINR iba zo stĺpcov súborov označených danou technológiou. LTE prednostne vyberá `RSRP`/`SINR`, 5G `SSS-RSRP`/`SSS-SINR`. Zmena jedného mapovania nemení druhé ani mapovanie štandardného režimu. Vybrané povinné stĺpce sa overujú v každom súbore danej technológie; známe aliasy sú podporované aj pri rôznych exportoch v rámci rovnakej technológie. V tomto režime je sekcia štandardne zbalená ako rozšírené nastavenie; pri chýbajúcom alebo nejednoznačnom mapovaní sa otvorí na opravu. Frekvenciu naďalej vyberáš pri každom súbore osobitne.
+
+1. Pridaj vstupné súbory a pri **každom** výslovne vyber LTE alebo 5G. Typ podľa hlavičky je iba pomôcka.
+2. Vyber stĺpec fyzickej frekvencie **v Hz**: pri dodaných 5G dátach `SSRef`, pri LTE `Frequency`. `NR-ARFCN` a `EARFCN` sú čísla kanálov a na toto porovnávanie sa nepoužívajú.
+3. MNC sa pred zoskupovaním opraví podľa čísla za lomkou v hodnote typu `231/2`. Automatické hľadanie prechádza PLMN a dodatočné `extra_col_*` stĺpce; konkrétny stĺpec možno vybrať ručne. Prázdna hodnota ponechá MNC. Konfliktné alebo nejednoznačné hodnoty hlásia chybu. V dátach `data/2100` je táto hodnota v `extra_col_1`, za pomenovaným stĺpcom `Add. PLMNs`.
+4. Pre každú kombináciu **zóna/úsek + MCC + MNC + frekvencia + technológia** sa vyberie jeden pôvodný riadok s **najvyšším jednotlivým RSRP**. Nejde o priemer. Pri rovnakom RSRP vyhrá prvý riadok podľa poradia vstupných súborov a riadkov v nich. LTE a 5G zostávajú samostatné aj pri rovnakej frekvencii.
+5. Filtre sa vyberajú osobitne pre LTE a 5G. Automatické LTE filtre sú z `filters/`, 5G filtre z `filtre_5G/`; dodatočné filtre možno pridať pre každú technológiu zvlášť. Filtre **nič nemenia ani neduplikujú**. Kontroluje sa operátor už po oprave MNC na vybranom najsilnejšom meraní. Vyberá sa pravidlo s najviac zhodnými podmienkami, pri zhode podľa názvu súboru, rovnako ako v štandardnom režime.
+6. `Operator_sedi` obsahuje `no`, ak by vybraný filter zmenil MCC alebo MNC (aj v niektorej z viacerých assignment kombinácií); inak `yes`. Bez zhodného pravidla alebo s vypnutými filtrami je výsledok `yes` – znamená to, že nenastáva náhrada operátora.
+7. **bV** sa zadáva samostatne pre LTE a 5G v MHz, predvolene 0. `Operator_sedi_bV` vyhodnocuje presne **f, f − bV × 1 000 000 a f + bV × 1 000 000**. Obsahuje `yes`, iba ak na všetkých troch hodnotách nenastáva náhrada operátora. Vnútro intervalu sa nekontroluje; frekvencia použitá na zoskupovanie sa nemení.
+
+### Dva oddelené výsledné súbory
+
+- `<prvý_vstup>_frequencies_5g.csv` obsahuje iba 5G merania a 5G vstupné stĺpce.
+- `<prvý_vstup>_frequencies_lte.csv` obsahuje iba LTE merania a LTE vstupné stĺpce.
+
+Výstupné cesty možno zmeniť osobitne. Schéma sa zjednocuje iba medzi súbormi tej istej technológie; 5G a LTE stĺpce sa vo výstupoch nepomiešajú. Oba súbory majú spoločné identifikátory zón alebo úsekov. Stĺpec `technologia` sa neexportuje, pretože technológiu určuje samostatný súbor. Ak pre technológiu nie sú výsledné merania, jej súbor obsahuje len hlavičku. Tento režim nevytvára ďalší súbor štatistík.
+
+Za vstupnými stĺpcami sú doplnené:
+
+| Stĺpec | Význam |
+|---|---|
+| `Frekvencia_Hz` | Fyzická frekvencia použitá na zoskupovanie |
+| `Usek` alebo `Zona` | ID spoločného úseku (napr. `segment_12`) alebo bunky štvorcovej mriežky |
+| `Usek_latitude`, `Usek_longitude` alebo `Zona_latitude`, `Zona_longitude` | GPS začiatku úseku, stredu štvorca alebo prvého zostávajúceho bodu v zóne podľa režimu. Vstupné GPS zostávajú z najsilnejšieho merania. |
+| `Zdrojovy_subor`, `original_excel_row` | Zdroj a číslo riadku vybraného merania (od 1 vrátane preambuly a hlavičky) |
+| `Pocet_merani` | Počet meraní v danej skupine |
+| `Operator_sedi`, `Operator_sedi_bV` | Výsledky kontroly filtrov |
+| `Ostatne_PCI` | Jedinečné ostatné PCI tej istej skupiny, numericky zoradené a oddelené čiarkami; bez vybraného PCI |
+
+Prázdne úseky, vlastných operátorov, mobile synchronizáciu a prahy pokrytia tento režim nepoužíva. Riadky bez použiteľného RSRP, GPS alebo kľúčov skupiny sa do výsledku nezaradia.
+
+Regresné testy vrátane štyroch súborov (2 LTE + 2 5G), opravy PLMN, maxima RSRP, oddelených schém, filtrov, bV a časových výrezov:
+
+```bash
+go test ./...
+# Kompletné lokálne dáta 2100 (~290 MB):
+RUN_LARGE_REAL_DATA_TESTS=1 go test ./internal/backend -run '^TestFrequencyMode_Real2100$' -v
+```
+
+---
+
 ## Technológie
 
 | Vrstva | Technológia |
