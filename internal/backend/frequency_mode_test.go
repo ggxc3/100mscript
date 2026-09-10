@@ -572,7 +572,9 @@ func TestFrequencyMode_MappingRequiredInEverySameTechnologyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = RunProcessing(context.Background(), cfg)
-	if err == nil || !strings.Contains(err.Error(), cfg.FrequencyInputs[1].FilePath) {
+	// Error paths use %q, which escapes Windows backslashes.
+	wantError := fmt.Sprintf("CSV %q: chýba mapovaný stĺpec rsrp (CustomPower)", secondPath)
+	if err == nil || !strings.Contains(err.Error(), wantError) {
 		t.Fatalf("expected second NR file to fail its technology mapping: %v", err)
 	}
 }
