@@ -18,14 +18,16 @@ V hornej časti aplikácie vyber **Frekvencie · LTE + 5G**. Tento režim podpor
 4. Pre každú kombináciu **zóna/úsek + MCC + MNC + frekvencia + technológia** sa vyberie jeden pôvodný riadok s **najvyšším jednotlivým RSRP**. Nejde o priemer. Pri rovnakom RSRP vyhrá prvý riadok podľa poradia vstupných súborov a riadkov v nich. LTE a 5G zostávajú samostatné aj pri rovnakej frekvencii.
 5. Filtre sa vyberajú osobitne pre LTE a 5G. Automatické LTE filtre sú z `filters/`, 5G filtre z `filtre_5G/`; dodatočné filtre možno pridať pre každú technológiu zvlášť. Filtre **nič nemenia ani neduplikujú**. Kontroluje sa operátor už po oprave MNC na vybranom najsilnejšom meraní. Vyberá sa pravidlo s najviac zhodnými podmienkami, pri zhode podľa názvu súboru, rovnako ako v štandardnom režime.
 6. `Operator_sedi` obsahuje `no`, ak by vybraný filter zmenil MCC alebo MNC (aj v niektorej z viacerých assignment kombinácií); inak `yes`. Bez zhodného pravidla alebo s vypnutými filtrami je výsledok `yes` – znamená to, že nenastáva náhrada operátora.
-7. **bV** sa zadáva samostatne pre LTE a 5G v MHz, predvolene 0. `Operator_sedi_bV` vyhodnocuje presne **f, f − bV × 1 000 000 a f + bV × 1 000 000**. Obsahuje `yes`, iba ak na všetkých troch hodnotách nenastáva náhrada operátora. Vnútro intervalu sa nekontroluje; frekvencia použitá na zoskupovanie sa nemení.
+7. **BW** sa zadáva samostatne pre LTE a 5G v MHz, predvolene 0. Je to odchýlka **na každú stranu**, nedelí sa dvoma a nepreberá sa zo vstupného stĺpca `BW`. `Operator_sedi_BW` vyhodnocuje presne **f, f − BW × 1 000 000 a f + BW × 1 000 000**. Obsahuje `yes`, iba ak na všetkých troch hodnotách nenastáva náhrada operátora. Vnútro intervalu sa nekontroluje; frekvencia použitá na zoskupovanie sa nemení.
+
+Rozsahy filtrov sú **[od, do)**: dolná hranica patrí do rozsahu, horná už nie. Rovnosť alebo rozsah s rovnakými hranicami kontroluje presnú hodnotu. Napríklad 5G meranie `MNC=2`, `2131,25 MHz`, `BW=5 MHz` má s dodanými filtrami `Operator_sedi=yes` a `Operator_sedi_BW=no`: dolný bod `2126,25 MHz` patrí do filtra Orange (`MNC=1`). Ak sa žiadny filter nezhoduje alebo nie sú načítané žiadne filtre, výsledok je `yes`; tento výsledok znamená neprítomnosť náhrady, nie potvrdené pridelenie pásma operátorovi.
 
 ### Dva oddelené výsledné súbory
 
 - `<prvý_vstup>_frequencies_5g.csv` obsahuje iba 5G merania a 5G vstupné stĺpce.
 - `<prvý_vstup>_frequencies_lte.csv` obsahuje iba LTE merania a LTE vstupné stĺpce.
 
-Výstupné cesty možno zmeniť osobitne. Schéma sa zjednocuje iba medzi súbormi tej istej technológie; 5G a LTE stĺpce sa vo výstupoch nepomiešajú. Oba súbory majú spoločné identifikátory zón alebo úsekov. Stĺpec `technologia` sa neexportuje, pretože technológiu určuje samostatný súbor. Ak pre technológiu nie sú výsledné merania, jej súbor obsahuje len hlavičku. Tento režim nevytvára ďalší súbor štatistík.
+Výstupné cesty možno zmeniť osobitne. Schéma sa zjednocuje iba medzi súbormi tej istej technológie; 5G a LTE stĺpce sa vo výstupoch nepomiešajú. Oba súbory začínajú **jedným prázdnym riadkom a hlavičkou na druhom riadku**, rovnako ako štandardný export zón. Majú spoločné identifikátory zón alebo úsekov. Stĺpec `technologia` sa neexportuje, pretože technológiu určuje samostatný súbor. Ak pre technológiu nie sú výsledné merania, jej súbor obsahuje prázdny riadok a hlavičku. Tento režim nevytvára ďalší súbor štatistík.
 
 Za vstupnými stĺpcami sú doplnené:
 
@@ -36,18 +38,25 @@ Za vstupnými stĺpcami sú doplnené:
 | `Usek_latitude`, `Usek_longitude` alebo `Zona_latitude`, `Zona_longitude` | GPS začiatku úseku, stredu štvorca alebo prvého zostávajúceho bodu v zóne podľa režimu. Vstupné GPS zostávajú z najsilnejšieho merania. |
 | `Zdrojovy_subor`, `original_excel_row` | Zdroj a číslo riadku vybraného merania (od 1 vrátane preambuly a hlavičky) |
 | `Pocet_merani` | Počet meraní v danej skupine |
-| `Operator_sedi`, `Operator_sedi_bV` | Výsledky kontroly filtrov |
+| `Operator_sedi`, `Operator_sedi_BW` | Výsledky kontroly filtrov |
 | `Ostatne_PCI` | Jedinečné ostatné PCI tej istej skupiny, numericky zoradené a oddelené čiarkami; bez vybraného PCI |
 
 Prázdne úseky, vlastných operátorov, mobile synchronizáciu a prahy pokrytia tento režim nepoužíva. Riadky bez použiteľného RSRP, GPS alebo kľúčov skupiny sa do výsledku nezaradia.
 
-Regresné testy vrátane štyroch súborov (2 LTE + 2 5G), opravy PLMN, maxima RSRP, oddelených schém, filtrov, bV a časových výrezov:
+Regresné testy vrátane štyroch súborov (2 LTE + 2 5G), opravy PLMN, maxima RSRP, oddelených schém, filtrov, BW a časových výrezov:
 
 ```bash
 go test ./...
 # Kompletné lokálne dáta 2100 (~290 MB):
 RUN_LARGE_REAL_DATA_TESTS=1 go test ./internal/backend -run '^TestFrequencyMode_Real2100$' -v
+# Audit 21 kombinácií priestorového režimu, BW a zapnutia filtrov:
+RUN_LARGE_REAL_DATA_TESTS=1 FREQUENCY_AUDIT_OUTPUT_DIR=/tmp/frequency-bw-audit \
+  go test ./internal/backend -run '^TestFrequencyMode_Real2100BWAudit$' -count=1 -v -timeout 15m
+# Nezávislá kontrola všetkých exportov s presnou desatinnou aritmetikou:
+python3 scripts/audit_frequency_outputs.py /tmp/frequency-bw-audit --report /tmp/frequency-bw-audit/report.json
 ```
+
+Rozsah a výsledky overenia sú v [protokole auditu BW](docs/frequency-bw-audit.md).
 
 ---
 

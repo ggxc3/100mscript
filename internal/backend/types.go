@@ -27,8 +27,8 @@ type ProcessingConfig struct {
 	FrequencyLTEOutput    string            `json:"frequency_lte_output_path,omitempty"`
 	FrequencyModeEnabled  bool              `json:"frequency_mode_enabled"`
 	FrequencyInputs       []FrequencyInput  `json:"frequency_inputs,omitempty"`
-	FrequencyLTEBV        float64           `json:"frequency_lte_bv_mhz"`
-	Frequency5GBV         float64           `json:"frequency_5g_bv_mhz"`
+	FrequencyLTEBW        float64           `json:"frequency_lte_bv_mhz"` // legacy JSON key retained for existing callers
+	Frequency5GBW         float64           `json:"frequency_5g_bv_mhz"`  // BW is the +/- delta in MHz, not half a channel width
 	FrequencyLTEFilters   []string          `json:"frequency_lte_filter_paths,omitempty"`
 	Frequency5GFilters    []string          `json:"frequency_5g_filter_paths,omitempty"`
 	FilePath              string            `json:"file_path"`

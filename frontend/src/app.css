@@ -1475,7 +1475,7 @@ code {
 .frequency-file-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .frequency-file-fields > :last-child { grid-column: 1 / -1; }
 .frequency-file-fields b { color: #176b64; }
-.frequency-bv { margin: 18px 0 10px; }
+.frequency-bw { margin: 18px 0 10px; }
 .frequency-empty { padding: 16px; border: 1px dashed #b5c9c6; color: #4f6763; border-radius: 6px; font-size: 13px; }
 .frequency-filter-grid { margin-top: 14px; }
 .frequency-filter-box { border: 1px solid #e2e7e9; border-radius: 6px; padding: 12px; min-width: 0; font-size: 12px; }

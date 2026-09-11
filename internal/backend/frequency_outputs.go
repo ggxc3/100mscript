@@ -143,6 +143,10 @@ func saveFrequencyResults(ctx context.Context, ds *ProcessedDataset, schemas map
 		defer f.Close()
 		w := csv.NewWriter(f)
 		w.Comma = ';'
+		// Match the standard export: first physical line empty, header on line 2.
+		if err := w.Write(nil); err != nil {
+			return result, err
+		}
 		target := &target{file: f, writer: w, destination: path}
 		targets[tech] = target
 		header := append([]string(nil), schemas[tech]...)
@@ -154,7 +158,7 @@ func saveFrequencyResults(ctx context.Context, ds *ProcessedDataset, schemas map
 		if cfg.ZoneMode != "segments" {
 			zoneColumn = "Zona"
 		}
-		extra := []string{frequencyHzColumn, zoneColumn, zoneColumn + "_latitude", zoneColumn + "_longitude", frequencySourceColumn, "original_excel_row", "Pocet_merani", "Operator_sedi", "Operator_sedi_bV", "Ostatne_PCI"}
+		extra := []string{frequencyHzColumn, zoneColumn, zoneColumn + "_latitude", zoneColumn + "_longitude", frequencySourceColumn, "original_excel_row", "Pocet_merani", "Operator_sedi", "Operator_sedi_BW", "Ostatne_PCI"}
 		for _, col := range extra {
 			for _, existing := range header {
 				if normalizedColumnKey(existing) == normalizedColumnKey(col) {
@@ -197,14 +201,14 @@ func saveFrequencyResults(ctx context.Context, ds *ProcessedDataset, schemas map
 		maybeEmitRowProgress(ctx, "export_files", i, len(groups))
 		r := ds.Rows[g.best]
 		zones[g.key.Zone], operators[r.OperatorKey] = true, true
-		center, withBV := frequencyFilterFlags(r, g.key.Technology, cfg, rules)
+		center, withBW := frequencyFilterFlags(r, g.key.Technology, cfg, rules)
 		target := targets[g.key.Technology]
 		record := make([]string, 0, len(target.indexes)+10)
 		for _, idx := range target.indexes {
 			record = append(record, cellAt(r.Raw, idx))
 		}
 		record = append(record, r.Frequency, g.key.Zone, fmt.Sprintf("%.6f", locations[i].B), fmt.Sprintf("%.6f", locations[i].A),
-			cellAt(r.Raw, indexOf(ds.Columns, frequencySourceColumn)), strconv.Itoa(r.OriginalExcelRow), strconv.Itoa(g.count), center, withBV, otherFrequencyPCIs(g, r.PCI))
+			cellAt(r.Raw, indexOf(ds.Columns, frequencySourceColumn)), strconv.Itoa(r.OriginalExcelRow), strconv.Itoa(g.count), center, withBW, otherFrequencyPCIs(g, r.PCI))
 		if err := target.writer.Write(record); err != nil {
 			return result, err
 		}

@@ -34,9 +34,9 @@ func validateFrequencyConfig(cfg ProcessingConfig) error {
 	if cfg.ZoneSizeM <= 0 || math.IsNaN(cfg.ZoneSizeM) || math.IsInf(cfg.ZoneSizeM, 0) {
 		return fmt.Errorf("veľkosť zóny/úseku musí byť kladné konečné číslo")
 	}
-	for _, bv := range []float64{cfg.FrequencyLTEBV, cfg.Frequency5GBV} {
-		if bv < 0 || math.IsNaN(bv) || math.IsInf(bv, 0) || math.IsInf(bv*1e6, 0) {
-			return fmt.Errorf("bV musí byť nezáporné konečné číslo v MHz")
+	for _, bw := range []float64{cfg.FrequencyLTEBW, cfg.Frequency5GBW} {
+		if bw < 0 || math.IsNaN(bw) || math.IsInf(bw, 0) || math.IsInf(bw*1e6, 0) {
+			return fmt.Errorf("BW musí byť nezáporné konečné číslo v MHz")
 		}
 	}
 	seen := map[string]bool{}

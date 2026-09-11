@@ -43,7 +43,7 @@ func loadFrequencyRules(cfg ProcessingConfig, columns []string) (map[string][]fr
 		if err != nil {
 			return nil, fmt.Errorf("filtre %s: %w", tech, err)
 		}
-		out[tech], err = compileFrequencyRules(rawRules, columns, cfg.ColumnMapping)
+		out[tech], err = compileFrequencyRulesWithNames(rawRules, columns, cfg.ColumnMapping, cfg.FrequencyColumnMappings[strings.ToLower(tech)])
 		if err != nil {
 			return nil, fmt.Errorf("filtre %s: %w", tech, err)
 		}
@@ -52,18 +52,39 @@ func loadFrequencyRules(cfg ProcessingConfig, columns []string) (map[string][]fr
 }
 
 func compileFrequencyRules(rules []FilterRule, columns []string, mapping map[string]int) ([]frequencyRule, error) {
+	return compileFrequencyRulesWithNames(rules, columns, mapping, nil)
+}
+
+func compileFrequencyRulesWithNames(rules []FilterRule, columns []string, mapping map[string]int, names map[string]string) ([]frequencyRule, error) {
+	logicalKey := func(field string) string {
+		token := normalizeHeaderToken(field)
+		if key := filterFieldAliases[token]; key != "" {
+			return key
+		}
+		// Recognize source names from this technology's independent mapping,
+		// including custom operator headers, as well as canonical field names.
+		for _, key := range frequencyLogicalKeys {
+			if token == normalizeHeaderToken(frequencyInternalPrefix+key) ||
+				(names[key] != "" && token == normalizeHeaderToken(names[key])) {
+				return key
+			}
+		}
+		return ""
+	}
 	var out []frequencyRule
 	for _, rule := range rules {
 		r := frequencyRule{name: rule.Name, operatorAssignments: map[int][]float64{}}
 		for field, values := range rule.Assignments {
 			idx := indexOf(columns, resolveColumnName(field, columns, mapping))
-			if key := filterFieldAliases[normalizeHeaderToken(field)]; key != "" {
+			if key := logicalKey(field); key != "" {
 				if mapped, ok := mapping[key]; ok {
 					idx = mapped
 				}
 			}
 			if idx == mapping["mnc"] || idx == mapping["mcc"] {
-				r.operatorAssignments[idx] = values
+				// Several spellings (MNC / mnc) can resolve to one operator
+				// field. Preserve all alternatives, independent of map order.
+				r.operatorAssignments[idx] = append(r.operatorAssignments[idx], values...)
 			}
 		}
 		for _, group := range rule.ConditionGroups {
@@ -72,7 +93,18 @@ func compileFrequencyRules(rules []FilterRule, columns []string, mapping map[str
 				token := normalizeHeaderToken(cond.Field)
 				physical := token == "frequency" || token == "freq" || token == "ssref" || token == normalizeHeaderToken(frequencyHzColumn)
 				idx := indexOf(columns, resolveColumnName(cond.Field, columns, mapping))
-				if key := filterFieldAliases[token]; key != "" && key != "frequency" && !physical {
+				if token == "earfcn" || token == "nrarfcn" {
+					// Channel conditions require an actual channel column. The
+					// legacy resolver may otherwise fall back to physical Hz.
+					idx = -1
+					for i, col := range columns {
+						if normalizeHeaderToken(col) == token {
+							idx = i
+							break
+						}
+					}
+				}
+				if key := logicalKey(cond.Field); key != "" && key != "frequency" && !physical {
 					if mapped, ok := mapping[key]; ok {
 						idx = mapped
 					}
@@ -146,17 +178,17 @@ func frequencyFilterFlags(row ProcessedRow, technology string, cfg ProcessingCon
 	frequency, _ := finiteNumber(row.Frequency)
 	selectedRules := rules[technology]
 	center := frequencyOperatorMatches(row.Raw, frequency, selectedRules)
-	bv := cfg.FrequencyLTEBV
+	bw := cfg.FrequencyLTEBW
 	if strings.EqualFold(technology, "5G") {
-		bv = cfg.Frequency5GBV
+		bw = cfg.Frequency5GBW
 	}
-	delta := bv * 1e6
-	withBV := center && frequencyOperatorMatches(row.Raw, frequency-delta, selectedRules) && frequencyOperatorMatches(row.Raw, frequency+delta, selectedRules)
+	delta := bw * 1e6
+	withBW := center && frequencyOperatorMatches(row.Raw, frequency-delta, selectedRules) && frequencyOperatorMatches(row.Raw, frequency+delta, selectedRules)
 	yesNo := func(value bool) string {
 		if value {
 			return "yes"
 		}
 		return "no"
 	}
-	return yesNo(center), yesNo(withBV)
+	return yesNo(center), yesNo(withBW)
 }

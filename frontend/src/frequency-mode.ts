@@ -5,14 +5,14 @@ export type FrequencyState = {
   enabled: boolean;
   columnMappings: Record<string, Record<string, string>>;
   files: Record<string, FrequencyFile>;
-  lteBV: string;
-  nrBV: string;
+  lteBW: string;
+  nrBW: string;
   autoFilters: boolean;
   lteFilters: string[];
   nrFilters: string[];
 };
 export const newFrequencyState = (): FrequencyState => ({
-  enabled: false, columnMappings: {lte: {}, "5g": {}}, files: {}, lteBV: "0", nrBV: "0", autoFilters: true, lteFilters: [], nrFilters: [],
+  enabled: false, columnMappings: {lte: {}, "5g": {}}, files: {}, lteBW: "0", nrBW: "0", autoFilters: true, lteFilters: [], nrFilters: [],
 });
 const html = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const basename = (s: string): string => s.replace(/\\/g, "/").split("/").pop() || s;
@@ -23,8 +23,8 @@ export function frequencyValidation(state: FrequencyState, paths: string[]): str
     if (!f || !["lte", "5g"].includes(f.technology)) return `Vyber technológiu: ${basename(path)}`;
     if (!f.frequency_column) return `Vyber frekvenciu v Hz: ${basename(path)}`;
   }
-  for (const value of [state.lteBV, state.nrBV]) {
-    if (!value.trim() || !Number.isFinite(Number(value.replace(",", "."))) || Number(value.replace(",", ".")) < 0) return "bV musí byť nezáporné číslo v MHz.";
+  for (const value of [state.lteBW, state.nrBW]) {
+    if (!value.trim() || !Number.isFinite(Number(value.replace(",", "."))) || Number(value.replace(",", ".")) < 0) return "BW musí byť nezáporné číslo v MHz.";
   }
   return null;
 }
@@ -62,11 +62,11 @@ export function renderFrequencyPanel(
     <p class="section-note">Každá zóna/úsek × operátor × frekvencia × technológia má vlastný riadok. Vyberie sa meranie s najvyšším RSRP; ostatné PCI sa vypíšu na konci riadku. Výstup 5G a výstup LTE sa uložia osobitne, každý so svojimi stĺpcami.</p>
     <div class="frequency-files">${cards || '<p class="frequency-empty">Pridaj CSV súbory v sekcii Vstupné dáta. Môžeš kombinovať viac LTE aj viac 5G súborov.</p>'}</div>
     <p class="section-note">Použi <strong>SSRef</strong> pre 5G a <strong>Frequency</strong> pre LTE, v Hz. Hodnota za lomkou v PLMN opraví MNC. Prázdna hodnota ho ponechá.</p>
-    <div class="double-grid frequency-bv">
-      <label class="field"><span>bV pre LTE (± MHz)</span><input data-bv="lteBV" type="number" min="0" step="any" value="${html(state.lteBV)}"${disabled}/></label>
-      <label class="field"><span>bV pre 5G (± MHz)</span><input data-bv="nrBV" type="number" min="0" step="any" value="${html(state.nrBV)}"${disabled}/></label>
+    <div class="double-grid frequency-bw">
+      <label class="field"><span>BW pre LTE (± MHz)</span><input data-bw="lteBW" type="number" min="0" step="any" value="${html(state.lteBW)}"${disabled}/></label>
+      <label class="field"><span>BW pre 5G (± MHz)</span><input data-bw="nrBW" type="number" min="0" step="any" value="${html(state.nrBW)}"${disabled}/></label>
     </div>
-    <p class="section-note">Kontrolujú sa presne tri frekvencie: f, f − bV a f + bV. <code>Operator_sedi</code> kontroluje f; <code>Operator_sedi_bV</code> všetky tri. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
+    <p class="section-note">BW je odchýlka na každú stranu v MHz. Kontrolujú sa presne tri frekvencie: f, f − BW a f + BW. <code>Operator_sedi</code> kontroluje f; <code>Operator_sedi_BW</code> všetky tri. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Aj bez zhodného filtra je výsledok <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
     <label class="check-row"><input data-frequency-auto type="checkbox"${state.autoFilters ? " checked" : ""}${disabled}/><span>Automatické filtre: LTE z <code>filters/</code>, 5G z <code>filtre_5G/</code></span></label>
     <div class="double-grid frequency-filter-grid">${(["lteFilters", "nrFilters"] as const).map(key => `<div class="frequency-filter-box">
       <strong>Dodatočné filtre ${key === "lteFilters" ? "LTE" : "5G"}</strong>
@@ -78,8 +78,8 @@ export function renderFrequencyPanel(
     state.files[paths[i]][field] = select.value;
     onChange();
   }));
-  host.querySelectorAll<HTMLInputElement>("[data-bv]").forEach(input => input.addEventListener("input", () => {
-    state[input.dataset.bv as "lteBV" | "nrBV"] = input.value; onChange();
+  host.querySelectorAll<HTMLInputElement>("[data-bw]").forEach(input => input.addEventListener("input", () => {
+    state[input.dataset.bw as "lteBW" | "nrBW"] = input.value; onChange();
   }));
   host.querySelector<HTMLInputElement>("[data-frequency-auto]")!.addEventListener("change", event => {
     state.autoFilters = (event.target as HTMLInputElement).checked; onChange();

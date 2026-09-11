@@ -1909,8 +1909,8 @@ function mountMainView(root: HTMLDivElement): void {
         frequency_5g_output_path: output_zones_file_path,
         frequency_lte_output_path: output_stats_file_path,
         frequency_inputs: paths.map(p => state.frequency.files[p]),
-        frequency_lte_bv_mhz: Number(state.frequency.lteBV.replace(",", ".")),
-        frequency_5g_bv_mhz: Number(state.frequency.nrBV.replace(",", ".")),
+        frequency_lte_bv_mhz: Number(state.frequency.lteBW.replace(",", ".")),
+        frequency_5g_bv_mhz: Number(state.frequency.nrBW.replace(",", ".")),
         frequency_lte_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filters[\\/]/.test(p)), ...state.frequency.lteFilters]),
         frequency_5g_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filtre_5G[\\/]/.test(p)), ...state.frequency.nrFilters]),
       };
