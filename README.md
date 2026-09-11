@@ -18,9 +18,9 @@ V hornej časti aplikácie vyber **Frekvencie · LTE + 5G**. Tento režim podpor
 4. Pre každú kombináciu **zóna/úsek + MCC + MNC + frekvencia + technológia** sa vyberie jeden pôvodný riadok s **najvyšším jednotlivým RSRP**. Nejde o priemer. Pri rovnakom RSRP vyhrá prvý riadok podľa poradia vstupných súborov a riadkov v nich. LTE a 5G zostávajú samostatné aj pri rovnakej frekvencii.
 5. Filtre sa vyberajú osobitne pre LTE a 5G. Automatické LTE filtre sú z `filters/`, 5G filtre z `filtre_5G/`; dodatočné filtre možno pridať pre každú technológiu zvlášť. Filtre **nič nemenia ani neduplikujú**. Kontroluje sa operátor už po oprave MNC na vybranom najsilnejšom meraní. Vyberá sa pravidlo s najviac zhodnými podmienkami, pri zhode podľa názvu súboru, rovnako ako v štandardnom režime.
 6. `Operator_sedi` obsahuje `no`, ak by vybraný filter zmenil MCC alebo MNC (aj v niektorej z viacerých assignment kombinácií); inak `yes`. Bez zhodného pravidla alebo s vypnutými filtrami je výsledok `yes` – znamená to, že nenastáva náhrada operátora.
-7. **BW** sa zadáva samostatne pre LTE a 5G v MHz, predvolene 0. Je to odchýlka **na každú stranu**, nedelí sa dvoma a nepreberá sa zo vstupného stĺpca `BW`. `Operator_sedi_BW` vyhodnocuje presne **f, f − BW × 1 000 000 a f + BW × 1 000 000**. Obsahuje `yes`, iba ak na všetkých troch hodnotách nenastáva náhrada operátora. Vnútro intervalu sa nekontroluje; frekvencia použitá na zoskupovanie sa nemení.
+7. **BW** sa zadáva samostatne pre LTE a 5G v MHz, predvolene 0. Je to odchýlka **na každú stranu**, nedelí sa dvoma a nepreberá sa zo vstupného stĺpca `BW`. `Operator_sedi` pri BW väčšom ako 0 vyhodnocuje presne **f, f − BW × 1 000 000 a f + BW × 1 000 000**. Obsahuje `yes`, iba ak na všetkých troch hodnotách nenastáva náhrada operátora. Pri prázdnom alebo nulovom BW sa v tom istom stĺpci kontroluje iba stred **f**. Každá technológia používa vlastné BW. Samostatný stĺpec `Operator_sedi_BW` sa už neexportuje. Vnútro intervalu sa nekontroluje; frekvencia použitá na zoskupovanie sa nemení.
 
-Rozsahy filtrov sú **[od, do)**: dolná hranica patrí do rozsahu, horná už nie. Rovnosť alebo rozsah s rovnakými hranicami kontroluje presnú hodnotu. Napríklad 5G meranie `MNC=2`, `2131,25 MHz`, `BW=5 MHz` má s dodanými filtrami `Operator_sedi=yes` a `Operator_sedi_BW=no`: dolný bod `2126,25 MHz` patrí do filtra Orange (`MNC=1`). Ak sa žiadny filter nezhoduje alebo nie sú načítané žiadne filtre, výsledok je `yes`; tento výsledok znamená neprítomnosť náhrady, nie potvrdené pridelenie pásma operátorovi.
+Rozsahy filtrov sú **[od, do)**: dolná hranica patrí do rozsahu, horná už nie. Rovnosť alebo rozsah s rovnakými hranicami kontroluje presnú hodnotu. Napríklad 5G meranie `MNC=2`, `2131,25 MHz`, `BW=5 MHz` má s dodanými filtrami `Operator_sedi=no`: dolný bod `2126,25 MHz` patrí do filtra Orange (`MNC=1`). Ak sa žiadny filter nezhoduje alebo nie sú načítané žiadne filtre, výsledok je `yes`; tento výsledok znamená neprítomnosť náhrady, nie potvrdené pridelenie pásma operátorovi.
 
 ### Dva oddelené výsledné súbory
 
@@ -38,7 +38,7 @@ Za vstupnými stĺpcami sú doplnené:
 | `Usek_latitude`, `Usek_longitude` alebo `Zona_latitude`, `Zona_longitude` | GPS začiatku úseku, stredu štvorca alebo prvého zostávajúceho bodu v zóne podľa režimu. Vstupné GPS zostávajú z najsilnejšieho merania. |
 | `Zdrojovy_subor`, `original_excel_row` | Zdroj a číslo riadku vybraného merania (od 1 vrátane preambuly a hlavičky) |
 | `Pocet_merani` | Počet meraní v danej skupine |
-| `Operator_sedi`, `Operator_sedi_BW` | Výsledky kontroly filtrov |
+| `Operator_sedi` | Jediný výsledok kontroly filtrov: pri prázdnom/nulovom BW iba stred, pri kladnom BW stred aj oba krajné body |
 | `Ostatne_PCI` | Jedinečné ostatné PCI tej istej skupiny, numericky zoradené a oddelené čiarkami; bez vybraného PCI |
 
 Prázdne úseky, vlastných operátorov, mobile synchronizáciu a prahy pokrytia tento režim nepoužíva. Riadky bez použiteľného RSRP, GPS alebo kľúčov skupiny sa do výsledku nezaradia.

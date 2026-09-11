@@ -174,21 +174,24 @@ func frequencyOperatorMatches(row []string, frequency float64, rules []frequency
 	return true
 }
 
-func frequencyFilterFlags(row ProcessedRow, technology string, cfg ProcessingConfig, rules map[string][]frequencyRule) (string, string) {
+// frequencyFilterFlag produces the single export result: center only when BW
+// is omitted/zero, otherwise center and both endpoints. Missing rules retain
+// the existing "no operator replacement" meaning of yes.
+func frequencyFilterFlag(row ProcessedRow, technology string, cfg ProcessingConfig, rules map[string][]frequencyRule) string {
 	frequency, _ := finiteNumber(row.Frequency)
 	selectedRules := rules[technology]
-	center := frequencyOperatorMatches(row.Raw, frequency, selectedRules)
+	if !frequencyOperatorMatches(row.Raw, frequency, selectedRules) {
+		return "no"
+	}
 	bw := cfg.FrequencyLTEBW
 	if strings.EqualFold(technology, "5G") {
 		bw = cfg.Frequency5GBW
 	}
-	delta := bw * 1e6
-	withBW := center && frequencyOperatorMatches(row.Raw, frequency-delta, selectedRules) && frequencyOperatorMatches(row.Raw, frequency+delta, selectedRules)
-	yesNo := func(value bool) string {
-		if value {
-			return "yes"
+	if bw > 0 {
+		delta := bw * 1e6
+		if !frequencyOperatorMatches(row.Raw, frequency-delta, selectedRules) || !frequencyOperatorMatches(row.Raw, frequency+delta, selectedRules) {
+			return "no"
 		}
-		return "no"
 	}
-	return yesNo(center), yesNo(withBW)
+	return "yes"
 }

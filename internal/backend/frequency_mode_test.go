@@ -97,7 +97,7 @@ func TestFrequencyMode_MultipleSourcesMaximumAndPLMN(t *testing.T) {
 	var nr, lte bool
 	for _, row := range rows {
 		at := func(name string) string { return cellAt(row, indexOf(header, name)) }
-		if at("Operator_sedi") != "yes" || at("Operator_sedi_BW") != "yes" {
+		if at("Operator_sedi") != "yes" {
 			t.Fatal("disabled filters must return yes", row)
 		}
 		if at(frequencyHzColumn) == "2110000000" && at("MNC") == "2" {
@@ -156,12 +156,12 @@ func TestFrequencyFilters_ThreePointsAndPrecedence(t *testing.T) {
 			cfg := DefaultProcessingConfig()
 			cfg.Frequency5GBW = tc.bw
 			row := ProcessedRow{Raw: raw, Frequency: "2110000000"}
-			a, b := frequencyFilterFlags(row, "5G", cfg, map[string][]frequencyRule{"5G": compiled})
-			if a != tc.center || b != tc.expanded {
-				t.Fatalf("got %s/%s want %s/%s", a, b, tc.center, tc.expanded)
+			got := frequencyFilterFlag(row, "5G", cfg, map[string][]frequencyRule{"5G": compiled})
+			if got != tc.expanded {
+				t.Fatalf("got %s want %s", got, tc.expanded)
 			}
 			// LTE has its own delta (zero), even when the rules are identical.
-			_, lte := frequencyFilterFlags(row, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
+			lte := frequencyFilterFlag(row, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
 			if lte != tc.center {
 				t.Fatalf("LTE incorrectly inherited NR BW: %s", lte)
 			}
@@ -362,7 +362,7 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 			t.Fatal("channel exported as frequency", f)
 		}
 		techs[at(technologyColumn)]++
-		flags[at("Operator_sedi")+"/"+at("Operator_sedi_BW")]++
+		flags[at("Operator_sedi")]++
 		bw := cfg.FrequencyLTEBW
 		if at(technologyColumn) == "5G" {
 			bw = cfg.Frequency5GBW
@@ -374,7 +374,7 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 				[]string{"MCC", "MNC", "Frequency"}, map[string]int{"mcc": 0, "mnc": 1, "frequency": 2},
 				legacyRules[at(technologyColumn)], probe))
 		}
-		if (at("Operator_sedi") == "yes") != checks[0] || (at("Operator_sedi_BW") == "yes") != (checks[0] && checks[1] && checks[2]) {
+		if (at("Operator_sedi") == "yes") != (checks[0] && checks[1] && checks[2]) {
 			t.Fatalf("independent legacy execution disagrees: %s probes=%v row=%v", key, checks, r)
 		}
 		if strings.Contains(", "+at("Ostatne_PCI")+", ", ", "+at("PCI")+", ") {

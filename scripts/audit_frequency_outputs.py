@@ -84,7 +84,8 @@ def audit(output_dir):
                 with path.open(newline='', encoding='utf-8') as stream:
                     assert stream.readline() == '\n', f'{path}: missing leading empty line'
                     reader = csv.DictReader(stream, delimiter=';')
-                    assert 'Operator_sedi_BW' in reader.fieldnames
+                    assert 'Operator_sedi' in reader.fieldnames
+                    assert 'Operator_sedi_BW' not in reader.fieldnames
                     assert 'Operator_sedi_bV' not in reader.fieldnames
                     assert 'technologia' not in reader.fieldnames
                     rows = list(reader)
@@ -152,25 +153,25 @@ def audit(output_dir):
             assert frequency == number(source['SSRef' if tech == '5g' else 'Frequency'])
             probes = [frequency, frequency - bw * 1_000_000, frequency + bw * 1_000_000]
             answers = [evaluate(row, probe, active) for probe in probes]
-            expected = (answers[0][0], 'yes' if all(flag == 'yes' for flag, _ in answers) else 'no')
-            actual = (row['Operator_sedi'], row['Operator_sedi_BW'])
+            expected = 'yes' if all(flag == 'yes' for flag, _ in answers) else 'no'
+            actual = row['Operator_sedi']
             assert actual == expected, (path, row['original_excel_row'], expected, actual, probes, answers)
             zone = row['Usek' if mode == 'segments' else 'Zona']
             key = (zone, row['MCC'], row['MNC'], row['Frekvencia_Hz'])
             assert key not in seen, (path, 'duplicate', key)
             seen.add(key)
-            unchanged = {k: v for k, v in row.items() if k not in ('Operator_sedi', 'Operator_sedi_BW')}
+            unchanged = {k: v for k, v in row.items() if k != 'Operator_sedi'}
             baseline_key = (mode, tech, key)
             if scenario == 'bw_0_0':
                 baseline[baseline_key] = unchanged
             else:
                 assert unchanged == baseline[baseline_key], (path, 'BW changed measurement', key)
-            counts['/'.join(actual)] += 1
+            counts[actual] += 1
             checked_rows += 1
             example_key = (tech, row['MNC'], row['Frekvencia_Hz'], str(bw), scenario == 'filters_off')
             if example_key not in examples:
                 examples[example_key] = dict(technology=tech, mnc=row['MNC'], frequency_hz=str(frequency),
-                    bw_mhz=str(bw), filters_off=scenario == 'filters_off', result='/'.join(actual),
+                    bw_mhz=str(bw), filters_off=scenario == 'filters_off', result=actual,
                     probes=[dict(hz=str(probe), result=answer[0], rule=answer[1]) for probe, answer in zip(probes, answers)])
         expected_size = sum(key[0] == mode and key[1] == tech for key in baseline)
         assert len(rows) == expected_size
@@ -188,7 +189,7 @@ def audit(output_dir):
             frequency = number(f)
             answers = [evaluate({'MCC': mcc, 'MNC': mnc}, point, active)[0]
                        for point in (frequency, frequency - bw*1_000_000, frequency + bw*1_000_000)]
-            counts[tech + ':' + answers[0] + '/' + ('yes' if all(x == 'yes' for x in answers) else 'no')] += count
+            counts[tech + ':' + ('yes' if all(x == 'yes' for x in answers) else 'no')] += count
             raw_checks += count * 3
         raw_summary.append(dict(scenario=scenario, flags=dict(counts)))
     return dict(input_rows=dict(input_counts), corrected_mnc=corrected,

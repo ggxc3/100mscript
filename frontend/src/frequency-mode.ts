@@ -24,7 +24,7 @@ export function frequencyValidation(state: FrequencyState, paths: string[]): str
     if (!f.frequency_column) return `Vyber frekvenciu v Hz: ${basename(path)}`;
   }
   for (const value of [state.lteBW, state.nrBW]) {
-    if (!value.trim() || !Number.isFinite(Number(value.replace(",", "."))) || Number(value.replace(",", ".")) < 0) return "BW musí byť nezáporné číslo v MHz.";
+    if (!Number.isFinite(Number(value.replace(",", "."))) || Number(value.replace(",", ".")) < 0) return "BW musí byť nezáporné číslo v MHz.";
   }
   return null;
 }
@@ -63,10 +63,10 @@ export function renderFrequencyPanel(
     <div class="frequency-files">${cards || '<p class="frequency-empty">Pridaj CSV súbory v sekcii Vstupné dáta. Môžeš kombinovať viac LTE aj viac 5G súborov.</p>'}</div>
     <p class="section-note">Použi <strong>SSRef</strong> pre 5G a <strong>Frequency</strong> pre LTE, v Hz. Hodnota za lomkou v PLMN opraví MNC. Prázdna hodnota ho ponechá.</p>
     <div class="double-grid frequency-bw">
-      <label class="field"><span>BW pre LTE (± MHz)</span><input data-bw="lteBW" type="number" min="0" step="any" value="${html(state.lteBW)}"${disabled}/></label>
-      <label class="field"><span>BW pre 5G (± MHz)</span><input data-bw="nrBW" type="number" min="0" step="any" value="${html(state.nrBW)}"${disabled}/></label>
+      <label class="field"><span>BW pre LTE (± MHz)</span><input data-bw="lteBW" type="number" min="0" step="any" placeholder="0 – iba stred" value="${html(state.lteBW)}"${disabled}/></label>
+      <label class="field"><span>BW pre 5G (± MHz)</span><input data-bw="nrBW" type="number" min="0" step="any" placeholder="0 – iba stred" value="${html(state.nrBW)}"${disabled}/></label>
     </div>
-    <p class="section-note">BW je odchýlka na každú stranu v MHz. Kontrolujú sa presne tri frekvencie: f, f − BW a f + BW. <code>Operator_sedi</code> kontroluje f; <code>Operator_sedi_BW</code> všetky tri. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Aj bez zhodného filtra je výsledok <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
+    <p class="section-note">Výsledný stĺpec <code>Operator_sedi</code> pri prázdnom alebo nulovom BW kontroluje iba strednú frekvenciu f. Pri BW väčšom ako 0 kontroluje všetky tri body: f, f − BW a f + BW. BW je odchýlka na každú stranu v MHz. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Aj bez zhodného filtra je výsledok <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
     <label class="check-row"><input data-frequency-auto type="checkbox"${state.autoFilters ? " checked" : ""}${disabled}/><span>Automatické filtre: LTE z <code>filters/</code>, 5G z <code>filtre_5G/</code></span></label>
     <div class="double-grid frequency-filter-grid">${(["lteFilters", "nrFilters"] as const).map(key => `<div class="frequency-filter-box">
       <strong>Dodatočné filtre ${key === "lteFilters" ? "LTE" : "5G"}</strong>

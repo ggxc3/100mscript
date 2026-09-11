@@ -144,9 +144,9 @@ func TestFrequencyFilters_DifferentialLegacy(t *testing.T) {
 			}
 			cfg := DefaultProcessingConfig()
 			cfg.FrequencyLTEBW = bw
-			a, b := frequencyFilterFlags(ProcessedRow{Raw: raw, Frequency: raw[2]}, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
-			if (a == "yes") != expected[0] || (b == "yes") != (expected[0] && expected[1] && expected[2]) {
-				t.Fatalf("wrong three-point flags %s/%s", a, b)
+			got := frequencyFilterFlag(ProcessedRow{Raw: raw, Frequency: raw[2]}, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
+			if (got == "yes") != (expected[0] && expected[1] && expected[2]) {
+				t.Fatalf("wrong combined flag %s", got)
 			}
 		}
 		if !reflect.DeepEqual(raw, before) {
@@ -179,9 +179,9 @@ func TestFrequencyFilters_AllThreePointCombinations(t *testing.T) {
 			} else {
 				cfg.Frequency5GBW = 5
 			}
-			a, b := frequencyFilterFlags(ProcessedRow{Raw: []string{"231", "2", "2110000000"}, Frequency: "2110000000"}, tech, cfg, map[string][]frequencyRule{tech: compiled})
-			if (a == "yes") != (mask&1 == 0) || (b == "yes") != (mask == 0) {
-				t.Fatalf("tech %s mask %03b: %s/%s", tech, mask, a, b)
+			got := frequencyFilterFlag(ProcessedRow{Raw: []string{"231", "2", "2110000000"}, Frequency: "2110000000"}, tech, cfg, map[string][]frequencyRule{tech: compiled})
+			if (got == "yes") != (mask == 0) {
+				t.Fatalf("tech %s mask %03b: %s", tech, mask, got)
 			}
 		}
 	}
@@ -248,7 +248,7 @@ func TestFrequencyOutputs_LeadingBlankLine(t *testing.T) {
 				t.Fatal(err)
 			}
 			lines := strings.Split(string(raw), "\n")
-			if len(lines) < 3 || lines[0] != "" || lines[1] == "" || !strings.Contains(lines[1], "Operator_sedi_BW") || strings.Contains(lines[1], "Operator_sedi_bV") {
+			if len(lines) < 3 || lines[0] != "" || lines[1] == "" || !strings.Contains(lines[1], "Operator_sedi;") || strings.Contains(lines[1], "Operator_sedi_BW") || strings.Contains(lines[1], "Operator_sedi_bV") {
 				t.Fatalf("invalid export prefix %s: %q", mode, lines[:2])
 			}
 		}
@@ -307,5 +307,67 @@ func TestFrequencyMode_FilterUsesCustomOperatorMapping(t *testing.T) {
 	header, rows := readFrequencyCSV(t, result.FrequencyLTEFile)
 	if len(rows) != 1 || rows[0][indexOf(header, "Operator_sedi")] != "no" || rows[0][indexOf(header, "NetworkCode")] != "2" {
 		t.Fatalf("custom mapped MNC not checked correctly: %v", rows)
+	}
+}
+
+func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
+	for _, mode := range []string{"segments", "center", "original"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := frequencyFixture(t)
+			cfg.ZoneMode = mode
+			filter := filepath.Join(filepath.Dir(cfg.FrequencyLTEOutput), "endpoint.txt")
+			if err := os.WriteFile(filter, []byte(`("MNC" = 6); ("Frequency" = 2115000000)`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg.FrequencyLTEFilters = []string{filter}
+			cfg.Frequency5GFilters = []string{filter}
+			baseline := map[string]string{}
+			for _, tc := range []struct {
+				name    string
+				lte, nr float64
+			}{{"no BW", 0, 0}, {"LTE only", 5, 0}, {"5G only", 0, 5}, {"both", 5, 5}} {
+				t.Run(tc.name, func(t *testing.T) {
+					cfg.FrequencyLTEBW = tc.lte
+					cfg.Frequency5GBW = tc.nr
+					result, err := RunProcessing(context.Background(), cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, output := range []struct {
+						tech, path string
+						bw         float64
+					}{{"LTE", result.FrequencyLTEFile, tc.lte}, {"5G", result.Frequency5GFile, tc.nr}} {
+						header, rows := readFrequencyCSV(t, output.path)
+						if indexOf(header, "Operator_sedi_BW") >= 0 || indexOf(header, "Operator_sedi_bV") >= 0 {
+							t.Fatal("obsolete separate BW flag exported", header)
+						}
+						flagIdx := indexOf(header, "Operator_sedi")
+						if flagIdx < 0 || flagIdx != len(header)-2 || header[len(header)-1] != "Ostatne_PCI" {
+							t.Fatal("single flag must precede other PCIs", header)
+						}
+						if len(rows) == 0 {
+							t.Fatal("fixture produced no rows")
+						}
+						want := "yes"
+						if output.bw > 0 {
+							want = "no"
+						}
+						for i, row := range rows {
+							if row[flagIdx] != want {
+								t.Fatalf("%s BW %g: got %s want %s", output.tech, output.bw, row[flagIdx], want)
+							}
+							key := fmt.Sprintf("%s/%d", output.tech, i)
+							withoutFlag := append(append([]string{}, row[:flagIdx]...), row[flagIdx+1:]...)
+							signature := strings.Join(withoutFlag, ";")
+							if tc.name == "no BW" {
+								baseline[key] = signature
+							} else if baseline[key] != signature {
+								t.Fatal("BW changed measurements or row order", key)
+							}
+						}
+					}
+				})
+			}
+		})
 	}
 }
