@@ -137,13 +137,13 @@ func TestFrequencyFilters_ThreePointsAndPrecedence(t *testing.T) {
 		bw               float64
 		center, expanded string
 	}{
-		{"unmatched", nil, 5, "yes", "yes"},
+		{"disabled", nil, 5, "yes", "yes"},
 		{"unchanged", []FilterRule{rule("a", 2, 2110000000, 2110000001)}, 0, "yes", "yes"},
 		{"changed", []FilterRule{rule("a", 6, 2110000000, 2110000001)}, 0, "no", "no"},
-		{"lower endpoint", []FilterRule{rule("a", 6, 2105000000, 2105000001)}, 5, "yes", "no"},
-		{"upper endpoint", []FilterRule{rule("a", 6, 2115000000, 2115000001)}, 5, "yes", "no"},
-		{"interior ignored", []FilterRule{rule("a", 6, 2111000000, 2112000000)}, 5, "yes", "yes"},
-		{"exclusive upper bound", []FilterRule{rule("a", 6, 2104000000, 2105000000)}, 5, "yes", "yes"},
+		{"lower endpoint", []FilterRule{rule("a", 6, 2105000000, 2105000001), rule("z", 2, 2100000000, 2120000000)}, 5, "yes", "no"},
+		{"upper endpoint", []FilterRule{rule("a", 6, 2115000000, 2115000001), rule("z", 2, 2100000000, 2120000000)}, 5, "yes", "no"},
+		{"interior ignored", []FilterRule{rule("a", 6, 2111000000, 2112000000), rule("z", 2, 2100000000, 2120000000)}, 5, "yes", "yes"},
+		{"exclusive upper bound", []FilterRule{rule("a", 6, 2104000000, 2105000000), rule("z", 2, 2105000000, 2120000000)}, 5, "yes", "yes"},
 		{"alphabetical priority", []FilterRule{rule("z", 6, 2100000000, 2120000000), rule("a", 2, 2100000000, 2120000000)}, 5, "yes", "yes"},
 	}
 	for _, tc := range cases {
@@ -195,10 +195,8 @@ func TestFrequencyMode_SharedFilterAndCorrectedOperator(t *testing.T) {
 	}
 	header, rows := readBothFrequencyCSVs(t, result)
 	for _, r := range rows {
-		expected := "yes"
-		if r[indexOf(header, frequencyHzColumn)] == "2110000000" && r[indexOf(header, "MNC")] == "2" {
-			expected = "no"
-		}
+		// Matching rows change operator; all remaining rows have no matching rule.
+		expected := "no"
 		if r[indexOf(header, "Operator_sedi")] != expected {
 			t.Fatal(r)
 		}

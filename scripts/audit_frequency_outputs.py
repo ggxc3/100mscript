@@ -66,7 +66,7 @@ def evaluate(row, frequency, rules):
             if matches:
                 candidates.append((-len(terms), name, assignments))
     if not candidates:
-        return 'yes', 'no matching rule'
+        return ('no' if rules else 'yes'), 'no matching rule'
     _, name, assignments = min(candidates, key=lambda entry: entry[:2])
     same = all(number(row[field]) == value for field in ('MCC', 'MNC')
                for value in assignments.get(field, []))

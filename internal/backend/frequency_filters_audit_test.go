@@ -13,6 +13,49 @@ import (
 	"testing"
 )
 
+func TestFrequencyFilters_UncoveredPointsAndBWBoundary(t *testing.T) {
+	columns := []string{"MCC", "MNC", "Frequency"}
+	mapping := map[string]int{"mcc": 0, "mnc": 1, "frequency": 2}
+	// Orange's actual supplied 2100 MHz range. The lower edge is inclusive.
+	rules, err := compileFrequencyRules([]FilterRule{{Name: "Orange", Assignments: map[string][]float64{"MCC": {231}, "MNC": {1}}, ConditionGroups: [][]Condition{{{Field: "Frequency", Kind: ConditionRange, Low: 2110000000, High: 2124999999}}}}}, columns, mapping)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tech := range []string{"LTE", "5G"} {
+		for _, tc := range []struct {
+			name, frequency, center, bwFlag string
+			bw                              float64
+			disabled                        bool
+		}{
+			{"no BW", "2112500000", "yes", "yes", 0, false},
+			{"inside", "2112500000", "yes", "yes", 2.4, false},
+			{"exact lower edge", "2112500000", "yes", "yes", 2.5, false},
+			{"one Hz outside", "2112500000", "yes", "no", 2.500001, false},
+			{"reported 2.6", "2112500000", "yes", "no", 2.6, false},
+			{"reported 3", "2112500000", "yes", "no", 3, false},
+			{"upper endpoint outside", "2124000000", "yes", "no", 1, false},
+			{"center outside", "2109900000", "no", "no", 0, false},
+			{"center outside endpoints inside and outside", "2109900000", "no", "no", 2.6, false},
+			{"all outside", "2000000000", "no", "no", 2.6, false},
+			{"disabled outside", "2000000000", "yes", "yes", 2.6, true},
+		} {
+			t.Run(tech+"/"+tc.name, func(t *testing.T) {
+				cfg := DefaultProcessingConfig()
+				cfg.FrequencyLTEBW, cfg.Frequency5GBW = tc.bw, tc.bw
+				active := rules
+				if tc.disabled {
+					active = nil
+				}
+				row := ProcessedRow{Raw: []string{"231", "1", tc.frequency}, Frequency: tc.frequency}
+				center, expanded := frequencyFilterFlags(row, tech, cfg, map[string][]frequencyRule{tech: active})
+				if center != tc.center || expanded != tc.bwFlag {
+					t.Fatalf("got %s/%s, want %s/%s", center, expanded, tc.center, tc.bwFlag)
+				}
+			})
+		}
+	}
+}
+
 func TestFrequencyFilters_ChannelConditionsKeepChannelUnits(t *testing.T) {
 	for _, channel := range []string{"EARFCN", "NR-ARFCN"} {
 		t.Run(channel, func(t *testing.T) {
@@ -54,6 +97,21 @@ func legacyFrequencyMatch(t *testing.T, raw []string, columns []string, mapping 
 	t.Helper()
 	row := append([]string(nil), raw...)
 	row[mapping["frequency"]] = strconv.FormatFloat(f, 'f', -1, 64)
+	// Unlike standard mode, active filters require a matching rule. Use the
+	// legacy resolver/matcher independently of the frequency implementation.
+	if len(rules) > 0 {
+		matched := false
+		for _, rule := range resolveFilterRules(rules, columns, mapping) {
+			for _, group := range rule.ConditionGroups {
+				if len(group) > 0 && rowMatchesGroup(rowValueMap(columns, row), group) {
+					matched = true
+				}
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
 	data, err := ApplyFiltersCSV(context.Background(), &CSVData{Columns: columns, Rows: [][]string{row}}, rules, false, mapping)
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +377,11 @@ func TestFrequencyOutputs_TwoOperatorFlagsUseTechnologyBW(t *testing.T) {
 			if err := os.WriteFile(filter, []byte(`("MNC" = 6); ("Frequency" = 2115000000)`), 0600); err != nil {
 				t.Fatal(err)
 			}
-			cfg.FilterPaths = []string{filter}
+			identity := filepath.Join(filepath.Dir(cfg.FrequencyLTEOutput), "identity.txt")
+			if err := os.WriteFile(identity, []byte(`("MCC" = 231); ("Frequency" = 2100000000-2130000000)`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg.FilterPaths = []string{filter, identity}
 			baseline := map[string]string{}
 			for _, tc := range []struct {
 				name    string

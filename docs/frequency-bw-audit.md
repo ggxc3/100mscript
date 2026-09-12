@@ -1,8 +1,8 @@
 # Audit kontroly operátora a BW – aktualizované 12. 9. 2026
 
-Na dodaných vstupoch `data/2100` a ôsmich dodaných filtroch sa po opravách nenašiel žiadny rozdiel medzi exportovanými výsledkami a nezávislou kontrolou. Audit sa týka aktuálnych pravidiel: kontrolujú sa stred a dva krajné body; neprítomnosť zhodného filtra znamená `yes`.
+Na dodaných vstupoch `data/2100` a ôsmich dodaných filtroch sa po opravách nenašiel žiadny rozdiel medzi exportovanými výsledkami a nezávislou kontrolou. Audit sa týka aktuálnych pravidiel: kontrolujú sa stred a dva krajné body; pri načítaných filtroch neprítomnosť zhodného pravidla znamená `no`; bez načítaných filtrov zostáva `yes`.
 
-Export má dva stĺpce: `Operator_sedi` pre stred a `Operator_sedi_BW` pre stred a oba krajné body. Filtre sú spoločné pre LTE aj 5G: všetkých osem automatických filtrov z oboch priečinkov sa používa pre obe technológie. BW a mapovanie stĺpcov zostávajú nezávislé. Audit a príklady nižšie používajú toto nastavenie. Pravidlo `yes` pri chýbajúcej zhode filtra zostáva zachované.
+Export má dva stĺpce: `Operator_sedi` pre stred a `Operator_sedi_BW` pre stred a oba krajné body. Filtre sú spoločné pre LTE aj 5G: všetkých osem automatických filtrov z oboch priečinkov sa používa pre obe technológie. BW a mapovanie stĺpcov zostávajú nezávislé. Audit a príklady nižšie používajú toto nastavenie. Bod mimo všetkých pásiem má pri načítaných filtroch výsledok `no`.
 
 ## Rozsah a výsledky
 
@@ -15,11 +15,11 @@ Export má dva stĺpce: `Operator_sedi` pre stred a `Operator_sedi_BW` pre stred
 - Zmena BW alebo vypnutie filtrov nemení počet, poradie ani hodnoty meraní; menia sa iba príznaky operátora.
 - Oba exporty majú prázdny prvý riadok, hlavičku na druhom riadku a stĺpce `Operator_sedi` a `Operator_sedi_BW`. Platí aj pre export technológie bez meraní.
 
-Každý výsledný bod bol porovnaný s pôvodným Go filtrovacím mechanizmom, ktorý reálne vykoná všetky priradenia na kópii riadku. Druhá kontrola je samostatný Python skript s vlastným načítaním TXT/CSV a aritmetikou `Decimal`; nepoužíva produkčný parser ani porovnávač. Tento skript navyše vyhodnotil pôvodné merania s platnou frekvenciou a operátorom vo všetkých scenároch (14 254 674 logických kontrol bodov; rovnaké kombinácie vstupných hodnôt zdieľajú jeden výpočet).
+Každý výsledný bod bol porovnaný s pôvodným Go filtrovacím mechanizmom doplneným v testovacom orákule o povinnú zhodu pravidla, ktorý reálne vykoná všetky priradenia na kópii riadku. Druhá kontrola je samostatný Python skript s vlastným načítaním TXT/CSV a aritmetikou `Decimal`; nepoužíva produkčný parser ani porovnávač. Tento skript navyše vyhodnotil pôvodné merania s platnou frekvenciou a operátorom vo všetkých scenároch (14 254 674 logických kontrol bodov; rovnaké kombinácie vstupných hodnôt zdieľajú jeden výpočet).
 
 ## Regresné a hraničné testy
 
-- **105 000 porovnaní** proti pôvodnému mechanizmu: 5 000 deterministicky generovaných zostáv pravidiel, sedem BW vrátane 1 Hz, desatinné hodnoty, rovnosti, rozsahy, AND/OR skupiny, priority a viacnásobné priradenia MCC/MNC.
+- **105 000 porovnaní** proti pôvodnému mechanizmu s povinnou zhodou pravidla: 5 000 deterministicky generovaných zostáv pravidiel, sedem BW vrátane 1 Hz, desatinné hodnoty, rovnosti, rozsahy, AND/OR skupiny, priority a viacnásobné priradenia MCC/MNC.
 - **4 752 kontrol hraníc všetkých ôsmich dodaných filtrov**: presná hranica a bezprostredne susedná reprezentovateľná hodnota pod a nad ňou; viac MCC/MNC.
 - Všetkých osem kombinácií zhody/nezhody troch bodov osobitne pre LTE a 5G.
 - Kontrola samostatného BW pre LTE/5G a spoločného zoznamu filtrov, opravy MNC pred filtrami, nemennosti zdroja, ignorovania vnútra intervalu a najvyššieho jednotlivého RSRP.
@@ -40,11 +40,19 @@ Tieto chyby sa nereprodukovali na dodaných ôsmich filtroch, ktoré používaj�
 | 5G | 1 | 2120,45 | 2115,45 | 2125,45 | yes | yes |
 | 5G | 2 | 2131,25 | 2126,25 | 2136,25 | yes | no |
 | 5G | 6 | 2155,35 | 2150,35 | 2160,35 | yes | yes |
-| LTE | 1 | 2112,5 | 2107,5 | 2117,5 | yes | yes |
+| LTE | 1 | 2112,5 | 2107,5 | 2117,5 | yes | no |
 
 Pri druhom riadku dolný bod spĺňa filter Orange (`MNC=1`), preto je celková kontrola BW `no`. Filtre z oboch priečinkov sa vyhodnocujú spoločne pre každú technológiu. Špecifickejšie pravidlo s viacerými podmienkami má prednosť pred všeobecným rozsahom.
 
 Rozsah `[2110, 2130)` obsahuje 2110 MHz a neobsahuje 2130 MHz. `Operator_sedi` vždy kontroluje iba stred. `Operator_sedi_BW` zahŕňa aj oba krajné body. Pri prázdnom alebo nulovom BW sú oba príznaky rovnaké. BW znamená odchýlku na každú stranu, nie šírku delenú dvoma; nesúvisí s pôvodným LTE stĺpcom `BW`.
+
+## Regresia nahláseného LTE pri BW 2,6 MHz
+
+So štyrmi samostatne poskytnutými filtrami Orange/Telekom/SWAN/O2 má LTE stred 2112,5 MHz. Pri BW 2,5 MHz je dolný bod presne 2110 MHz a výsledok je `yes / yes`. Pri BW 2,6 MHz je dolný bod 2109,9 MHz mimo všetkých pásiem a výsledok je `yes / no`. To isté platí pri BW 3 MHz (dolný bod 2109,5 MHz).
+
+Samostatné úplné spracovanie s týmito štyrmi filtrami a BW LTE/5G `2,6/15` overilo 6 CSV v troch priestorových režimoch: všetkých **2 649 LTE** aj **7 931 5G** riadkov má `yes / no`. Nezávislá kontrola `Decimal` potvrdila všetky príznaky a porovnanie so starým výstupom potvrdilo nezmenené merania a poradie riadkov.
+
+Predchádzajúca implementácia pri chýbajúcom pravidle vracala `yes`, pretože nenastala náhrada operátora. Po potvrdení požiadavky zákazníkom sa vo frekvenčnom režime vyžaduje zhoda pravidla. Pôvodný režim sa nemení. Nový regresný test pokrýva LTE aj 5G, presnú hranicu, 1 Hz za hranicou, BW 2,6 a 3, chýbajúcu zhodu stredu aj krajných bodov a vypnuté filtre.
 
 ## Opakovanie auditu
 

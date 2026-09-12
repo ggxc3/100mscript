@@ -159,7 +159,8 @@ func frequencyOperatorMatches(row []string, frequency float64, rules []frequency
 		}
 	}
 	if bestIndex < 0 {
-		return true
+		// With active filters, an uncovered point is not a confirmed match.
+		return len(rules) == 0
 	}
 	for idx, values := range rules[bestIndex].operatorAssignments {
 		current, ok := finiteNumber(cellAt(row, idx))
