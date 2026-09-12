@@ -27,10 +27,10 @@ type ProcessingConfig struct {
 	FrequencyLTEOutput    string            `json:"frequency_lte_output_path,omitempty"`
 	FrequencyModeEnabled  bool              `json:"frequency_mode_enabled"`
 	FrequencyInputs       []FrequencyInput  `json:"frequency_inputs,omitempty"`
-	FrequencyLTEBW        float64           `json:"frequency_lte_bv_mhz"` // legacy JSON key retained for existing callers
-	Frequency5GBW         float64           `json:"frequency_5g_bv_mhz"`  // BW is the +/- delta in MHz, not half a channel width
-	FrequencyLTEFilters   []string          `json:"frequency_lte_filter_paths,omitempty"`
-	Frequency5GFilters    []string          `json:"frequency_5g_filter_paths,omitempty"`
+	FrequencyLTEBW        float64           `json:"frequency_lte_bv_mhz"`                 // legacy JSON key retained for existing callers
+	Frequency5GBW         float64           `json:"frequency_5g_bv_mhz"`                  // BW is the +/- delta in MHz, not half a channel width
+	FrequencyLTEFilters   []string          `json:"frequency_lte_filter_paths,omitempty"` // legacy: merged with the 5G list when FilterPaths is nil
+	Frequency5GFilters    []string          `json:"frequency_5g_filter_paths,omitempty"`  // use FilterPaths for the common LTE/5G list
 	FilePath              string            `json:"file_path"`
 	InputFilePaths        []string          `json:"input_file_paths,omitempty"`
 	ColumnMapping         map[string]int    `json:"column_mapping"`

@@ -3,7 +3,6 @@ package backend
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -19,30 +18,32 @@ type frequencyRule struct {
 	operatorAssignments map[int][]float64
 }
 
+// Use the same shared list as standard mode. Legacy technology-specific lists
+// are combined only when no explicit common list was supplied.
+func frequencyFilterPaths(cfg ProcessingConfig) ([]string, error) {
+	if cfg.FilterPaths != nil {
+		return NormalizeInputPaths(cfg.FilterPaths), nil
+	}
+	if cfg.FrequencyLTEFilters != nil || cfg.Frequency5GFilters != nil {
+		paths := append([]string{}, cfg.FrequencyLTEFilters...)
+		return NormalizeInputPaths(append(paths, cfg.Frequency5GFilters...)), nil
+	}
+	cwd, _ := os.Getwd()
+	return DiscoverFilterPaths(cwd)
+}
+
 func loadFrequencyRules(cfg ProcessingConfig, columns []string) (map[string][]frequencyRule, error) {
-	paths := map[string][]string{"LTE": cfg.FrequencyLTEFilters, "5G": cfg.Frequency5GFilters}
-	if cfg.FrequencyLTEFilters == nil || cfg.Frequency5GFilters == nil {
-		cwd, _ := os.Getwd()
-		auto, err := DiscoverFilterPaths(cwd)
-		if err != nil {
-			return nil, err
-		}
-		for _, path := range auto {
-			tech := "LTE"
-			if filepath.Base(filepath.Dir(path)) == "filtre_5G" {
-				tech = "5G"
-			}
-			if (tech == "LTE" && cfg.FrequencyLTEFilters == nil) || (tech == "5G" && cfg.Frequency5GFilters == nil) {
-				paths[tech] = append(paths[tech], path)
-			}
-		}
+	paths, err := frequencyFilterPaths(cfg)
+	if err != nil {
+		return nil, err
+	}
+	rawRules, err := LoadFilterRulesFromPaths(paths)
+	if err != nil {
+		return nil, fmt.Errorf("spoločné filtre: %w", err)
 	}
 	out := map[string][]frequencyRule{}
 	for _, tech := range []string{"LTE", "5G"} {
-		rawRules, err := LoadFilterRulesFromPaths(NormalizeInputPaths(paths[tech]))
-		if err != nil {
-			return nil, fmt.Errorf("filtre %s: %w", tech, err)
-		}
+		// The rules are shared; column mappings still belong to each technology.
 		out[tech], err = compileFrequencyRulesWithNames(rawRules, columns, cfg.ColumnMapping, cfg.FrequencyColumnMappings[strings.ToLower(tech)])
 		if err != nil {
 			return nil, fmt.Errorf("filtre %s: %w", tech, err)
@@ -174,14 +175,13 @@ func frequencyOperatorMatches(row []string, frequency float64, rules []frequency
 	return true
 }
 
-// frequencyFilterFlag produces the single export result: center only when BW
-// is omitted/zero, otherwise center and both endpoints. Missing rules retain
-// the existing "no operator replacement" meaning of yes.
-func frequencyFilterFlag(row ProcessedRow, technology string, cfg ProcessingConfig, rules map[string][]frequencyRule) string {
+// Report center and center-with-endpoints separately. Omitted/zero BW produces
+// identical flags. Both checks use the common rules and technology-specific BW.
+func frequencyFilterFlags(row ProcessedRow, technology string, cfg ProcessingConfig, rules map[string][]frequencyRule) (string, string) {
 	frequency, _ := finiteNumber(row.Frequency)
 	selectedRules := rules[technology]
 	if !frequencyOperatorMatches(row.Raw, frequency, selectedRules) {
-		return "no"
+		return "no", "no"
 	}
 	bw := cfg.FrequencyLTEBW
 	if strings.EqualFold(technology, "5G") {
@@ -190,8 +190,8 @@ func frequencyFilterFlag(row ProcessedRow, technology string, cfg ProcessingConf
 	if bw > 0 {
 		delta := bw * 1e6
 		if !frequencyOperatorMatches(row.Raw, frequency-delta, selectedRules) || !frequencyOperatorMatches(row.Raw, frequency+delta, selectedRules) {
-			return "no"
+			return "yes", "no"
 		}
 	}
-	return "yes"
+	return "yes", "yes"
 }

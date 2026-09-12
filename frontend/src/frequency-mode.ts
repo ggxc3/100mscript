@@ -8,11 +8,10 @@ export type FrequencyState = {
   lteBW: string;
   nrBW: string;
   autoFilters: boolean;
-  lteFilters: string[];
-  nrFilters: string[];
+  filters: string[];
 };
 export const newFrequencyState = (): FrequencyState => ({
-  enabled: false, columnMappings: {lte: {}, "5g": {}}, files: {}, lteBW: "0", nrBW: "0", autoFilters: true, lteFilters: [], nrFilters: [],
+  enabled: false, columnMappings: {lte: {}, "5g": {}}, files: {}, lteBW: "0", nrBW: "0", autoFilters: true, filters: [],
 });
 const html = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const basename = (s: string): string => s.replace(/\\/g, "/").split("/").pop() || s;
@@ -66,12 +65,13 @@ export function renderFrequencyPanel(
       <label class="field"><span>BW pre LTE (± MHz)</span><input data-bw="lteBW" type="number" min="0" step="any" placeholder="0 – iba stred" value="${html(state.lteBW)}"${disabled}/></label>
       <label class="field"><span>BW pre 5G (± MHz)</span><input data-bw="nrBW" type="number" min="0" step="any" placeholder="0 – iba stred" value="${html(state.nrBW)}"${disabled}/></label>
     </div>
-    <p class="section-note">Výsledný stĺpec <code>Operator_sedi</code> pri prázdnom alebo nulovom BW kontroluje iba strednú frekvenciu f. Pri BW väčšom ako 0 kontroluje všetky tri body: f, f − BW a f + BW. BW je odchýlka na každú stranu v MHz. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Aj bez zhodného filtra je výsledok <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
-    <label class="check-row"><input data-frequency-auto type="checkbox"${state.autoFilters ? " checked" : ""}${disabled}/><span>Automatické filtre: LTE z <code>filters/</code>, 5G z <code>filtre_5G/</code></span></label>
-    <div class="double-grid frequency-filter-grid">${(["lteFilters", "nrFilters"] as const).map(key => `<div class="frequency-filter-box">
-      <strong>Dodatočné filtre ${key === "lteFilters" ? "LTE" : "5G"}</strong>
-      <ul>${state[key].map((p,i) => `<li><span title="${html(p)}">${html(basename(p))}</span><button type="button" class="btn ghost" data-filter-key="${key}" data-filter-remove="${i}" aria-label="Odstrániť ${html(basename(p))}"${disabled}>×</button></li>`).join("") || '<li class="muted">Žiadne dodatočné filtre</li>'}</ul>
-      <button type="button" class="btn secondary" data-filter-add="${key}"${disabled}>Pridať filtre</button></div>`).join("")}</div>`;
+    <p class="section-note"><code>Operator_sedi</code> kontroluje iba strednú frekvenciu f. <code>Operator_sedi_BW</code> kontroluje stred aj oba krajné body: f, f − BW a f + BW. Pri prázdnom alebo nulovom BW sú oba výsledky rovnaké. BW je odchýlka na každú stranu v MHz. Ak by filter zmenil operátora, výsledok je <strong>no</strong>, inak <strong>yes</strong>. Aj bez zhodného filtra je výsledok <strong>yes</strong>. Filtre nemenia ani neduplikujú merania.</p>
+    <label class="check-row"><input data-frequency-auto type="checkbox"${state.autoFilters ? " checked" : ""}${disabled}/><span>Spoločné automatické filtre pre LTE aj 5G z <code>filters/</code> a <code>filtre_5G/</code></span></label>
+    <div class="frequency-filter-box frequency-filter-grid">
+      <strong>Dodatočné filtre pre LTE aj 5G</strong>
+      <ul>${state.filters.map((p,i) => `<li><span title="${html(p)}">${html(basename(p))}</span><button type="button" class="btn ghost" data-filter-remove="${i}" aria-label="Odstrániť ${html(basename(p))}"${disabled}>×</button></li>`).join("") || '<li class="muted">Žiadne dodatočné filtre</li>'}</ul>
+      <button type="button" class="btn secondary" data-filter-add${disabled}>Pridať filtre</button>
+    </div>`;
   host.querySelectorAll<HTMLSelectElement>("[data-freq-field]").forEach(select => select.addEventListener("change", () => {
     const i = Number(select.closest<HTMLElement>("[data-file-index]")!.dataset.fileIndex);
     const field = select.dataset.freqField as keyof FrequencyFile;
@@ -88,13 +88,11 @@ export function renderFrequencyPanel(
   host.querySelectorAll<HTMLButtonElement>("[data-filter-add]").forEach(button => button.addEventListener("click", async () => {
     button.disabled = true;
     try {
-      const key = button.dataset.filterAdd as "lteFilters" | "nrFilters";
       const files = await PickFilterFiles();
-      state[key] = [...new Set([...state[key], ...files])]; rerender();
+      state.filters = [...new Set([...state.filters, ...files])]; rerender();
     } catch (err) { onError(String(err)); button.disabled = false; }
   }));
   host.querySelectorAll<HTMLButtonElement>("[data-filter-remove]").forEach(button => button.addEventListener("click", () => {
-    const key = button.dataset.filterKey as "lteFilters" | "nrFilters";
-    state[key].splice(Number(button.dataset.filterRemove), 1); rerender();
+    state.filters.splice(Number(button.dataset.filterRemove), 1); rerender();
   }));
 }

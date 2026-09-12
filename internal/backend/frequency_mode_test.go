@@ -23,8 +23,7 @@ func frequencyFixture(t *testing.T) ProcessingConfig {
 	}
 	cfg := DefaultProcessingConfig()
 	cfg.FrequencyModeEnabled = true
-	cfg.FrequencyLTEFilters = []string{}
-	cfg.Frequency5GFilters = []string{}
+	cfg.FilterPaths = []string{}
 	for _, f := range files {
 		path := filepath.Join(dir, f.name)
 		if err := os.WriteFile(path, []byte(f.content), 0600); err != nil {
@@ -156,12 +155,12 @@ func TestFrequencyFilters_ThreePointsAndPrecedence(t *testing.T) {
 			cfg := DefaultProcessingConfig()
 			cfg.Frequency5GBW = tc.bw
 			row := ProcessedRow{Raw: raw, Frequency: "2110000000"}
-			got := frequencyFilterFlag(row, "5G", cfg, map[string][]frequencyRule{"5G": compiled})
-			if got != tc.expanded {
+			center, got := frequencyFilterFlags(row, "5G", cfg, map[string][]frequencyRule{"5G": compiled})
+			if center != tc.center || got != tc.expanded {
 				t.Fatalf("got %s want %s", got, tc.expanded)
 			}
 			// LTE has its own delta (zero), even when the rules are identical.
-			lte := frequencyFilterFlag(row, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
+			_, lte := frequencyFilterFlags(row, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
 			if lte != tc.center {
 				t.Fatalf("LTE incorrectly inherited NR BW: %s", lte)
 			}
@@ -184,12 +183,12 @@ func TestFrequencyFilters_ThreePointsAndPrecedence(t *testing.T) {
 	}
 }
 
-func TestFrequencyMode_FilterIsolationAndCorrectedOperator(t *testing.T) {
+func TestFrequencyMode_SharedFilterAndCorrectedOperator(t *testing.T) {
 	cfg := frequencyFixture(t)
 	dir := filepath.Dir(cfg.Frequency5GOutput)
 	path := filepath.Join(dir, "lte-filter.txt")
 	os.WriteFile(path, []byte(`("MNC" = 6); ("Frequency" = 2110000000 AND "MNC" = 2)`), 0600)
-	cfg.FrequencyLTEFilters = []string{path}
+	cfg.FilterPaths = []string{path}
 	result, err := RunProcessing(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +196,7 @@ func TestFrequencyMode_FilterIsolationAndCorrectedOperator(t *testing.T) {
 	header, rows := readBothFrequencyCSVs(t, result)
 	for _, r := range rows {
 		expected := "yes"
-		if r[indexOf(header, technologyColumn)] == "LTE" {
+		if r[indexOf(header, frequencyHzColumn)] == "2110000000" && r[indexOf(header, "MNC")] == "2" {
 			expected = "no"
 		}
 		if r[indexOf(header, "Operator_sedi")] != expected {
@@ -317,20 +316,14 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 	dir := t.TempDir()
 	cfg.Frequency5GOutput = filepath.Join(dir, "2100_frequencies_5g.csv")
 	cfg.FrequencyLTEOutput = filepath.Join(dir, "2100_frequencies_lte.csv")
-	cfg.FrequencyLTEFilters, _ = DiscoverFilterPaths(filepath.Join("..", ".."))
-	cfg.Frequency5GFilters = []string{}
-	var lte []string
-	for _, p := range cfg.FrequencyLTEFilters {
-		if filepath.Base(filepath.Dir(p)) == "filtre_5G" {
-			cfg.Frequency5GFilters = append(cfg.Frequency5GFilters, p)
-		} else {
-			lte = append(lte, p)
-		}
+	cfg.FilterPaths, err = DiscoverFilterPaths(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
 	}
-	cfg.FrequencyLTEFilters = lte
 	if os.Getenv("FREQUENCY_TEST_NO_FILTERS") == "1" {
-		cfg.FrequencyLTEFilters, cfg.Frequency5GFilters = []string{}, []string{}
+		cfg.FilterPaths = []string{}
 	}
+
 	result, err := RunProcessing(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +333,7 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 	techs := map[string]int{}
 	flags := map[string]int{}
 	legacyRules := map[string][]FilterRule{}
-	for tech, paths := range map[string][]string{"LTE": cfg.FrequencyLTEFilters, "5G": cfg.Frequency5GFilters} {
+	for tech, paths := range map[string][]string{"LTE": cfg.FilterPaths, "5G": cfg.FilterPaths} {
 		legacyRules[tech], err = LoadFilterRulesFromPaths(paths)
 		if err != nil {
 			t.Fatal(err)
@@ -362,7 +355,7 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 			t.Fatal("channel exported as frequency", f)
 		}
 		techs[at(technologyColumn)]++
-		flags[at("Operator_sedi")]++
+		flags[at("Operator_sedi")+"/"+at("Operator_sedi_BW")]++
 		bw := cfg.FrequencyLTEBW
 		if at(technologyColumn) == "5G" {
 			bw = cfg.Frequency5GBW
@@ -374,7 +367,7 @@ func TestFrequencyMode_Real2100(t *testing.T) {
 				[]string{"MCC", "MNC", "Frequency"}, map[string]int{"mcc": 0, "mnc": 1, "frequency": 2},
 				legacyRules[at(technologyColumn)], probe))
 		}
-		if (at("Operator_sedi") == "yes") != (checks[0] && checks[1] && checks[2]) {
+		if (at("Operator_sedi") == "yes") != checks[0] || (at("Operator_sedi_BW") == "yes") != (checks[0] && checks[1] && checks[2]) {
 			t.Fatalf("independent legacy execution disagrees: %s probes=%v row=%v", key, checks, r)
 		}
 		if strings.Contains(", "+at("Ostatne_PCI")+", ", ", "+at("PCI")+", ") {

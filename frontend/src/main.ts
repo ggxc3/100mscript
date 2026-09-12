@@ -1903,6 +1903,7 @@ function mountMainView(root: HTMLDivElement): void {
       const problem = frequencyValidation(state.frequency, paths);
       if (problem) throw new Error(problem);
       const auto = state.frequency.autoFilters ? await DiscoverAutoFilterPaths() : [];
+      filter_paths = dedupePaths([...auto, ...state.frequency.filters]);
       frequencyOptions = {
         frequency_mode_enabled: true,
         frequency_column_mappings: state.frequency.columnMappings,
@@ -1911,8 +1912,6 @@ function mountMainView(root: HTMLDivElement): void {
         frequency_inputs: paths.map(p => state.frequency.files[p]),
         frequency_lte_bv_mhz: Number(state.frequency.lteBW.replace(",", ".")),
         frequency_5g_bv_mhz: Number(state.frequency.nrBW.replace(",", ".")),
-        frequency_lte_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filters[\\/]/.test(p)), ...state.frequency.lteFilters]),
-        frequency_5g_filter_paths: dedupePaths([...auto.filter(p => /(^|[\\/])filtre_5G[\\/]/.test(p)), ...state.frequency.nrFilters]),
       };
     }
     return {

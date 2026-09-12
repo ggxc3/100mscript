@@ -144,8 +144,8 @@ func TestFrequencyFilters_DifferentialLegacy(t *testing.T) {
 			}
 			cfg := DefaultProcessingConfig()
 			cfg.FrequencyLTEBW = bw
-			got := frequencyFilterFlag(ProcessedRow{Raw: raw, Frequency: raw[2]}, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
-			if (got == "yes") != (expected[0] && expected[1] && expected[2]) {
+			center, got := frequencyFilterFlags(ProcessedRow{Raw: raw, Frequency: raw[2]}, "LTE", cfg, map[string][]frequencyRule{"LTE": compiled})
+			if (center == "yes") != expected[0] || (got == "yes") != (expected[0] && expected[1] && expected[2]) {
 				t.Fatalf("wrong combined flag %s", got)
 			}
 		}
@@ -179,8 +179,8 @@ func TestFrequencyFilters_AllThreePointCombinations(t *testing.T) {
 			} else {
 				cfg.Frequency5GBW = 5
 			}
-			got := frequencyFilterFlag(ProcessedRow{Raw: []string{"231", "2", "2110000000"}, Frequency: "2110000000"}, tech, cfg, map[string][]frequencyRule{tech: compiled})
-			if (got == "yes") != (mask == 0) {
+			center, got := frequencyFilterFlags(ProcessedRow{Raw: []string{"231", "2", "2110000000"}, Frequency: "2110000000"}, tech, cfg, map[string][]frequencyRule{tech: compiled})
+			if (center == "yes") != (mask&1 == 0) || (got == "yes") != (mask == 0) {
 				t.Fatalf("tech %s mask %03b: %s", tech, mask, got)
 			}
 		}
@@ -248,7 +248,7 @@ func TestFrequencyOutputs_LeadingBlankLine(t *testing.T) {
 				t.Fatal(err)
 			}
 			lines := strings.Split(string(raw), "\n")
-			if len(lines) < 3 || lines[0] != "" || lines[1] == "" || !strings.Contains(lines[1], "Operator_sedi;") || strings.Contains(lines[1], "Operator_sedi_BW") || strings.Contains(lines[1], "Operator_sedi_bV") {
+			if len(lines) < 3 || lines[0] != "" || lines[1] == "" || !strings.Contains(lines[1], "Operator_sedi;") || !strings.Contains(lines[1], "Operator_sedi_BW") || strings.Contains(lines[1], "Operator_sedi_bV") {
 				t.Fatalf("invalid export prefix %s: %q", mode, lines[:2])
 			}
 		}
@@ -299,7 +299,7 @@ func TestFrequencyMode_FilterUsesCustomOperatorMapping(t *testing.T) {
 	if err := os.WriteFile(filter, []byte(`("NetworkCode" = 6); ("Frequency" = 2110000000 AND "NetworkCode" = 2)`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg.FrequencyLTEFilters = []string{filter}
+	cfg.FilterPaths = []string{filter}
 	result, err := RunProcessing(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestFrequencyMode_FilterUsesCustomOperatorMapping(t *testing.T) {
 	}
 }
 
-func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
+func TestFrequencyOutputs_TwoOperatorFlagsUseTechnologyBW(t *testing.T) {
 	for _, mode := range []string{"segments", "center", "original"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := frequencyFixture(t)
@@ -319,8 +319,7 @@ func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
 			if err := os.WriteFile(filter, []byte(`("MNC" = 6); ("Frequency" = 2115000000)`), 0600); err != nil {
 				t.Fatal(err)
 			}
-			cfg.FrequencyLTEFilters = []string{filter}
-			cfg.Frequency5GFilters = []string{filter}
+			cfg.FilterPaths = []string{filter}
 			baseline := map[string]string{}
 			for _, tc := range []struct {
 				name    string
@@ -338,12 +337,12 @@ func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
 						bw         float64
 					}{{"LTE", result.FrequencyLTEFile, tc.lte}, {"5G", result.Frequency5GFile, tc.nr}} {
 						header, rows := readFrequencyCSV(t, output.path)
-						if indexOf(header, "Operator_sedi_BW") >= 0 || indexOf(header, "Operator_sedi_bV") >= 0 {
-							t.Fatal("obsolete separate BW flag exported", header)
+						if indexOf(header, "Operator_sedi_BW") < 0 || indexOf(header, "Operator_sedi_bV") >= 0 {
+							t.Fatal("missing BW flag or obsolete spelling", header)
 						}
 						flagIdx := indexOf(header, "Operator_sedi")
-						if flagIdx < 0 || flagIdx != len(header)-2 || header[len(header)-1] != "Ostatne_PCI" {
-							t.Fatal("single flag must precede other PCIs", header)
+						if flagIdx < 0 || flagIdx != len(header)-3 || indexOf(header, "Operator_sedi_BW") != flagIdx+1 || header[len(header)-1] != "Ostatne_PCI" {
+							t.Fatal("both flags must precede other PCIs", header)
 						}
 						if len(rows) == 0 {
 							t.Fatal("fixture produced no rows")
@@ -353,11 +352,11 @@ func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
 							want = "no"
 						}
 						for i, row := range rows {
-							if row[flagIdx] != want {
-								t.Fatalf("%s BW %g: got %s want %s", output.tech, output.bw, row[flagIdx], want)
+							if row[flagIdx] != "yes" || row[flagIdx+1] != want {
+								t.Fatalf("%s BW %g: got %s want %s", output.tech, output.bw, row[flagIdx+1], want)
 							}
 							key := fmt.Sprintf("%s/%d", output.tech, i)
-							withoutFlag := append(append([]string{}, row[:flagIdx]...), row[flagIdx+1:]...)
+							withoutFlag := append(append([]string{}, row[:flagIdx]...), row[flagIdx+2:]...)
 							signature := strings.Join(withoutFlag, ";")
 							if tc.name == "no BW" {
 								baseline[key] = signature
@@ -367,6 +366,61 @@ func TestFrequencyOutputs_SingleOperatorFlagUsesTechnologyBW(t *testing.T) {
 						}
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestFrequencyFilters_SharedSelectionAndPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	write := func(folder, name, content string) string {
+		t.Helper()
+		if err := os.MkdirAll(folder, 0755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, folder, name)
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	specific := write("filters", "z-specific.txt", `("MNC" = 6); ("Frequency" = 2110000000 AND "MNC" = 2)`)
+	general := write("filtre_5G", "a-general.txt", `("MNC" = 2); ("Frequency" = 2100000000-2120000000)`)
+	columns := []string{"MCC", "MNC", frequencyHzColumn}
+	for _, tc := range []struct {
+		name            string
+		common, lte, nr []string
+		count           int
+		want            string
+	}{
+		{"automatic includes both folders", nil, nil, nil, 2, "no"},
+		{"manual file shared by both", []string{specific}, nil, nil, 1, "no"},
+		{"manual list replaces automatic", []string{general}, nil, nil, 1, "yes"},
+		{"duplicates removed", []string{specific, general, specific}, nil, nil, 2, "no"},
+		{"disabled", []string{}, nil, nil, 0, "yes"},
+		{"legacy lists combined", nil, []string{specific}, []string{general, specific}, 2, "no"},
+		{"common list takes precedence", []string{general}, []string{specific}, nil, 1, "yes"},
+		{"disabled overrides legacy", []string{}, []string{specific}, []string{general}, 0, "yes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultProcessingConfig()
+			cfg.ColumnMapping = map[string]int{"mcc": 0, "mnc": 1, "frequency": 2}
+			cfg.FilterPaths = tc.common
+			cfg.FrequencyLTEFilters = tc.lte
+			cfg.Frequency5GFilters = tc.nr
+			rules, err := loadFrequencyRules(cfg, columns)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, tech := range []string{"LTE", "5G"} {
+				if len(rules[tech]) != tc.count {
+					t.Fatalf("%s got %d rules want %d", tech, len(rules[tech]), tc.count)
+				}
+				row := ProcessedRow{Raw: []string{"231", "2", "2110000000"}, Frequency: "2110000000"}
+				if _, got := frequencyFilterFlags(row, tech, cfg, rules); got != tc.want {
+					t.Fatalf("%s got %s want %s", tech, got, tc.want)
+				}
 			}
 		})
 	}
