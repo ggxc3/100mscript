@@ -16,7 +16,7 @@ import (
 )
 
 // AppVersion should stay in sync with wails.json info.productVersion.
-const AppVersion = "0.3.5"
+const AppVersion = "0.3.6"
 
 type App struct {
 	ctx              context.Context
