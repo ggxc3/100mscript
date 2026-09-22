@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -558,15 +559,21 @@ func numericEpochToMillis(value float64) (int64, bool) {
 	return int64(math.Round(millis)), true
 }
 
+// Loading zoneinfo for every measurement caused repeated disk reads and large
+// allocation churn when sorting multi-file routes. Location is immutable.
+var measurementTimeLocation = sync.OnceValue(func() *time.Location {
+	if location, err := time.LoadLocation("Europe/Bratislava"); err == nil {
+		return location
+	}
+	return time.Local
+})
+
 func parseDateTimeToMillis(s string) (int64, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, false
 	}
-	location := time.Local
-	if bratislava, err := time.LoadLocation("Europe/Bratislava"); err == nil {
-		location = bratislava
-	}
+	location := measurementTimeLocation()
 	layouts := []string{
 		"2006-01-02 15:04:05.999999999",
 		"2006-01-02 15:04:05",

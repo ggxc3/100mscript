@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync"
+	"time"
 
 	backendpkg "github.com/jakubvysocan/100mscript/internal/backend"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -17,8 +19,18 @@ import (
 const AppVersion = "0.3.5"
 
 type App struct {
-	ctx      context.Context
-	rootPath string
+	ctx              context.Context
+	rootPath         string
+	previewMu        sync.Mutex
+	previewCache     map[string]csvSchemaCacheEntry
+	previewRequestMu sync.Mutex
+	previewCancel    context.CancelFunc
+}
+
+type csvSchemaCacheEntry struct {
+	size     int64
+	modified time.Time
+	schema   *backendpkg.CSVData
 }
 
 const csvPreviewLoadedEvent = "csv-preview:loaded"
@@ -174,41 +186,67 @@ type CSVPreviewFileSchema struct {
 }
 
 func (a *App) loadCSVPreview(paths []string) (CSVPreview, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return a.loadCSVPreviewContext(ctx, paths)
+}
+
+func (a *App) loadCSVPreviewContext(ctx context.Context, paths []string) (CSVPreview, error) {
 	paths = backendpkg.NormalizeInputPaths(paths)
 	if len(paths) == 0 {
 		return CSVPreview{}, fmt.Errorf("zadaj aspoň jednu cestu k CSV súboru")
 	}
-	var data *backendpkg.CSVData
-	var err error
-	if len(paths) == 1 {
-		data, err = backendpkg.LoadCSVFile(paths[0])
-	} else {
-		data, err = backendpkg.LoadAndMergeCSVFiles(a.ctx, paths)
-	}
-	if err != nil {
+	// Serialize bounded reads; superseded requests stop before the next file.
+	a.previewMu.Lock()
+	defer a.previewMu.Unlock()
+	if err := ctx.Err(); err != nil {
 		return CSVPreview{}, err
 	}
+	if a.previewCache == nil {
+		a.previewCache = make(map[string]csvSchemaCacheEntry)
+	}
+	schemas := make([]*backendpkg.CSVData, 0, len(paths))
 	fileSchemas := make([]CSVPreviewFileSchema, 0, len(paths))
+	keep := make(map[string]bool, len(paths))
 	for _, path := range paths {
-		fileData, err := backendpkg.LoadCSVFile(path)
+		if err := ctx.Err(); err != nil {
+			return CSVPreview{}, err
+		}
+		info, err := os.Stat(path)
 		if err != nil {
 			return CSVPreview{}, err
 		}
-		fileSchemas = append(fileSchemas, CSVPreviewFileSchema{
-			FilePath: path,
-			Columns:  append([]string(nil), fileData.Columns...),
-		})
+		cached, ok := a.previewCache[path]
+		if !ok || cached.size != info.Size() || !cached.modified.Equal(info.ModTime()) {
+			schema, err := backendpkg.LoadCSVSchema(path)
+			if err != nil {
+				return CSVPreview{}, fmt.Errorf("CSV %q: %w", path, err)
+			}
+			cached = csvSchemaCacheEntry{size: info.Size(), modified: info.ModTime(), schema: schema}
+			a.previewCache[path] = cached
+		}
+		keep[path] = true
+		schemas = append(schemas, cached.schema)
+		fileSchemas = append(fileSchemas, CSVPreviewFileSchema{FilePath: path, Columns: append([]string(nil), cached.schema.Columns...)})
+	}
+	for path := range a.previewCache {
+		if !keep[path] {
+			delete(a.previewCache, path)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return CSVPreview{}, err
+	}
+	data, err := backendpkg.MergeCSVSchema(schemas)
+	if err != nil {
+		return CSVPreview{}, err
 	}
 	return CSVPreview{
-		FilePaths:        paths,
-		FilePath:         paths[0],
-		Columns:          data.Columns,
-		FileSchemas:      fileSchemas,
-		Encoding:         data.FileInfo.Encoding,
-		HeaderLine:       data.FileInfo.HeaderLine,
-		OriginalHeader:   data.FileInfo.OriginalHeader,
-		SuggestedMapping: suggestMappingForUI(data.Columns),
-		InputRadioTech:   data.InputRadioTech,
+		FilePaths: paths, FilePath: paths[0], Columns: data.Columns, FileSchemas: fileSchemas,
+		Encoding: data.FileInfo.Encoding, HeaderLine: data.FileInfo.HeaderLine,
+		OriginalHeader: data.FileInfo.OriginalHeader, SuggestedMapping: suggestMappingForUI(data.Columns), InputRadioTech: data.InputRadioTech,
 	}, nil
 }
 
@@ -221,10 +259,20 @@ func (a *App) StartLoadCSVPreview(requestID int, paths []string) error {
 		return fmt.Errorf("aplikacia nie je inicializovana")
 	}
 	normalizedPaths := append([]string(nil), paths...)
-	ctx := a.ctx
+	a.previewRequestMu.Lock()
+	if a.previewCancel != nil {
+		a.previewCancel()
+	}
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.previewCancel = cancel
+	a.previewRequestMu.Unlock()
 	go func() {
+		defer cancel()
 		payload := CSVPreviewLoadResult{RequestID: requestID}
-		preview, err := a.loadCSVPreview(normalizedPaths)
+		preview, err := a.loadCSVPreviewContext(ctx, normalizedPaths)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			payload.Error = err.Error()
 		} else {

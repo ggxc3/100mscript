@@ -126,6 +126,9 @@ func loadFrequencyData(ctx context.Context, cfg ProcessingConfig) (*frequencyLoa
 	mappingsByTechnology := map[string]map[string]string{}
 	var legacyMappingNames map[string]string
 	for source, input := range cfg.FrequencyInputs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, 0, err
+		}
 		d, err := LoadCSVFile(input.FilePath)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("CSV %q: %w", input.FilePath, err)
@@ -235,7 +238,14 @@ func loadFrequencyData(ctx context.Context, cfg ProcessingConfig) (*frequencyLoa
 			d.Columns = append(d.Columns, frequencyInternalPrefix+key)
 		}
 		usableFrequency := false
+		sourceID := strconv.Itoa(source)
 		for i, row := range d.Rows {
+			if i%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, nil, 0, err
+				}
+			}
+
 			mnc, err := correctedPLMNMNC(row, plmnIndexes, input.PLMNColumn != "")
 			if err != nil {
 				return nil, nil, 0, fmt.Errorf("CSV %q, riadok %d: %w", input.FilePath, i+d.FileInfo.HeaderLine+2, err)
@@ -273,14 +283,19 @@ func loadFrequencyData(ctx context.Context, cfg ProcessingConfig) (*frequencyLoa
 					}
 				}
 			}
-			canonical := make([]string, len(frequencyLogicalKeys))
+			// Allocate the final width once rather than growing and copying twice.
+			expanded := make([]string, len(d.Columns))
+			copy(expanded, row)
+			extra := len(row)
+			expanded[extra], expanded[extra+1], expanded[extra+2] = frequency, technology, input.FilePath
+			expanded[extra+3], expanded[extra+4] = sourceID, strconv.Itoa(i+d.FileInfo.HeaderLine+2)
+			canonical := expanded[extra+5:]
 			for k, key := range frequencyLogicalKeys {
 				if idx, ok := localMapping[key]; ok {
 					canonical[k] = cellAt(row, idx)
 				}
 			}
-			d.Rows[i] = append(row, frequency, technology, input.FilePath, strconv.Itoa(source), strconv.Itoa(i+d.FileInfo.HeaderLine+2))
-			d.Rows[i] = append(d.Rows[i], canonical...)
+			d.Rows[i] = expanded
 		}
 		if !usableFrequency {
 			return nil, nil, 0, fmt.Errorf("CSV %q: stĺpec %q neobsahuje platné frekvencie v Hz", input.FilePath, input.FrequencyColumn)
@@ -321,6 +336,9 @@ func runFrequencyProcessing(ctx context.Context, cfg ProcessingConfig) (Processi
 	}
 	cfg.ColumnMapping = mapping
 	emitProcessingPhase(ctx, "prepare_rows")
+	if len(cfg.FrequencyInputs) > 1 {
+		data.CSVData, _ = sortCSVRowsByTime(data.CSVData, false)
+	}
 	if len(cfg.ExcludedOriginalRows) > 0 {
 		return ProcessingResult{}, fmt.Errorf("vo frekvenčnom režime použi časové okná namiesto čísel riadkov")
 	}

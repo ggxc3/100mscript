@@ -176,6 +176,11 @@ func normalizeRowWidth(row []string, width int) []string {
 // (same rules as časové okná). Rows without a parseable time stay at the end in original order.
 // Returns the second value true if any reordering happened.
 func sortMergedCSVRowsByTime(data *CSVData) (*CSVData, bool) {
+	return sortCSVRowsByTime(data, true)
+}
+
+// Owned frequency datasets can reorder row references without copying cells.
+func sortCSVRowsByTime(data *CSVData, copyRows bool) (*CSVData, bool) {
 	if data == nil || len(data.Rows) <= 1 {
 		return data, false
 	}
@@ -224,11 +229,16 @@ func sortMergedCSVRowsByTime(data *CSVData) (*CSVData, bool) {
 		return data, false
 	}
 
-	out := data.clone()
+	out := *data
+	out.Columns = append([]string(nil), data.Columns...)
+	out.Rows = make([][]string, n)
 	for i, src := range indices {
-		out.Rows[i] = append([]string(nil), data.Rows[src]...)
+		out.Rows[i] = data.Rows[src]
+		if copyRows {
+			out.Rows[i] = append([]string(nil), out.Rows[i]...)
+		}
 	}
-	return out, true
+	return &out, true
 }
 
 func loadCSVFilesForMerge(ctx context.Context, paths []string) ([]string, []*CSVData, error) {
@@ -323,11 +333,18 @@ func mergeCSVDataRowsByName(columns []string, first *CSVData, rest []*CSVData, e
 				canonicalSourceIsExact[canonicalKey] = exact
 			}
 		}
+		// Resolve name/alias lookups once per schema, not once per cell.
+		sourceIndexes := make([]int, len(targetKeys))
+		for i, key := range targetKeys {
+			sourceIndexes[i] = -1
+			if idx, ok := canonicalSourceIndex[key]; ok {
+				sourceIndexes[i] = idx
+			}
+		}
 		for _, row := range d.Rows {
 			out := make([]string, len(columns))
-			for targetIdx, key := range targetKeys {
-				srcIdx, ok := canonicalSourceIndex[key]
-				if !ok || srcIdx >= len(row) {
+			for targetIdx, srcIdx := range sourceIndexes {
+				if srcIdx < 0 || srcIdx >= len(row) {
 					continue
 				}
 				out[targetIdx] = row[srcIdx]

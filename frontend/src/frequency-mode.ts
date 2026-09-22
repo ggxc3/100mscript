@@ -37,11 +37,12 @@ export function renderFrequencyPanel(
   if (!state.enabled) return;
   const disabled = running ? " disabled" : "";
   const cards = paths.map((path, i) => {
-    const columns = schemas.find(s => s.filePath === path)?.columns || [];
+    const schema = schemas.find(s => s.filePath === path);
+    const columns = schema?.columns || [];
     const physical = columns.filter(c => ["frequency", "ssref"].includes(token(c)));
     const file = state.files[path] ||= { file_path: path, technology: "", frequency_column: physical.length === 1 ? physical[0] : "", plmn_column: "" };
-    if (!columns.includes(file.frequency_column)) file.frequency_column = physical.length === 1 ? physical[0] : "";
-    if (!columns.includes(file.plmn_column)) file.plmn_column = "";
+    if (schema && !columns.includes(file.frequency_column)) file.frequency_column = physical.length === 1 ? physical[0] : "";
+    if (schema && !columns.includes(file.plmn_column)) file.plmn_column = "";
     const suggested = columns.some(c => token(c) === "nrarfcn") ? "5G" : columns.some(c => token(c) === "earfcn") ? "LTE" : "neurčený";
     const options = (selected: string, frequency: boolean): string => columns.filter(c => !frequency || !["earfcn", "nrarfcn"].includes(token(c)))
       .map(c => `<option value="${html(c)}"${c === selected ? " selected" : ""}>${html(c)}</option>`).join("");
@@ -50,9 +51,9 @@ export function renderFrequencyPanel(
       <div class="frequency-file-fields">
         <label class="field"><span>Technológia <b>*</b></span><select data-freq-field="technology"${disabled}>
           <option value="">Vyber LTE alebo 5G</option><option value="lte"${file.technology === "lte" ? " selected" : ""}>LTE</option><option value="5g"${file.technology === "5g" ? " selected" : ""}>5G</option></select></label>
-        <label class="field"><span>Frekvencia v Hz <b>*</b></span><select data-freq-field="frequency_column"${disabled}>
-          <option value="">Vyber stĺpec</option>${options(file.frequency_column, true)}</select></label>
-        <label class="field"><span>Stĺpec s 231/2</span><select data-freq-field="plmn_column"${disabled}>
+        <label class="field"><span>Frekvencia v Hz <b>*</b></span><select data-freq-field="frequency_column"${running || !schema ? " disabled" : ""}>
+          <option value="">${schema ? "Vyber stĺpec" : "Načítavam hlavičku…"}</option>${options(file.frequency_column, true)}</select></label>
+        <label class="field"><span>Stĺpec s 231/2</span><select data-freq-field="plmn_column"${running || !schema ? " disabled" : ""}>
           <option value="">Automaticky (PLMN / extra)</option>${options(file.plmn_column, false)}</select></label>
       </div>
     </div>`;

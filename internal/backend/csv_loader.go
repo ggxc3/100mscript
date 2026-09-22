@@ -33,6 +33,15 @@ type textDecoder struct {
 
 func splitSemicolonColumns(line string) []string {
 	trimmed := strings.TrimRight(line, "\r\n")
+	// Most device rows are unquoted. Avoid allocating a CSV reader and its
+	// buffers for every measurement; retain the CSV parser for quoted fields.
+	if !strings.ContainsRune(trimmed, '"') {
+		cols := strings.Split(trimmed, ";")
+		for len(cols) > 0 && cols[len(cols)-1] == "" {
+			cols = cols[:len(cols)-1]
+		}
+		return cols
+	}
 	reader := csv.NewReader(strings.NewReader(trimmed))
 	reader.Comma = ';'
 	reader.FieldsPerRecord = -1
@@ -234,6 +243,10 @@ func LoadCSVFile(path string) (*CSVData, error) {
 		return nil, err
 	}
 
+	return parseCSVBytes(raw)
+}
+
+func parseCSVBytes(raw []byte) (*CSVData, error) {
 	text, encodingName, lines, headerLine, originalHeader, err := decodeWithCandidates(raw)
 	if err != nil {
 		return nil, err
@@ -250,56 +263,30 @@ func LoadCSVFile(path string) (*CSVData, error) {
 		headerCols = splitSemicolonColumns(lines[headerLine])
 	}
 
+	// Parse each measurement once. Width can grow later in the file; pad only
+	// after the final schema is known, preserving late extra/PLMN columns.
 	maxFields := len(headerCols)
-	for lineNo, line := range lines {
-		if lineNo <= headerLine || strings.TrimSpace(line) == "" {
-			continue
-		}
-		maxFields = maxInt(maxFields, len(splitSemicolonColumns(line)))
-	}
-	if maxFields <= 0 {
-		maxFields = maxInt(len(headerCols), 1)
-	}
-	if len(headerCols) > maxFields {
-		headerCols = headerCols[:maxFields]
-	}
-
-	// If header was shorter than data, append deterministic extra columns.
-	if len(headerCols) < maxFields {
-		missingStart := len(headerCols)
-		for i := missingStart; i < maxFields; i++ {
-			headerCols = append(headerCols, fmt.Sprintf("extra_col_%d", i-missingStart+1))
-		}
-	}
-	if len(headerCols) != maxFields {
-		// Rebuild deterministically when prior loops were confusing due to header length mutation.
-		fixed := make([]string, 0, maxFields)
-		for i := 0; i < maxFields; i++ {
-			if i < len(headerCols) {
-				fixed = append(fixed, headerCols[i])
-			} else {
-				fixed = append(fixed, fmt.Sprintf("extra_col_%d", i-len(headerCols)+1))
-			}
-		}
-		headerCols = fixed
-	}
-
-	columnNames := makeUniqueColumnNames(headerCols)
-
 	rows := make([][]string, 0, maxInt(0, len(lines)-headerLine-1))
 	for lineNo, line := range lines {
 		if lineNo <= headerLine || strings.TrimSpace(line) == "" {
 			continue
 		}
 		fields := splitSemicolonColumns(line)
-		if len(fields) < maxFields {
-			padded := make([]string, maxFields)
-			copy(padded, fields)
-			fields = padded
-		} else if len(fields) > maxFields {
-			fields = fields[:maxFields]
-		}
+		maxFields = maxInt(maxFields, len(fields))
 		rows = append(rows, fields)
+	}
+	maxFields = maxInt(maxFields, 1)
+	missingStart := len(headerCols)
+	for len(headerCols) < maxFields {
+		headerCols = append(headerCols, fmt.Sprintf("extra_col_%d", len(headerCols)-missingStart+1))
+	}
+	columnNames := makeUniqueColumnNames(headerCols)
+	for i, row := range rows {
+		if len(row) < maxFields {
+			padded := make([]string, maxFields)
+			copy(padded, row)
+			rows[i] = padded
+		}
 	}
 
 	// Normalize empty original header if file had CRLF only artifacts.

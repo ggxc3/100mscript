@@ -121,7 +121,12 @@ func ProcessDataNative(ctx context.Context, data *CSVData, cfg ProcessingConfig,
 	nIn := len(data.Rows)
 	for i, row := range data.Rows {
 		maybeEmitProgressInRange(ctx, "compute_zones", i, nIn, 0, 22)
-		rowCopy := append([]string(nil), row...)
+		// Frequency mode owns its normalized rows, and this processor only reads
+		// them. Reuse them instead of retaining another full union-schema copy.
+		rowCopy := row
+		if !cfg.FrequencyModeEnabled {
+			rowCopy = append([]string(nil), row...)
+		}
 		originalExcelRow := i + data.FileInfo.HeaderLine + 1
 		if origExcelIdx >= 0 && origExcelIdx < len(rowCopy) {
 			if v, err := strconv.Atoi(strings.TrimSpace(rowCopy[origExcelIdx])); err == nil {
