@@ -452,7 +452,8 @@ func alignSegmentTracks(tracks []segmentTrack, zoneSize float64) []segmentTrackA
 					continue
 				}
 				candidate := alignTrackToKnown(tracks[j], assignments[j], tracks[i])
-				if betterSegmentAlignment(candidate, best) {
+				proposed := segmentTrackAssignment{assigned: true, reversed: candidate.reversed, offset: candidate.offset}
+				if candidate.ok && segmentAssignmentFitsKnown(tracks, assignments, i, proposed) && betterSegmentAlignment(candidate, best) {
 					best = candidate
 				}
 			}
@@ -542,11 +543,76 @@ func alignTrackToKnown(known segmentTrack, knownAssignment segmentTrackAssignmen
 		offset := medianFloat64(deltas)
 		mad := medianAbsoluteDeviation(deltas, offset)
 		candidate := segmentAlignment{ok: true, reversed: reversed, offset: offset, count: len(deltas), mad: mad}
-		if candidate.mad <= commonRoutePointToleranceM && betterSegmentAlignment(candidate, best) {
+		proposed := segmentTrackAssignment{assigned: true, reversed: reversed, offset: offset}
+		if candidate.mad <= commonRoutePointToleranceM && segmentOverlapFitsGeometry(known, knownAssignment, unknown, proposed) && betterSegmentAlignment(candidate, best) {
 			best = candidate
 		}
 	}
 	return best
+}
+
+// Nearby samples at a junction only establish a possible offset. Verify the
+// entire distance interval that would share segment IDs: two different roads
+// must not compete for the same strongest-RSRP record merely because they touch.
+func segmentOverlapFitsGeometry(a segmentTrack, aa segmentTrackAssignment, b segmentTrack, ba segmentTrackAssignment) bool {
+	if len(a.points) == 0 || len(b.points) == 0 {
+		return true
+	}
+	start := math.Max(aa.offset, ba.offset)
+	end := math.Min(aa.offset+a.length, ba.offset+b.length)
+	if end <= start+segmentEndpointCumEpsilon {
+		return true
+	}
+	samples := minInt(commonRouteMaxSamples, maxInt(2, int(math.Ceil((end-start)/commonRoutePointToleranceM))+1))
+	matches := 0
+	for i := 0; i < samples; i++ {
+		distance := start + (end-start)*float64(i)/float64(samples-1)
+		ap := segmentPointAtDistance(a, aa, distance)
+		bp := segmentPointAtDistance(b, ba, distance)
+		// Allow the uncertainty of both independently sampled tracks. Isolated GPS
+		// outliers are tolerated, but at least 90% of the proposed overlap must fit.
+		separation := math.Hypot(ap.A-bp.A, ap.B-bp.B)
+		// A small unmatched tail must not hide a kilometre-scale divergence
+		// behind the overall match percentage of a much longer shared road.
+		if separation > 4*commonRoutePointToleranceM {
+			return false
+		}
+		if separation <= 2*commonRoutePointToleranceM {
+			matches++
+		}
+	}
+	return matches*10 >= samples*9
+}
+
+func segmentPointAtDistance(track segmentTrack, assignment segmentTrackAssignment, distance float64) Point {
+	local := distance - assignment.offset
+	if assignment.reversed {
+		local = track.length - local
+	}
+	i := sort.Search(len(track.cum), func(i int) bool { return track.cum[i] >= local })
+	if i == 0 {
+		return Point{A: track.points[0].x, B: track.points[0].y}
+	}
+	if i == len(track.cum) {
+		p := track.points[i-1]
+		return Point{A: p.x, B: p.y}
+	}
+	a, b := track.points[i-1], track.points[i]
+	span := track.cum[i] - track.cum[i-1]
+	if span <= segmentEndpointCumEpsilon {
+		return Point{A: b.x, B: b.y}
+	}
+	ratio := (local - track.cum[i-1]) / span
+	return Point{A: a.x + (b.x-a.x)*ratio, B: a.y + (b.y-a.y)*ratio}
+}
+
+func segmentAssignmentFitsKnown(tracks []segmentTrack, assignments []segmentTrackAssignment, unknown int, proposed segmentTrackAssignment) bool {
+	for i := range tracks {
+		if i != unknown && assignments[i].assigned && !segmentOverlapFitsGeometry(tracks[i], assignments[i], tracks[unknown], proposed) {
+			return false
+		}
+	}
+	return true
 }
 
 func betterSegmentAlignment(candidate, current segmentAlignment) bool {
@@ -622,8 +688,12 @@ func connectTrackToKnownEndpoint(tracks []segmentTrack, assignments []segmentTra
 					} else {
 						offset -= dist
 					}
+					proposed := segmentTrackAssignment{assigned: true, reversed: reversed, offset: offset}
+					if !segmentAssignmentFitsKnown(tracks, assignments, unknownIdx, proposed) {
+						continue
+					}
 					best = endpointCandidate{
-						assignment: segmentTrackAssignment{assigned: true, reversed: reversed, offset: offset},
+						assignment: proposed,
 						distance:   dist,
 					}
 				}

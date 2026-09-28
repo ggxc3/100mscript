@@ -30,6 +30,8 @@ Až **Spustiť spracovanie** načíta všetky riadky vrátane dodatočných stĺ
 
 Merania výkonu a rozsah testov sú v [audite spájania](docs/frequency-merge-performance.md).
 
+Pri úsekoch po trase samotné stretnutie dvoch trás pri križovatke nestačí na spoločné číslovanie. Overuje sa aj poloha pozdĺž navrhovaného prekrytia, aby sa vzdialené časti rôznych ciest nespojili do jedného úseku. Oprava a výsledky na štyroch LTE a štyroch 5G súboroch sú v [audite zákazníckych trás](docs/customer-merge-audit.md).
+
 ### Dva oddelené výsledné súbory
 
 - `<prvý_vstup>_frequencies_5g.csv` obsahuje iba 5G merania a 5G vstupné stĺpce.
